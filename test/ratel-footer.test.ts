@@ -3,14 +3,13 @@ import assert from "node:assert";
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-// We will import the functions and component from the extension file.
-// Since we are running in tsx, it will load the ts file directly.
 import {
   cleanModelName,
   formatTokens,
   sanitizeStatusText,
   setModelLevels,
-  RatelFooterComponent,
+  RatelTopWidget,
+  RatelBottomWidget,
 } from "../.pi/extensions/ratel-model.ts";
 
 test("cleanModelName helper", () => {
@@ -40,23 +39,19 @@ test("sanitizeStatusText helper", () => {
 });
 
 test("setModelLevels refactoring", async () => {
-  // Use a temporary folder for ratel.json config test
   const tempDir = join(process.cwd(), "test-temp-config");
   mkdirSync(tempDir, { recursive: true });
   
   try {
     const configPath = join(tempDir, "ratel.json");
-    // Initial config: all missing or empty
     writeFileSync(configPath, JSON.stringify({}), "utf-8");
 
-    // 1. Update only orchestrator
     await setModelLevels(tempDir, { orchestrator: "provider/orch-model" });
     let config = JSON.parse(readFileSync(configPath, "utf-8"));
     assert.deepStrictEqual(config, {
       orchestrator: { model: "provider/orch-model" }
     });
 
-    // 2. Update worker with null (SDK default)
     await setModelLevels(tempDir, { worker: null });
     config = JSON.parse(readFileSync(configPath, "utf-8"));
     assert.deepStrictEqual(config, {
@@ -64,7 +59,6 @@ test("setModelLevels refactoring", async () => {
       workers: { model: null }
     });
 
-    // 3. Update validator and orchestrator (confirming orchestrator isn't overwritten if validator is updated)
     await setModelLevels(tempDir, { validator: "provider/val-model" });
     config = JSON.parse(readFileSync(configPath, "utf-8"));
     assert.deepStrictEqual(config, {
@@ -79,8 +73,36 @@ test("setModelLevels refactoring", async () => {
   }
 });
 
-test("RatelFooterComponent rendering", () => {
-  // Mock ctx and footerData
+test("RatelTopWidget rendering", () => {
+  const mockCtx = {
+    ui: {
+      theme: {
+        fg: (style: string, text: string) => text,
+      },
+    },
+  };
+
+  const mockFooterData = {
+    getExtensionStatuses: () => new Map([
+      ["ratel-models", "ignored status"],
+      ["other-extension", "running task 1\n\r\t  active  "],
+    ]),
+  };
+
+  const topWidget = new RatelTopWidget(mockCtx, mockFooterData);
+  const lines = topWidget.render(80);
+
+  // Line 1: Status line from other extension sanitized
+  // Line 2: Models in minimalist style (O/W/V and thin separators)
+  assert.strictEqual(lines.length, 2);
+  assert.match(lines[0], /running task 1 active/);
+  assert.match(lines[1], //);
+  assert.match(lines[1], /⚙/);
+  assert.match(lines[1], /🔍/);
+  assert.match(lines[1], /default/);
+});
+
+test("RatelBottomWidget rendering", () => {
   const mockCtx = {
     ui: {
       theme: {
@@ -99,30 +121,15 @@ test("RatelFooterComponent rendering", () => {
 
   const mockFooterData = {
     getGitBranch: () => "main",
-    getExtensionStatuses: () => new Map([
-      ["ratel-models", "ignored status"],
-      ["other-extension", "running task 1\n\r\t  active  "],
-    ]),
   };
 
-  const footer = new RatelFooterComponent(mockCtx, mockFooterData);
-  const lines = footer.render(80);
+  const bottomWidget = new RatelBottomWidget(mockCtx, mockFooterData);
+  const lines = bottomWidget.render(80);
 
-  // Assert line counts and format
-  assert.strictEqual(lines.length, 3);
-  
-  // Status line: other extension status sanitized (now rendered first, above the footer)
-  assert.match(lines[0], /running task 1 active/);
-
-  // Upper footer line: Models in Agnoster bar style (O:, W:, V:, and  transition)
-  assert.match(lines[1], /O: default/);
-  assert.match(lines[1], /W: default/);
-  assert.match(lines[1], /V: default/);
-  assert.match(lines[1], //);
-
-  // Lower footer line: Repository, Git branch, and Context window (using Nerd Font icons, no 📁)
-  assert.match(lines[2], /my-repo/);
-  assert.match(lines[2], / main/);
-  assert.match(lines[2], /󰘚 45\.2%\/128k/);
-  assert.strictEqual(lines[2].includes("📁"), false);
+  assert.strictEqual(lines.length, 1);
+  assert.match(lines[0], /localhost:8765/);
+  assert.match(lines[0], /my-repo/);
+  assert.match(lines[0], / main/);
+  assert.match(lines[0], /󰘚 45\.2%\/128k/);
+  assert.strictEqual(lines[0].includes("📁"), false);
 });

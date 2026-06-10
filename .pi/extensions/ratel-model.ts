@@ -111,8 +111,6 @@ function formatModel(model: string | null): string {
   return model ?? "SDK default";
 }
 
-// ── Widget above editor: Status line + Powerline bar (O/W/V models) ────
-
 export class RatelTopWidget {
   private cachedWidth?: number;
   private cachedLines?: string[];
@@ -139,12 +137,17 @@ export class RatelTopWidget {
       }
     }
 
-    // Line 2: Powerline bar with O/W/V model segments
+    // Line 2: Models in Cyberpunk Minimalist style (Nerd Font icons, vertical separators)
     const oModel = cleanModelName(cachedModelConfig.orchestrator);
     const wModel = cleanModelName(cachedModelConfig.worker);
     const vModel = cleanModelName(cachedModelConfig.validator);
-    const powerline = `\x1b[40;37m O: ${oModel} \x1b[100;40m\x1b[100;37m W: ${wModel} \x1b[47;100m\x1b[47;30m V: ${vModel} \x1b[0;47m\x1b[0m`;
-    lines.push(truncateToWidth(powerline, width, theme.fg("dim", "...")));
+
+    const oSection = `${theme.fg("accent", "")}  ${oModel}`;
+    const wSection = `${theme.fg("success", "⚙")}  ${wModel}`;
+    const vSection = `${theme.fg("warning", "🔍")}  ${vModel}`;
+
+    const modelsBar = [oSection, wSection, vSection].join(theme.fg("dim", "  │  "));
+    lines.push(truncateToWidth(modelsBar, width, theme.fg("dim", "...")));
 
     this.cachedWidth = width;
     this.cachedLines = lines;
@@ -169,10 +172,11 @@ export class RatelBottomWidget {
     if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 
     const theme = this.ctx.ui.theme;
-    const sepStr = theme.fg("dim", " > ");
+    const sepStr = theme.fg("dim", "  │  ");
 
     const repoName = basename(this.ctx.cwd);
     const branch = this.footerData.getGitBranch() ?? "no branch";
+
     const contextUsage = this.ctx.getContextUsage();
     const contextPercent = contextUsage?.percent !== null && contextUsage?.percent !== undefined
       ? `${contextUsage.percent.toFixed(1)}%`
@@ -181,17 +185,29 @@ export class RatelBottomWidget {
     const contextWindowStr = formatTokens(contextWindow);
 
     // Left: clickable localhost:8765 link to observatory
-    const dashboardUrl = "http://localhost:8765";
-    const dashboardLink = `\x1b]8;;${dashboardUrl}\x1b\\localhost:8765\x1b]8;;\x1b\\`;
+    const dashboardLink = `\x1b[4mlocalhost:8765\x1b[0m`; // Clean styled link
 
-    // Right: repo info, git branch, context usage
-    const repoSection = `${repoName}${sepStr} ${branch}${sepStr}󰘚 ${contextPercent}/${contextWindowStr}`;
+    // Right: repo info, git branch, context usage (using Nerd Font icons, no 📁)
+    let contextPercentStr = `${contextPercent}/${contextWindowStr}`;
+    if (contextUsage?.percent !== null && contextUsage?.percent !== undefined) {
+      if (contextUsage.percent > 90) {
+        contextPercentStr = theme.fg("error", contextPercentStr);
+      } else if (contextUsage.percent > 70) {
+        contextPercentStr = theme.fg("warning", contextPercentStr);
+      }
+    }
+
+    const repoSection = repoName;
+    const branchSection = `${theme.fg("accent", "")} ${branch}`;
+    const contextSection = `${theme.fg("accent", "󰘚")} ${contextPercentStr}`;
+
+    const rightSection = [repoSection, branchSection, contextSection].join(sepStr);
 
     // Pad between left and right
     const leftWidth = visibleWidth(dashboardLink);
-    const rightWidth = visibleWidth(repoSection);
+    const rightWidth = visibleWidth(rightSection);
     const pad = " ".repeat(Math.max(1, width - leftWidth - rightWidth));
-    const fullLine = dashboardLink + pad + repoSection;
+    const fullLine = dashboardLink + pad + rightSection;
 
     this.cachedWidth = width;
     this.cachedLines = [truncateToWidth(fullLine, width, theme.fg("dim", "..."))];
