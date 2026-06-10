@@ -15,7 +15,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,12 @@ interface RatelConfig {
   workers?: { model?: string | null };
   validators?: { model?: string | null };
 }
+
+let cachedModelConfig: ModelConfig = {
+  orchestrator: null,
+  worker: null,
+  validator: null,
+};
 
 // ── Config I/O (shared with src/config.ts, duplicated here for extension isolation) ──
 
@@ -90,6 +97,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("model_select", async (event, ctx) => {
     const modelStr = `${event.model.provider}/${event.model.id}`;
     await setModelLevel(ctx.cwd, "orchestrator", modelStr);
+    cachedModelConfig.orchestrator = modelStr;
 
     const config = await getModelConfig(ctx.cwd);
     ctx.ui.setStatus("ratel-models", formatForStatusBar(config));
@@ -132,6 +140,8 @@ export default function (pi: ExtensionAPI) {
         if (choice === "\u2705 Confirm & Save") {
           await setModelLevel(cwd, "worker", pending.worker);
           await setModelLevel(cwd, "validator", pending.validator);
+          cachedModelConfig.worker = pending.worker;
+          cachedModelConfig.validator = pending.validator;
 
           const finalConfig = await getModelConfig(cwd);
           ctx.ui.setStatus("ratel-models", formatForStatusBar(finalConfig));
@@ -209,6 +219,9 @@ export default function (pi: ExtensionAPI) {
   // ── Show status bar on session start ────────────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
     const config = await getModelConfig(ctx.cwd);
+    cachedModelConfig.orchestrator = config.orchestrator;
+    cachedModelConfig.worker = config.worker;
+    cachedModelConfig.validator = config.validator;
     ctx.ui.setStatus("ratel-models", formatForStatusBar(config));
   });
 }
