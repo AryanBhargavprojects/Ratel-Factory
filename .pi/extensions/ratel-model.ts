@@ -17,6 +17,7 @@ import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { spawn } from "node:child_process";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ const cachedModelConfig: ModelConfig = {
 
 // Module-level refs to widgets and TUI for re-render on model changes
 let topWidgetRef: RatelTopWidget | null = null;
+let bottomWidgetRef: RatelBottomWidget | null = null;
 let tuiRef: any = null;
 
 // ── Config I/O (shared with src/config.ts, duplicated here for extension isolation) ──
@@ -188,8 +190,9 @@ export class RatelBottomWidget {
     const contextWindow = contextUsage?.contextWindow ?? this.ctx.model?.contextWindow ?? 0;
     const contextWindowStr = formatTokens(contextWindow);
 
-    // Left: clickable localhost:8765 link to observatory
-    const dashboardLink = `\x1b[4mlocalhost:8765\x1b[0m`; // Clean styled link
+    // Left: clickable [🛰️Dashboard] link to observatory
+    const dashboardUrl = "http://localhost:8765";
+    const dashboardLink = `\x1b]8;;${dashboardUrl}\x07[🛰️Dashboard]\x1b]8;;\x07`;
 
     // Right: repo info, git branch, context usage (using Nerd Font icons, no 📁)
     let contextPercentStr = `${contextPercent}/${contextWindowStr}`;
@@ -235,11 +238,10 @@ export default function (pi: ExtensionAPI) {
     cachedModelConfig.orchestrator = modelStr;
     ctx.ui.notify(`Orchestrator model synced: ${modelStr}`, "info");
 
-    // Invalidate top widget cache so the new model is shown in the powerline
-    if (topWidgetRef) {
-      topWidgetRef.invalidate();
-      tuiRef?.requestRender();
-    }
+    // Invalidate widgets so the new model and context window are shown
+    if (topWidgetRef) topWidgetRef.invalidate();
+    if (bottomWidgetRef) bottomWidgetRef.invalidate();
+    tuiRef?.requestRender();
   });
 
   // ── /ratel-model command for worker & validator ────────────────────────
@@ -355,6 +357,18 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // ── /dashboard command to open Ratel Observatory ───────────────────────
+  pi.registerCommand("dashboard", {
+    description: "Open Ratel Observatory dashboard in browser",
+    handler: async (_args, ctx) => {
+      const url = "http://localhost:8765";
+      ctx.ui.notify(`Opening ${url}...`, "info");
+      const openCommand = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+      const openArgs = process.platform === "win32" ? [url] : [url];
+      spawn(openCommand, openArgs, { stdio: "ignore", detached: true }).unref();
+    },
+  });
+
   // ── Show widgets on session start (powerline above editor, repo info below) ──
   pi.on("session_start", async (_event, ctx) => {
     const config = await getModelConfig(ctx.cwd);
@@ -375,6 +389,7 @@ export default function (pi: ExtensionAPI) {
 
       // Store refs so model_select can invalidate + re-render
       topWidgetRef = topWidget;
+      bottomWidgetRef = bottomWidget;
       tuiRef = tui;
 
       const unsub = footerData.onBranchChange(() => {
