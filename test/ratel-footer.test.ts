@@ -111,18 +111,17 @@ test("RatelFooterComponent rendering", () => {
   // Assert line counts and format
   assert.strictEqual(lines.length, 3);
   
-  // Upper line: Models and Context
-  // Wait, cachedModelConfig in the module is a singleton.
-  // We can set it during test or check that it contains the model names.
-  // Let's assert that the lines are formatted correctly.
-  assert.match(lines[0], /🧠/);
-  assert.match(lines[0], /🛠/);
-  assert.match(lines[0], /🔍/);
-  assert.match(lines[0], /⛶  45\.2%\/128k/);
+  // Upper line: Models in Agnoster bar style (O:, W:, V:, and  transition)
+  assert.match(lines[0], /O: default/);
+  assert.match(lines[0], /W: default/);
+  assert.match(lines[0], /V: default/);
+  assert.match(lines[0], //);
 
-  // Lower line: Repository and Git branch
-  assert.match(lines[1], /📁 my-repo/);
-  assert.match(lines[1], /main/);
+  // Lower line: Repository, Git branch, and Context window (using Nerd Font icons, no 📁)
+  assert.match(lines[1], /my-repo/);
+  assert.match(lines[1], / main/);
+  assert.match(lines[1], /󰘚 45\.2%\/128k/);
+  assert.strictEqual(lines[1].includes("📁"), false);
 
   // Status line: other extension status sanitized
   assert.match(lines[2], /running task 1 active/);

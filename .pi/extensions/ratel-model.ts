@@ -135,20 +135,19 @@ export class RatelFooterComponent {
     const contextWindow = contextUsage?.contextWindow ?? this.ctx.model?.contextWindow ?? 0;
     const contextWindowStr = formatTokens(contextWindow);
 
-    // 1. Upper Line: Models and Context
-    const modelSection = [
-      `🧠 ${oModel}`,
-      `🛠 ${wModel}`,
-      `🔍 ${vModel}`,
-      `⛶  ${contextPercent}/${contextWindowStr}`
-    ].join(sepStr);
+    // 1. Upper Line: Models in Agnoster-style powerline bar (O, W, V segments)
+    // O Segment: Blue bg (44), White fg (37)
+    // W Segment: Magenta bg (45), White fg (37)
+    // V Segment: Cyan bg (46), Black fg (30)
+    // Transition character: 
+    const upperLineContent = `\x1b[44;37m O: ${oModel} \x1b[45;34m\x1b[45;37m W: ${wModel} \x1b[46;35m\x1b[46;30m V: ${vModel} \x1b[0;36m\x1b[0m`;
+    const upperLine = truncateToWidth(upperLineContent, width, theme.fg("dim", "..."));
 
-    const upperLine = truncateToWidth(modelSection, width, theme.fg("dim", "..."));
-
-    // 2. Lower Line: Repository and Git Branch
+    // 2. Lower Line: Repository and Git Branch + Context Usage (Nerd Font icons, no 📁)
     const repoName = basename(this.ctx.cwd);
     const branch = this.footerData.getGitBranch() ?? "no branch";
-    const repoSection = `📁 ${repoName}${sepStr} ${branch}`;
+    // Format: repoName >  branch > 󰘚 usage/limit
+    const repoSection = `${repoName}${sepStr} ${branch}${sepStr}󰘚 ${contextPercent}/${contextWindowStr}`;
     const lowerLine = truncateToWidth(repoSection, width, theme.fg("dim", "..."));
 
     const lines = [upperLine, lowerLine];
