@@ -13,6 +13,8 @@ export type MissionPhase =
   | "feature_decomposition"
   | "user_approval"
   | "approved"
+  | "execution"
+  | "completed"
   | "halted";
 
 export interface MissionRequirements {

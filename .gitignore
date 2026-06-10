@@ -28,14 +28,15 @@ MD_Files/
 *.png
 !Ratel_logo.png
 fix_plan.md
-prompt.md
-context.md
 
 # Keep the old pattern as a safety net for future test directories
 test-directory*/
 
 # implementation spec files for internal use
 implementation_spec.md
+context.md
+factory_analysis.md
 
 .pi/orch/
-.pi/settings.json
+
+build-cmd.sh

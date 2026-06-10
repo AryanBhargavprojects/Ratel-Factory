@@ -58,7 +58,7 @@ import {
 import { writeWorkerRawOutput } from "./worker-output.js";
 import { buildValidationRecoveryPlan } from "./validation-recovery.js";
 import { checkCompletedFeatureIntegration } from "./integration-preflight.js";
-import { resolveFeatureAssertions, formatFeatureAssertionsForPrompt } from "./feature-assertions.js";
+import { resolveFeatureAssertions, formatFeatureAssertionsForPrompt, computeFeatureComplexity } from "./feature-assertions.js";
 import { prepareSerialWorkerBranch, finalizeSerialWorkerBranch } from "./worker-workspace.js";
 import {
   evaluateCompletionGate,
@@ -858,9 +858,17 @@ export const runWorkerTool = defineTool({
   description:
     "Spawns a Worker Agent to implement a single feature. The worker starts with fresh context, " +
     "receives the feature spec and validation assertions it must satisfy, implements using TDD, " +
-    "commits via git, and writes a structured handoff. Workers run serially — only one at a time.",
+    "commits via git, and writes a structured handoff. Workers run serially — only one at a time. " +
+    "Pass timeoutMinutes for large features (default 30, max 120).",
   parameters: Type.Object({
     featureId: Type.String({ description: "The feature ID to implement" }),
+    timeoutMinutes: Type.Optional(
+      Type.Number({
+        description: "Custom timeout for this worker spawn in minutes. Default is 30 minutes. Maximum is 120 minutes.",
+        minimum: 1,
+        maximum: 120,
+      })
+    ),
   }),
   execute: async (_toolCallId, params) => {
     const startTime = Date.now();
@@ -949,8 +957,15 @@ export const runWorkerTool = defineTool({
         // completed, blocked, or in need of fixes — and writes the update
         // via write_mission_artifact().
 
+        const DEFAULT_TIMEOUT_MINUTES = 30;
+        const MAX_TIMEOUT_MINUTES = 120;
+        const effectiveTimeoutMinutes = Math.min(
+          params.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES,
+          MAX_TIMEOUT_MINUTES
+        );
+
         const workerModelConfig = await getModelConfig(_cwd);
-        const result = await spawnWorkerAgent(feature, acceptanceCriteria, procedures, _cwd, workerSkills, workerModelConfig.worker ?? undefined, workspace);
+        const result = await spawnWorkerAgent(feature, acceptanceCriteria, procedures, _cwd, workerSkills, workerModelConfig.worker ?? undefined, workspace, effectiveTimeoutMinutes);
 
         // Persist the raw worker transcript before interpreting the handoff.
         // This preserves the ground truth needed to debug parseStatus failures.
@@ -1664,6 +1679,66 @@ export const ensureSkillsInstalledTool = defineTool({
   },
 });
 
+/**
+ * Compute deterministic complexity metrics for a feature before spawning a worker.
+ * The deterministic layer provides data only; the orchestrator (model) decides
+ * whether to spawn or split. No hardcoded thresholds.
+ */
+export const getFeatureComplexityTool = defineTool({
+  name: "get_feature_complexity",
+  label: "Get Feature Complexity",
+  description:
+    "Query the complexity of a feature before spawning a worker. " +
+    "Returns assertion count, feature file count, scenario count, and total Gherkin lines. " +
+    "Use this before run_worker to decide if a feature should be split into smaller pieces.",
+  parameters: Type.Object({
+    featureId: Type.String({ description: "The feature ID to query" }),
+  }),
+  execute: async (_toolCallId, params) => {
+    getGlobalLogger()?.toolCall("get_feature_complexity", { featureId: params.featureId });
+
+    const features = await readFeatures(_cwd);
+    if (!features) {
+      return {
+        content: [{ type: "text" as const, text: "No features.json found. Cannot compute complexity." }],
+        details: { error: "no_features" } as Record<string, unknown>,
+      };
+    }
+
+    const feature = features.find((f: Feature) => f.id === params.featureId);
+    if (!feature) {
+      return {
+        content: [{ type: "text" as const, text: `Feature ${params.featureId} not found in features.json.` }],
+        details: { error: "feature_not_found", featureId: params.featureId } as Record<string, unknown>,
+      };
+    }
+
+    const complexity = await computeFeatureComplexity(_cwd, feature);
+
+    getGlobalLogger()?.toolResult("get_feature_complexity", {
+      featureId: complexity.featureId,
+      assertionCount: complexity.assertionCount,
+      featureFileCount: complexity.featureFileCount,
+      scenarioCount: complexity.scenarioCount,
+      totalLinesOfGherkin: complexity.totalLinesOfGherkin,
+    });
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: [
+          `Feature ${feature.id} complexity:`,
+          `- Assertions: ${complexity.assertionCount}`,
+          `- Feature files: ${complexity.featureFileCount}`,
+          `- Scenarios: ${complexity.scenarioCount}`,
+          `- Total Gherkin lines: ${complexity.totalLinesOfGherkin}`,
+        ].join("\n"),
+      }],
+      details: { complexity } as Record<string, unknown>,
+    };
+  },
+});
+
 /** All orchestrator custom tools. */
 export const ORCHESTRATOR_TOOLS = [
   runResearchTool,
@@ -1681,4 +1756,5 @@ export const ORCHESTRATOR_TOOLS = [
   listModelsTool,
   pingAgentsTool,
   ensureSkillsInstalledTool,
+  getFeatureComplexityTool,
 ];

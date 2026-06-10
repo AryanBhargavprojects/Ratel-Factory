@@ -125,6 +125,7 @@ export class OrchestratorAgent {
       "find",
       "ls",
       "bash",
+      "ask_user",
       "run_research",
       "ask_smart_friend",
       "draft_validation_contract",
@@ -137,6 +138,8 @@ export class OrchestratorAgent {
       "run_user_testing",
       "set_model",
       "list_models",
+      "ping_agents",
+      "ensure_skills_installed",
     ];
 
     // Resolve orchestrator model from config, CLI option, or SDK default

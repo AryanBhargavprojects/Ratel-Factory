@@ -39,6 +39,8 @@ const VALID_PHASES = new Set<MissionPhase>([
   "feature_decomposition",
   "user_approval",
   "approved",
+  "execution",
+  "completed",
   "halted",
 ]);
 

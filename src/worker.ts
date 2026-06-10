@@ -163,6 +163,7 @@ export async function spawnWorkerAgent(
   skillsOverride?: Skill[],
   model?: string,
   workspace?: WorkerWorkspaceResult,
+  timeoutMinutes?: number,
 ): Promise<WorkerResult> {
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
@@ -257,10 +258,18 @@ Implement this feature using public-interface TDD. Keep scope to the acceptance 
     parentSpanId: agentSpanId,
   });
 
-  // Worker safety cap: max 30 minutes. If the model hangs, tests run forever,
-  // or the agent enters a loop, this prevents workers from running for hours.
-  // The orchestrator receives a parseStatus: "failed" handoff and decides.
-  const WORKER_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+  // Worker safety cap: default 30 minutes, configurable by the orchestrator
+  // via timeoutMinutes parameter (max 120). If the model hangs, tests run
+  // forever, or the agent enters a loop, this prevents workers from running
+  // for hours. The orchestrator receives a parseStatus: "failed" handoff and
+  // decides.
+  const MAX_TIMEOUT_MINUTES = 120;
+  const DEFAULT_TIMEOUT_MINUTES = 30;
+  const effectiveTimeoutMinutes = Math.min(
+    timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES,
+    MAX_TIMEOUT_MINUTES
+  );
+  const WORKER_TIMEOUT_MS = effectiveTimeoutMinutes * 60 * 1000;
   let response: string;
   try {
     response = await Promise.race([

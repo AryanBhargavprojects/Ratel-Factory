@@ -4,6 +4,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { resolveCanonicalWorkspace } from "./workspace-resolution.js";
+import { getGlobalLogger } from "./observability/event-logger.js";
 
 const execFile = promisify(execFileCb);
 
@@ -75,6 +76,77 @@ async function ensureClean(repoPath: string): Promise<string | undefined> {
   return status.length > 0 ? status : undefined;
 }
 
+/**
+ * Auto-clean dirty files that are git-ignored before spawning or finalizing
+ * a worker branch. Only removes files that Git itself considers ignored
+ * (via git check-ignore). Non-ignored dirty files are never auto-cleaned.
+ */
+async function prepareCleanWorkspace(
+  repoPath: string,
+): Promise<{ cleaned: boolean; reason?: string; blocked?: boolean }> {
+  const status = await workingTreeStatus(repoPath);
+  if (!status.length) return { cleaned: false };
+
+  // Parse dirty file paths from git status --porcelain.
+  // Lines have the format "XY filename" or "XY old -> new" (renamed).
+  const lines = status.split("\n").filter(Boolean);
+  const dirtyFiles: string[] = [];
+  for (const line of lines) {
+    const afterStatus = line.slice(3).trim();
+    if (afterStatus.includes(" -> ")) {
+      const [oldPath, newPath] = afterStatus.split(" -> ");
+      dirtyFiles.push(oldPath, newPath);
+    } else if (afterStatus.length > 0) {
+      dirtyFiles.push(afterStatus);
+    }
+  }
+
+  if (dirtyFiles.length === 0) return { cleaned: false };
+
+  // Check each dirty file against git's ignore rules.
+  // git check-ignore exits 0 if the path is excluded by a rule, 1 otherwise.
+  let allIgnored = true;
+  const nonIgnoredFiles: string[] = [];
+  for (const file of dirtyFiles) {
+    const isIgnored = await gitOk(repoPath, ["check-ignore", file]);
+    if (!isIgnored) {
+      allIgnored = false;
+      nonIgnoredFiles.push(file);
+    }
+  }
+
+  if (!allIgnored) {
+    const logger = getGlobalLogger();
+    logger?.decisionLogged(
+      "dirty-workspace-blocked",
+      `prepareCleanWorkspace in ${repoPath}`,
+      "blocked",
+      `Non-ignored files are dirty: ${nonIgnoredFiles.join(", ")}`,
+    );
+    return {
+      cleaned: false,
+      blocked: true,
+      reason: `Non-ignored files are dirty: ${nonIgnoredFiles.join(", ")}`,
+    };
+  }
+
+  // All dirty files are git-ignored: auto-clean them.
+  // git reset --hard HEAD discards any tracked changes.
+  // git clean -fdX removes only ignored untracked files/directories.
+  await git(repoPath, ["reset", "--hard", "HEAD"]);
+  await git(repoPath, ["clean", "-fdX"]);
+
+  const logger = getGlobalLogger();
+  logger?.decisionLogged(
+    "dirty-workspace-auto-cleaned",
+    `prepareCleanWorkspace in ${repoPath}`,
+    "auto-cleaned",
+    `Auto-cleaned ${dirtyFiles.length} git-ignored dirty file(s): ${dirtyFiles.join(", ")}`,
+  );
+
+  return { cleaned: true };
+}
+
 async function branchExists(repoPath: string, branch: string): Promise<boolean> {
   return gitOk(repoPath, ["rev-parse", "--verify", branch]);
 }
@@ -105,6 +177,19 @@ export async function prepareSerialWorkerBranch(
     };
   }
 
+  const cleanResult = await prepareCleanWorkspace(repoPath);
+  if (cleanResult.blocked) {
+    return {
+      status: "blocked",
+      repoPath,
+      integrationBranch,
+      featureBranch,
+      reason: `Cannot start worker branch from a dirty repository. ${cleanResult.reason}`,
+    };
+  }
+
+  // Secondary safety check: after auto-clean (if any), verify the tree is
+  // actually clean before proceeding.
   const dirty = await ensureClean(repoPath);
   if (dirty) {
     return {
@@ -167,6 +252,19 @@ export async function finalizeSerialWorkerBranch(
     };
   }
 
+  const cleanResult = await prepareCleanWorkspace(repoPath);
+  if (cleanResult.blocked) {
+    return {
+      status: "blocked",
+      repoPath,
+      integrationBranch,
+      featureBranch,
+      reason: `Cannot finalize worker branch from a dirty repository. ${cleanResult.reason}`,
+    };
+  }
+
+  // Secondary safety check: after auto-clean (if any), verify the tree is
+  // actually clean before proceeding.
   const dirty = await ensureClean(repoPath);
   if (dirty) {
     return {

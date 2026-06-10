@@ -12,7 +12,8 @@
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.0",
     "@earendil-works/pi-coding-agent": "^0.79.0",
-    "@sinclair/typebox": "^0.34.49"
+    "@sinclair/typebox": "^0.34.49",
+    "pi-orch-extension": "^1.0.0"
   },
   "devDependencies": {
     "tsx": "^4.0.0",

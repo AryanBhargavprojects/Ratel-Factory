@@ -5,7 +5,7 @@
   "orchestrator": {
     "systemPrompt": null,
     "thinkingLevel": "medium",
-    "model": "opencode-go/deepseek-v4-flash",
+    "model": "opencode-go/kimi-k2.6",
     "tools": [
       "read",
       "grep",

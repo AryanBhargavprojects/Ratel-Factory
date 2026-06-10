@@ -136,6 +136,41 @@ export async function resolveFeatureAssertions(cwd: string, feature: Feature): P
   return { featureId: feature.id, documents, missing };
 }
 
+export interface FeatureComplexity {
+  featureId: string;
+  assertionCount: number;
+  featureFileCount: number;
+  scenarioCount: number;
+  totalLinesOfGherkin: number;
+}
+
+export async function computeFeatureComplexity(
+  cwd: string,
+  feature: Feature,
+): Promise<FeatureComplexity> {
+  const resolved = await resolveFeatureAssertions(cwd, feature);
+
+  const distinctFilenames = new Set<string>();
+  let scenarioCount = 0;
+  let totalLinesOfGherkin = 0;
+
+  for (const doc of resolved.documents) {
+    distinctFilenames.add(doc.filename);
+    if (doc.selection.kind === "scenario") {
+      scenarioCount++;
+    }
+    totalLinesOfGherkin += doc.content.split("\n").length;
+  }
+
+  return {
+    featureId: feature.id,
+    assertionCount: feature.assertions.length,
+    featureFileCount: distinctFilenames.size,
+    scenarioCount,
+    totalLinesOfGherkin,
+  };
+}
+
 export function formatFeatureAssertionsForPrompt(resolved: ResolvedFeatureAssertions): string {
   const lines: string[] = [
     "These acceptance criteria are authoritative. Implement only the feature scope needed to satisfy them.",
