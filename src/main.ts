@@ -73,6 +73,7 @@ const ORCHESTRATOR_TOOL_NAMES = [
   "find",
   "ls",
   "bash",
+  "ask_user",
   "run_research",
   "ask_smart_friend",
   "draft_validation_contract",

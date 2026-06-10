@@ -858,9 +858,17 @@ export const runWorkerTool = defineTool({
   description:
     "Spawns a Worker Agent to implement a single feature. The worker starts with fresh context, " +
     "receives the feature spec and validation assertions it must satisfy, implements using TDD, " +
-    "commits via git, and writes a structured handoff. Workers run serially — only one at a time.",
+    "commits via git, and writes a structured handoff. Workers run serially — only one at a time. " +
+    "Pass timeoutMinutes for large features (default 30, max 120).",
   parameters: Type.Object({
     featureId: Type.String({ description: "The feature ID to implement" }),
+    timeoutMinutes: Type.Optional(
+      Type.Number({
+        description: "Custom timeout for this worker spawn in minutes. Default is 30 minutes. Maximum is 120 minutes.",
+        minimum: 1,
+        maximum: 120,
+      })
+    ),
   }),
   execute: async (_toolCallId, params) => {
     const startTime = Date.now();
@@ -949,8 +957,15 @@ export const runWorkerTool = defineTool({
         // completed, blocked, or in need of fixes — and writes the update
         // via write_mission_artifact().
 
+        const DEFAULT_TIMEOUT_MINUTES = 30;
+        const MAX_TIMEOUT_MINUTES = 120;
+        const effectiveTimeoutMinutes = Math.min(
+          params.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES,
+          MAX_TIMEOUT_MINUTES
+        );
+
         const workerModelConfig = await getModelConfig(_cwd);
-        const result = await spawnWorkerAgent(feature, acceptanceCriteria, procedures, _cwd, workerSkills, workerModelConfig.worker ?? undefined, workspace);
+        const result = await spawnWorkerAgent(feature, acceptanceCriteria, procedures, _cwd, workerSkills, workerModelConfig.worker ?? undefined, workspace, effectiveTimeoutMinutes);
 
         // Persist the raw worker transcript before interpreting the handoff.
         // This preserves the ground truth needed to debug parseStatus failures.
