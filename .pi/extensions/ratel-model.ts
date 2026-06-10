@@ -148,7 +148,7 @@ export class RatelFooterComponent {
     // 2. Lower Line: Repository and Git Branch
     const repoName = basename(this.ctx.cwd);
     const branch = this.footerData.getGitBranch() ?? "no branch";
-    const repoSection = `📁 ${repoName}${sepStr} ${branch}`;
+    const repoSection = `📁 ${repoName}${sepStr} ${branch}`;
     const lowerLine = truncateToWidth(repoSection, width, theme.fg("dim", "..."));
 
     const lines = [upperLine, lowerLine];
