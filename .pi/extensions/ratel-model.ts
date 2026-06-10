@@ -32,7 +32,7 @@ interface RatelConfig {
   validators?: { model?: string | null };
 }
 
-let cachedModelConfig: ModelConfig = {
+const cachedModelConfig: ModelConfig = {
   orchestrator: null,
   worker: null,
   validator: null,
@@ -97,10 +97,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("model_select", async (event, ctx) => {
     const modelStr = `${event.model.provider}/${event.model.id}`;
     await setModelLevel(ctx.cwd, "orchestrator", modelStr);
-    cachedModelConfig.orchestrator = modelStr;
 
-    const config = await getModelConfig(ctx.cwd);
-    ctx.ui.setStatus("ratel-models", formatForStatusBar(config));
+    cachedModelConfig.orchestrator = modelStr;
+    ctx.ui.setStatus("ratel-models", formatForStatusBar(cachedModelConfig));
     ctx.ui.notify(`Orchestrator model synced: ${modelStr}`, "info");
   });
 
@@ -140,13 +139,13 @@ export default function (pi: ExtensionAPI) {
         if (choice === "\u2705 Confirm & Save") {
           await setModelLevel(cwd, "worker", pending.worker);
           await setModelLevel(cwd, "validator", pending.validator);
+
           cachedModelConfig.worker = pending.worker;
           cachedModelConfig.validator = pending.validator;
 
-          const finalConfig = await getModelConfig(cwd);
-          ctx.ui.setStatus("ratel-models", formatForStatusBar(finalConfig));
+          ctx.ui.setStatus("ratel-models", formatForStatusBar(cachedModelConfig));
           ctx.ui.notify(
-            `Saved — Worker: ${formatModel(finalConfig.worker)}, Validator: ${formatModel(finalConfig.validator)}`,
+            `Saved — Worker: ${formatModel(cachedModelConfig.worker)}, Validator: ${formatModel(cachedModelConfig.validator)}`,
             "info",
           );
           return;
@@ -219,9 +218,7 @@ export default function (pi: ExtensionAPI) {
   // ── Show status bar on session start ────────────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
     const config = await getModelConfig(ctx.cwd);
-    cachedModelConfig.orchestrator = config.orchestrator;
-    cachedModelConfig.worker = config.worker;
-    cachedModelConfig.validator = config.validator;
-    ctx.ui.setStatus("ratel-models", formatForStatusBar(config));
+    Object.assign(cachedModelConfig, config);
+    ctx.ui.setStatus("ratel-models", formatForStatusBar(cachedModelConfig));
   });
 }
