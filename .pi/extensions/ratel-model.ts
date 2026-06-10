@@ -63,22 +63,46 @@ async function getModelConfig(cwd: string): Promise<ModelConfig> {
   };
 }
 
-async function setModelLevels(
+export function cleanModelName(modelStr: string | null): string {
+  if (!modelStr) return "default";
+  const slashIndex = modelStr.indexOf("/");
+  if (slashIndex >= 0) {
+    return modelStr.slice(slashIndex + 1);
+  }
+  return modelStr;
+}
+
+export function formatTokens(count: number): string {
+  if (count < 1000) return count.toString();
+  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+  if (count < 1000000) return `${Math.round(count / 1000)}k`;
+  if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+  return `${Math.round(count / 1000000)}M`;
+}
+
+export function sanitizeStatusText(text: string): string {
+  return text
+    .replace(/[\r\n\t]/g, " ")
+    .replace(/ +/g, " ")
+    .trim();
+}
+
+export async function setModelLevels(
   cwd: string,
   updates: { orchestrator?: string | null; worker?: string | null; validator?: string | null },
 ): Promise<void> {
   const config = await readRatelConfig(cwd);
-  if ("orchestrator" in updates) {
+  if (updates.orchestrator !== undefined) {
     if (!config.orchestrator) config.orchestrator = {};
-    config.orchestrator.model = updates.orchestrator!;
+    config.orchestrator.model = updates.orchestrator;
   }
-  if ("worker" in updates) {
+  if (updates.worker !== undefined) {
     if (!config.workers) config.workers = {};
-    config.workers.model = updates.worker!;
+    config.workers.model = updates.worker;
   }
-  if ("validator" in updates) {
+  if (updates.validator !== undefined) {
     if (!config.validators) config.validators = {};
-    config.validators.model = updates.validator!;
+    config.validators.model = updates.validator;
   }
   await writeRatelConfig(cwd, config);
 }
@@ -89,6 +113,62 @@ function formatModel(model: string | null): string {
 
 function formatForStatusBar(config: ModelConfig): string {
   return `O:${formatModel(config.orchestrator)} W:${formatModel(config.worker)} V:${formatModel(config.validator)}`;
+}
+
+export class RatelFooterComponent {
+  constructor(private ctx: any, private footerData: any) {}
+
+  render(width: number): string[] {
+    const theme = this.ctx.ui.theme;
+    const sepStr = theme.fg("dim", " > ");
+
+    // Get model names
+    const oModel = cleanModelName(cachedModelConfig.orchestrator);
+    const wModel = cleanModelName(cachedModelConfig.worker);
+    const vModel = cleanModelName(cachedModelConfig.validator);
+
+    // Get context usage info
+    const contextUsage = this.ctx.getContextUsage();
+    const contextPercent = contextUsage?.percent !== null && contextUsage?.percent !== undefined
+      ? `${contextUsage.percent.toFixed(1)}%`
+      : "?%";
+    const contextWindow = contextUsage?.contextWindow ?? this.ctx.model?.contextWindow ?? 0;
+    const contextWindowStr = formatTokens(contextWindow);
+
+    // 1. Upper Line: Models and Context
+    const modelSection = [
+      `🧠 ${oModel}`,
+      `🛠 ${wModel}`,
+      `🔍 ${vModel}`,
+      `⛶  ${contextPercent}/${contextWindowStr}`
+    ].join(sepStr);
+
+    const upperLine = truncateToWidth(modelSection, width, theme.fg("dim", "..."));
+
+    // 2. Lower Line: Repository and Git Branch
+    const repoName = basename(this.ctx.cwd);
+    const branch = this.footerData.getGitBranch() ?? "no branch";
+    const repoSection = `📁 ${repoName}${sepStr} ${branch}`;
+    const lowerLine = truncateToWidth(repoSection, width, theme.fg("dim", "..."));
+
+    const lines = [upperLine, lowerLine];
+
+    // 3. Optional Status Line (e.g., questions / task updates)
+    const extensionStatuses = this.footerData.getExtensionStatuses();
+    if (extensionStatuses.size > 0) {
+      const sortedStatuses = Array.from(extensionStatuses.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .filter(([key]) => key !== "ratel-models") // Skip our own status key
+        .map(([_, text]) => sanitizeStatusText(text));
+      
+      if (sortedStatuses.length > 0) {
+        const statusLine = sortedStatuses.join(" ");
+        lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
+      }
+    }
+
+    return lines;
+  }
 }
 
 // ── Extension ─────────────────────────────────────────────────────────────
@@ -223,5 +303,6 @@ export default function (pi: ExtensionAPI) {
     const config = await getModelConfig(ctx.cwd);
     Object.assign(cachedModelConfig, config);
     ctx.ui.setStatus("ratel-models", formatForStatusBar(cachedModelConfig));
+    ctx.ui.setFooter((_tui, _theme, footerData) => new RatelFooterComponent(ctx, footerData));
   });
 }

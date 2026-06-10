@@ -84,7 +84,7 @@ test("RatelFooterComponent rendering", () => {
   const mockCtx = {
     ui: {
       theme: {
-        fg: (style: string, text: string) => `[${style}]${text}[/${style}]`,
+        fg: (style: string, text: string) => text,
       },
     },
     cwd: "/path/to/my-repo",
