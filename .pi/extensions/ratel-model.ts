@@ -38,6 +38,10 @@ const cachedModelConfig: ModelConfig = {
   validator: null,
 };
 
+// Module-level refs to widgets and TUI for re-render on model changes
+let topWidgetRef: RatelTopWidget | null = null;
+let tuiRef: any = null;
+
 // ── Config I/O (shared with src/config.ts, duplicated here for extension isolation) ──
 
 async function readRatelConfig(cwd: string): Promise<RatelConfig> {
@@ -230,6 +234,12 @@ export default function (pi: ExtensionAPI) {
 
     cachedModelConfig.orchestrator = modelStr;
     ctx.ui.notify(`Orchestrator model synced: ${modelStr}`, "info");
+
+    // Invalidate top widget cache so the new model is shown in the powerline
+    if (topWidgetRef) {
+      topWidgetRef.invalidate();
+      tuiRef?.requestRender();
+    }
   });
 
   // ── /ratel-model command for worker & validator ────────────────────────
@@ -362,6 +372,10 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.setFooter((tui, _theme, footerData) => {
       const topWidget = new RatelTopWidget(ctx, footerData);
       const bottomWidget = new RatelBottomWidget(ctx, footerData);
+
+      // Store refs so model_select can invalidate + re-render
+      topWidgetRef = topWidget;
+      tuiRef = tui;
 
       const unsub = footerData.onBranchChange(() => {
         topWidget.invalidate();
