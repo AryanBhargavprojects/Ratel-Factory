@@ -111,18 +111,18 @@ test("RatelFooterComponent rendering", () => {
   // Assert line counts and format
   assert.strictEqual(lines.length, 3);
   
-  // Upper line: Models in Agnoster bar style (O:, W:, V:, and  transition)
-  assert.match(lines[0], /O: default/);
-  assert.match(lines[0], /W: default/);
-  assert.match(lines[0], /V: default/);
-  assert.match(lines[0], //);
+  // Status line: other extension status sanitized (now rendered first, above the footer)
+  assert.match(lines[0], /running task 1 active/);
 
-  // Lower line: Repository, Git branch, and Context window (using Nerd Font icons, no 📁)
-  assert.match(lines[1], /my-repo/);
-  assert.match(lines[1], / main/);
-  assert.match(lines[1], /󰘚 45\.2%\/128k/);
-  assert.strictEqual(lines[1].includes("📁"), false);
+  // Upper footer line: Models in Agnoster bar style (O:, W:, V:, and  transition)
+  assert.match(lines[1], /O: default/);
+  assert.match(lines[1], /W: default/);
+  assert.match(lines[1], /V: default/);
+  assert.match(lines[1], //);
 
-  // Status line: other extension status sanitized
-  assert.match(lines[2], /running task 1 active/);
+  // Lower footer line: Repository, Git branch, and Context window (using Nerd Font icons, no 📁)
+  assert.match(lines[2], /my-repo/);
+  assert.match(lines[2], / main/);
+  assert.match(lines[2], /󰘚 45\.2%\/128k/);
+  assert.strictEqual(lines[2].includes("📁"), false);
 });

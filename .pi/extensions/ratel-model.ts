@@ -111,10 +111,6 @@ function formatModel(model: string | null): string {
   return model ?? "SDK default";
 }
 
-function formatForStatusBar(config: ModelConfig): string {
-  return `O:${formatModel(config.orchestrator)} W:${formatModel(config.worker)} V:${formatModel(config.validator)}`;
-}
-
 export class RatelFooterComponent {
   constructor(private ctx: any, private footerData: any) {}
 
@@ -150,9 +146,9 @@ export class RatelFooterComponent {
     const repoSection = `${repoName}${sepStr} ${branch}${sepStr}󰘚 ${contextPercent}/${contextWindowStr}`;
     const lowerLine = truncateToWidth(repoSection, width, theme.fg("dim", "..."));
 
-    const lines = [upperLine, lowerLine];
+    const lines: string[] = [];
 
-    // 3. Optional Status Line (e.g., questions / task updates)
+    // 3. Optional Status Line (e.g., questions / task updates) - render first (above the footer)
     const extensionStatuses = this.footerData.getExtensionStatuses();
     if (extensionStatuses.size > 0) {
       const sortedStatuses = Array.from(extensionStatuses.entries())
@@ -165,6 +161,10 @@ export class RatelFooterComponent {
         lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
       }
     }
+
+    // Permanent footer lines
+    lines.push(upperLine);
+    lines.push(lowerLine);
 
     return lines;
   }
@@ -179,7 +179,6 @@ export default function (pi: ExtensionAPI) {
     await setModelLevels(ctx.cwd, { orchestrator: modelStr });
 
     cachedModelConfig.orchestrator = modelStr;
-    ctx.ui.setStatus("ratel-models", formatForStatusBar(cachedModelConfig));
     ctx.ui.notify(`Orchestrator model synced: ${modelStr}`, "info");
   });
 
@@ -225,7 +224,6 @@ export default function (pi: ExtensionAPI) {
           cachedModelConfig.worker = pending.worker;
           cachedModelConfig.validator = pending.validator;
 
-          ctx.ui.setStatus("ratel-models", formatForStatusBar(cachedModelConfig));
           ctx.ui.notify(
             `Saved — Worker: ${formatModel(cachedModelConfig.worker)}, Validator: ${formatModel(cachedModelConfig.validator)}`,
             "info",
@@ -301,7 +299,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const config = await getModelConfig(ctx.cwd);
     Object.assign(cachedModelConfig, config);
-    ctx.ui.setStatus("ratel-models", formatForStatusBar(cachedModelConfig));
+    ctx.ui.setStatus("ratel-models", undefined); // Explicitly clear any registered ratel-models status to avoid duplicate render
     ctx.ui.setFooter((_tui, _theme, footerData) => new RatelFooterComponent(ctx, footerData));
   });
 }
