@@ -111,19 +111,68 @@ function formatModel(model: string | null): string {
   return model ?? "SDK default";
 }
 
-export class RatelFooterComponent {
+// ── Widget above editor: Status line + Powerline bar (O/W/V models) ────
+
+export class RatelTopWidget {
+  private cachedWidth?: number;
+  private cachedLines?: string[];
+
   constructor(private ctx: any, private footerData: any) {}
 
   render(width: number): string[] {
-    const theme = this.ctx.ui.theme;
-    const sepStr = theme.fg("dim", " > ");
+    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 
-    // Get model names
+    const theme = this.ctx.ui.theme;
+    const lines: string[] = [];
+
+    // Line 1: Extension statuses (conditional)
+    const extensionStatuses = this.footerData.getExtensionStatuses();
+    if (extensionStatuses.size > 0) {
+      const sortedStatuses = Array.from(extensionStatuses.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .filter(([key]) => key !== "ratel-models")
+        .map(([_, text]) => sanitizeStatusText(text));
+
+      if (sortedStatuses.length > 0) {
+        const statusLine = sortedStatuses.join(" ");
+        lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
+      }
+    }
+
+    // Line 2: Powerline bar with O/W/V model segments
     const oModel = cleanModelName(cachedModelConfig.orchestrator);
     const wModel = cleanModelName(cachedModelConfig.worker);
     const vModel = cleanModelName(cachedModelConfig.validator);
+    const powerline = `\x1b[44;37m O: ${oModel} \x1b[45;34m\x1b[45;37m W: ${wModel} \x1b[46;35m\x1b[46;30m V: ${vModel} \x1b[0;36m\x1b[0m`;
+    lines.push(truncateToWidth(powerline, width, theme.fg("dim", "...")));
 
-    // Get context usage info
+    this.cachedWidth = width;
+    this.cachedLines = lines;
+    return lines;
+  }
+
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+}
+
+// ── Widget below editor: Repo info, git branch, context usage ───────────
+
+export class RatelBottomWidget {
+  private cachedWidth?: number;
+  private cachedLines?: string[];
+
+  constructor(private ctx: any, private footerData: any) {}
+
+  render(width: number): string[] {
+    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+
+    const theme = this.ctx.ui.theme;
+    const sepStr = theme.fg("dim", " > ");
+
+    const repoName = basename(this.ctx.cwd);
+    const branch = this.footerData.getGitBranch() ?? "no branch";
     const contextUsage = this.ctx.getContextUsage();
     const contextPercent = contextUsage?.percent !== null && contextUsage?.percent !== undefined
       ? `${contextUsage.percent.toFixed(1)}%`
@@ -131,42 +180,16 @@ export class RatelFooterComponent {
     const contextWindow = contextUsage?.contextWindow ?? this.ctx.model?.contextWindow ?? 0;
     const contextWindowStr = formatTokens(contextWindow);
 
-    // 1. Upper Line: Models in Agnoster-style powerline bar (O, W, V segments)
-    // O Segment: Blue bg (44), White fg (37)
-    // W Segment: Magenta bg (45), White fg (37)
-    // V Segment: Cyan bg (46), Black fg (30)
-    // Transition character: 
-    const upperLineContent = `\x1b[44;37m O: ${oModel} \x1b[45;34m\x1b[45;37m W: ${wModel} \x1b[46;35m\x1b[46;30m V: ${vModel} \x1b[0;36m\x1b[0m`;
-    const upperLine = truncateToWidth(upperLineContent, width, theme.fg("dim", "..."));
-
-    // 2. Lower Line: Repository and Git Branch + Context Usage (Nerd Font icons, no 📁)
-    const repoName = basename(this.ctx.cwd);
-    const branch = this.footerData.getGitBranch() ?? "no branch";
-    // Format: repoName >  branch > 󰘚 usage/limit
     const repoSection = `${repoName}${sepStr} ${branch}${sepStr}󰘚 ${contextPercent}/${contextWindowStr}`;
-    const lowerLine = truncateToWidth(repoSection, width, theme.fg("dim", "..."));
 
-    const lines: string[] = [];
+    this.cachedWidth = width;
+    this.cachedLines = [truncateToWidth(repoSection, width, theme.fg("dim", "..."))];
+    return this.cachedLines;
+  }
 
-    // 3. Optional Status Line (e.g., questions / task updates) - render first (above the footer)
-    const extensionStatuses = this.footerData.getExtensionStatuses();
-    if (extensionStatuses.size > 0) {
-      const sortedStatuses = Array.from(extensionStatuses.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .filter(([key]) => key !== "ratel-models") // Skip our own status key
-        .map(([_, text]) => sanitizeStatusText(text));
-      
-      if (sortedStatuses.length > 0) {
-        const statusLine = sortedStatuses.join(" ");
-        lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
-      }
-    }
-
-    // Permanent footer lines
-    lines.push(upperLine);
-    lines.push(lowerLine);
-
-    return lines;
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
   }
 }
 
@@ -295,11 +318,40 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── Show status bar on session start ────────────────────────────────────
+  // ── Show widgets on session start (powerline above editor, repo info below) ──
   pi.on("session_start", async (_event, ctx) => {
     const config = await getModelConfig(ctx.cwd);
     Object.assign(cachedModelConfig, config);
-    ctx.ui.setStatus("ratel-models", undefined); // Explicitly clear any registered ratel-models status to avoid duplicate render
-    ctx.ui.setFooter((_tui, _theme, footerData) => new RatelFooterComponent(ctx, footerData));
+    ctx.ui.setStatus("ratel-models", undefined);
+
+    // Clear any previous widgets
+    ctx.ui.setWidget("ratel-top", undefined);
+    ctx.ui.setWidget("ratel-bottom", undefined);
+
+    // Use a zero-height custom footer to bridge footerData (git branch,
+    // extension statuses, branch-change events) through to setWidget.
+    // setWidget factories only receive (tui, theme), so we capture
+    // footerData here via setFooter's factory argument.
+    ctx.ui.setFooter((tui, _theme, footerData) => {
+      const topWidget = new RatelTopWidget(ctx, footerData);
+      const bottomWidget = new RatelBottomWidget(ctx, footerData);
+
+      const unsub = footerData.onBranchChange(() => {
+        topWidget.invalidate();
+        bottomWidget.invalidate();
+        tui.requestRender();
+      });
+
+      ctx.ui.setWidget("ratel-top", (_tui, _wtheme) => topWidget);
+      ctx.ui.setWidget("ratel-bottom", (_tui, _wtheme) => bottomWidget, {
+        placement: "belowEditor",
+      });
+
+      return {
+        render: () => [],
+        invalidate: () => {},
+        dispose: unsub,
+      };
+    });
   });
 }
