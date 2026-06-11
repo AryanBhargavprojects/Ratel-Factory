@@ -113,34 +113,42 @@
       border-color: #ffffff;
     }
 
-    /* ── Collapsible Plan Checklist Panel ── */
-    #plan-panel {
-      max-height: 0;
-      overflow: hidden;
-      background: #0b0b0d;
-      border-bottom: 0 solid #1a1a20;
-      transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding 0.35s ease, border-width 0.1s;
-      flex-shrink: 0;
-      box-sizing: border-box;
+    /* ── Dialog Popup Checklist Styling ── */
+    dialog::backdrop {
+      background-color: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
     }
-    #plan-panel.expanded {
-      max-height: 250px;
-      border-bottom-width: 1px;
-      padding: 16px 24px;
-      overflow-y: auto;
+    #plan-dialog {
+      background: #09090b;
+      border: 1px solid #222228;
+      border-radius: 12px;
+      width: 650px;
+      max-width: 90%;
+      padding: 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      outline: none;
+      color: #e1e1e6;
     }
-    .plan-title {
-      font-size: 11px;
-      text-transform: uppercase;
-      color: #8e8e93;
-      letter-spacing: 1px;
-      font-weight: 700;
-      margin-bottom: 12px;
+    #original-feature-section:hover {
+      background: #121216 !important;
+    }
+    #original-feature-section:hover #feature-section-btn {
+      color: #ffffff !important;
+      border-color: #ffffff !important;
+      background: #000000 !important;
     }
     #plan-list {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      display: flex;
+      flex-direction: column;
       gap: 10px;
+      max-height: 350px;
+      overflow-y: auto;
+      padding-right: 4px;
     }
     .plan-item {
       display: flex;
@@ -459,9 +467,6 @@
     <div class="brand">
       <div class="brand-logo">RATEL <span>Observatory</span></div>
     </div>
-    <div id="goal-banner" style="font-size: 13px; color: #a1a1a8; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-      Goal: <span id="goal-text" style="color: #ffffff; font-weight: 600;">—</span>
-    </div>
     <div class="mission-status">
       <div class="status-item">
         <span class="status-label">Phase</span>
@@ -480,13 +485,31 @@
     </div>
   </div>
 
-  <!-- ── Collapsible Plan Checklist ── -->
-  <div id="plan-panel">
-    <div class="plan-title">Original Feature Plan Checklist</div>
+  <!-- ── Original Feature Section (Goal Ticker) ── -->
+  <div id="original-feature-section" style="background: #0b0b0d; border-bottom: 1px solid #1a1a20; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.2s; flex-shrink: 0; z-index: 90;">
+    <div style="display: flex; align-items: center; gap: 16px; flex: 1; overflow: hidden;">
+      <span style="font-size: 11px; text-transform: uppercase; color: #8e8e93; letter-spacing: 1px; font-weight: 700; white-space: nowrap; font-family: 'Outfit', sans-serif;">
+        Original Feature Goal
+      </span>
+      <div style="flex: 1; overflow: hidden; display: flex; align-items: center;">
+        <marquee scrollamount="2.5" id="goal-text-marquee" style="color: #ffffff; font-weight: 600; font-size: 13px; font-family: 'JetBrains Mono', monospace;">—</marquee>
+      </div>
+    </div>
+    <div id="feature-section-btn" style="font-size: 11px; color: #8e8e93; font-family: 'JetBrains Mono', monospace; margin-left: 16px; flex-shrink: 0; border: 1px solid #222228; padding: 4px 10px; border-radius: 4px; background: #121216; transition: all 0.2s;">
+      [View Plan Checklist]
+    </div>
+  </div>
+
+  <!-- ── Plan Checklist Dialog Popup ── -->
+  <dialog id="plan-dialog" closedby="any" aria-labelledby="planDialogTitle">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid #1a1a20; padding-bottom: 12px; flex-shrink: 0;">
+      <div id="planDialogTitle" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 0.5px;">Original Feature Plan Checklist</div>
+      <button id="btn-close-plan" style="background: transparent; border: none; color: #8e8e93; font-size: 20px; cursor: pointer; line-height: 1; outline: none;">&times;</button>
+    </div>
     <div id="plan-list">
       <div class="empty" style="color: #8e8e93; font-style: italic;">No features defined yet.</div>
     </div>
-  </div>
+  </dialog>
 
   <!-- ── Side-by-Side 3 Column Grid ── -->
   <div id="observatory-grid">
@@ -556,9 +579,11 @@
     };
 
     // DOM references
-    const $planPanel = document.getElementById('plan-panel');
+    const $planDialog = document.getElementById('plan-dialog');
+    const $btnClosePlan = document.getElementById('btn-close-plan');
     const $btnPlan = document.getElementById('btn-plan');
-    const $goalText = document.getElementById('goal-text');
+    const $originalFeatureSection = document.getElementById('original-feature-section');
+    const $goalTextMarquee = document.getElementById('goal-text-marquee');
     const $statPhase = document.getElementById('stat-phase');
     const $planList = document.getElementById('plan-list');
 
@@ -575,17 +600,34 @@
     const $badgeValidator = document.getElementById('badge-validator');
     const $bodyValidator = document.getElementById('body-validator');
 
-    // Toggle Checklist Expand
+    // Toggle Checklist Dialog Popup
     $btnPlan.addEventListener('click', () => {
-      state.planExpanded = !state.planExpanded;
-      if (state.planExpanded) {
-        $planPanel.classList.add('expanded');
-        $btnPlan.textContent = '[-] Close Plan';
-      } else {
-        $planPanel.classList.remove('expanded');
-        $btnPlan.textContent = '[+] Plan Checklist';
-      }
+      $planDialog.showModal();
     });
+
+    $originalFeatureSection.addEventListener('click', () => {
+      $planDialog.showModal();
+    });
+
+    $btnClosePlan.addEventListener('click', () => {
+      $planDialog.close();
+    });
+
+    // Fallback for browsers without closedby support
+    if (!('closedBy' in HTMLDialogElement.prototype)) {
+      $planDialog.addEventListener('click', (event) => {
+        if (event.target !== $planDialog) return;
+        const rect = $planDialog.getBoundingClientRect();
+        const isDialogContent = (
+          rect.top <= event.clientY &&
+          event.clientY <= rect.top + rect.height &&
+          rect.left <= event.clientX &&
+          event.clientX <= rect.left + rect.width
+        );
+        if (isDialogContent) return;
+        $planDialog.close();
+      });
+    }
 
     // ASCII Screensavers
     const SLEEP_ASCII_WORKER = `
@@ -883,7 +925,7 @@
         const data = await res.json();
 
         // Update Goal
-        $goalText.textContent = data.requirements?.goal || 'No goal specified';
+        $goalTextMarquee.textContent = data.requirements?.goal || 'No goal specified';
         $statPhase.textContent = data.state?.phase || '—';
 
         // Plan features list
