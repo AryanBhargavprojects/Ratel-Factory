@@ -11,6 +11,7 @@ import {
   RatelTopWidget,
   RatelBottomWidget,
 } from "../.pi/extensions/ratel-model.ts";
+import { setCurrentDashboardUrl } from "../src/observatory/server.ts";
 
 test("cleanModelName helper", () => {
   assert.strictEqual(cleanModelName("anthropic/claude-3-5-sonnet"), "claude-3-5-sonnet");
@@ -123,13 +124,20 @@ test("RatelBottomWidget rendering", () => {
     getGitBranch: () => "main",
   };
 
+  // Inject a dashboard URL so the widget renders the link (otherwise it hides
+  // the link when no server is running).
+  setCurrentDashboardUrl("http://localhost:9999");
+
   const bottomWidget = new RatelBottomWidget(mockCtx, mockFooterData);
   const lines = bottomWidget.render(80);
 
   assert.strictEqual(lines.length, 1);
-  assert.match(lines[0], /localhost:8765/);
+  assert.match(lines[0], /localhost:9999/);
   assert.match(lines[0], /my-repo/);
   assert.match(lines[0], / main/);
   assert.match(lines[0], /󰘚 45\.2%\/128k/);
   assert.strictEqual(lines[0].includes("📁"), false);
+
+  // Clean up so later tests are not affected.
+  setCurrentDashboardUrl(undefined);
 });

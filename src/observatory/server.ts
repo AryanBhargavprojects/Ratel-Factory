@@ -11,6 +11,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile, access } from "node:fs/promises";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
@@ -19,6 +20,44 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // dashboard.html is co-located with this server file so it deploys together.
 const DASHBOARD_HTML_PATH = join(__dirname, "dashboard.html");
+
+// Shared mutable state so the TUI footer and Pi commands can discover the
+// actual URL even when the port falls back dynamically.
+let currentDashboardUrl: string | undefined;
+
+function getDashboardUrlFilePath(cwd: string): string {
+  return join(cwd, ".missions", "current", "observatory-url.txt");
+}
+
+function persistDashboardUrl(cwd: string, url: string): void {
+  try {
+    const dir = join(cwd, ".missions", "current");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(getDashboardUrlFilePath(cwd), url, "utf-8");
+  } catch {
+    // Best-effort persistence; silently ignore write errors.
+  }
+}
+
+function readDashboardUrlFile(cwd: string): string | undefined {
+  try {
+    const raw = readFileSync(getDashboardUrlFilePath(cwd), "utf-8");
+    return raw.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function getCurrentDashboardUrl(cwd?: string): string | undefined {
+  if (currentDashboardUrl) return currentDashboardUrl;
+  if (cwd) return readDashboardUrlFile(cwd);
+  return undefined;
+}
+
+/** Test-only helper to inject a URL so unit tests can assert link rendering. */
+export function setCurrentDashboardUrl(url: string | undefined): void {
+  currentDashboardUrl = url;
+}
 
 export interface DashboardServerOptions {
   cwd: string;
@@ -141,6 +180,9 @@ export function startDashboardServer(options: DashboardServerOptions): Server {
 
   server.listen(port, host, () => {
     const address = server.address() as AddressInfo;
+    const url = `http://localhost:${address.port}`;
+    currentDashboardUrl = url;
+    persistDashboardUrl(cwd, url);
     logDashboardUrl(address.port);
   });
 
@@ -169,11 +211,14 @@ export async function startDashboardServerOnAvailablePort(
           `[Observatory] Port ${port} unavailable; using http://localhost:${actualPort} instead.`,
         );
       }
+      const url = `http://localhost:${actualPort}`;
+      currentDashboardUrl = url;
+      persistDashboardUrl(cwd, url);
       logDashboardUrl(actualPort);
       return {
         server,
         port: actualPort,
-        url: `http://localhost:${actualPort}`,
+        url,
         close: () => closeServer(server),
       };
     } catch (err) {

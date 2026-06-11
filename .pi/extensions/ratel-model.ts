@@ -18,7 +18,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { spawn } from "node:child_process";
-import { logDashboardUrl } from "../../src/observatory/server.js";
+import { getCurrentDashboardUrl } from "../../src/observatory/server.js";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -172,11 +172,19 @@ export class RatelTopWidget {
 export class RatelBottomWidget {
   private cachedWidth?: number;
   private cachedLines?: string[];
+  private cachedDashboardUrl?: string;
 
   constructor(private ctx: any, private footerData: any) {}
 
   render(width: number): string[] {
-    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    const dashboardUrl = getCurrentDashboardUrl(this.ctx.cwd);
+    if (
+      this.cachedLines &&
+      this.cachedWidth === width &&
+      this.cachedDashboardUrl === dashboardUrl
+    ) {
+      return this.cachedLines;
+    }
 
     const theme = this.ctx.ui.theme;
     const sepStr = theme.fg("dim", "  │  ");
@@ -192,8 +200,9 @@ export class RatelBottomWidget {
     const contextWindowStr = formatTokens(contextWindow);
 
     // Left: clickable [🛰️Dashboard] link to observatory
-    const dashboardUrl = "http://localhost:${port}";
-    const dashboardLink = `\x1b]8;;${dashboardUrl}\x07[🛰️Dashboard]\x1b]8;;\x07`;
+    const dashboardLink = dashboardUrl
+      ? `\x1b]8;;${dashboardUrl}\x07[🛰️Dashboard]\x1b]8;;\x07`
+      : "";
 
     // Right: repo info, git branch, context usage (using Nerd Font icons, no 📁)
     let contextPercentStr = `${contextPercent}/${contextWindowStr}`;
@@ -219,12 +228,14 @@ export class RatelBottomWidget {
 
     this.cachedWidth = width;
     this.cachedLines = [truncateToWidth(fullLine, width, theme.fg("dim", "..."))];
+    this.cachedDashboardUrl = dashboardUrl;
     return this.cachedLines;
   }
 
   invalidate(): void {
     this.cachedWidth = undefined;
     this.cachedLines = undefined;
+    this.cachedDashboardUrl = undefined;
   }
 }
 
@@ -362,7 +373,11 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("dashboard", {
     description: "Open Ratel Observatory dashboard in browser",
     handler: async (_args, ctx) => {
-      const url = "http://localhost:8765";
+      const url = getCurrentDashboardUrl(ctx.cwd);
+      if (!url) {
+        ctx.ui.notify("Observatory dashboard is not running. Start the factory first.", "warning");
+        return;
+      }
       ctx.ui.notify(`Opening ${url}...`, "info");
       const openCommand = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
       const openArgs = process.platform === "win32" ? [url] : [url];
