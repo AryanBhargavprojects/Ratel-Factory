@@ -123,8 +123,9 @@ test("GET /api/diff returns graceful error when workspace is not a git repositor
   mkdirSync(tempDir, { recursive: true });
 
   try {
-    // No git init here
-    writeFileSync(join(tempDir, "requirements.json"), JSON.stringify({ directory: tempDir }), "utf-8");
+    // No git init here, and no explicit directory in requirements.json
+    // so auto-discovery yields nothing and the server returns the graceful
+    // non-git error.
 
     const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
     try {
@@ -133,8 +134,7 @@ test("GET /api/diff returns graceful error when workspace is not a git repositor
 
       const parsed = JSON.parse(res.body);
       assert.strictEqual(parsed.diff, "");
-      assert.ok(typeof parsed.status === "string");
-      assert.ok(parsed.status.length > 0, "status should contain an error message");
+      assert.strictEqual(parsed.status, "Not a git repository");
     } finally {
       await serverHandle.close();
     }
