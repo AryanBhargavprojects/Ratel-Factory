@@ -5,571 +5,894 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ratel Observatory</title>
   <style>
+    /* ── Typography & Base Styles ── */
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;600&display=swap');
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
-      background: #0d1117;
-      color: #c9d1d9;
-      font-size: 13px;
-      line-height: 1.5;
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #060608;
+      color: #e1e1e6;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
-    /* ── Layout ── */
-    #app {
+    /* ── Top Status Bar ── */
+    #top-bar {
+      background: rgba(18, 18, 22, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #1a1a20;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      z-index: 100;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-logo {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-logo span {
+      background: #ffffff;
+      color: #060608;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .mission-status {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 13px;
+    }
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #121216;
+      border: 1px solid #222228;
+      padding: 6px 12px;
+      border-radius: 6px;
+    }
+    .status-label {
+      color: #8e8e93;
+      text-transform: uppercase;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .status-value {
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #8e8e93;
+      display: inline-block;
+    }
+    .status-dot.active {
+      background: #ffffff;
+      box-shadow: 0 0 8px #ffffff;
+      animation: pulse 2s infinite;
+    }
+    #btn-plan {
+      background: transparent;
+      border: 1px solid #3a3a44;
+      color: #e1e1e6;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    #btn-plan:hover {
+      background: #ffffff;
+      color: #060608;
+      border-color: #ffffff;
+    }
+
+    /* ── Dialog Popup Checklist Styling ── */
+    dialog::backdrop {
+      background-color: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #plan-dialog {
+      background: #09090b;
+      border: 1px solid #222228;
+      border-radius: 12px;
+      width: 650px;
+      max-width: 90%;
+      padding: 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      outline: none;
+      color: #e1e1e6;
+    }
+    #original-feature-section:hover {
+      background: #121216 !important;
+    }
+    #original-feature-section:hover #feature-section-btn {
+      color: #ffffff !important;
+      border-color: #ffffff !important;
+      background: #000000 !important;
+    }
+    #plan-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 350px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .plan-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: #121216;
+      border: 1px solid #1c1c22;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .plan-item.completed {
+      opacity: 0.6;
+      border-color: #121216;
+    }
+    .plan-item-checkbox {
+      font-family: monospace;
+      font-size: 13px;
+      color: #8e8e93;
+      user-select: none;
+    }
+    .plan-item.completed .plan-item-checkbox {
+      color: #ffffff;
+    }
+    .plan-item-text {
+      color: #ffffff;
+      line-height: 1.4;
+    }
+    .plan-item.completed .plan-item-text {
+      text-decoration: line-through;
+      color: #8e8e93;
+    }
+
+    /* ── Main View Grid ── */
+    #observatory-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      flex: 1;
+      padding: 16px;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+
+    /* ── Console / Pane Container ── */
+    .console-pane {
+      display: flex;
+      flex-direction: column;
+      background: #09090b;
+      border: 1px solid #1a1a20;
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+    .console-pane.active-running {
+      border-color: #3a3a44;
+      box-shadow: 0 4px 30px rgba(0,0,0,0.6);
+    }
+    .console-header {
+      background: #111114;
+      border-bottom: 1px solid #1a1a20;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .console-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #8e8e93;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .console-pane.active-running .console-title {
+      color: #ffffff;
+    }
+    .console-status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 9px;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: #18181c;
+      color: #8e8e93;
+      border: 1px solid #222228;
+    }
+    .console-pane.active-running .console-status-badge {
+      background: #ffffff;
+      color: #060608;
+      border-color: #ffffff;
+    }
+
+    /* ── Console Content & Logs ── */
+    .console-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #d1d1d6;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scroll-behavior: smooth;
+    }
+
+    /* ── CLI Elements ── */
+    .cli-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .cli-prompt {
+      color: #8e8e93;
+      font-weight: bold;
+      user-select: none;
+    }
+    .cli-content {
+      flex: 1;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+    
+    /* System & Thoughts */
+    .system-log {
+      color: #8e8e93;
+      font-size: 11px;
+      border-left: 2px solid #3a3a44;
+      padding-left: 8px;
+      margin: 4px 0;
+    }
+    .thought-card {
+      background: #0f0f13;
+      border: 1px solid #1e1e24;
+      border-radius: 6px;
+      padding: 10px 14px;
+      color: #a1a1a8;
+      font-size: 11px;
+    }
+    .thought-header {
+      font-size: 9px;
+      text-transform: uppercase;
+      color: #8e8e93;
+      font-weight: bold;
+      margin-bottom: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Active Tool Executions */
+    .tool-execution-card {
+      background: #121216;
+      border: 1px solid #22222a;
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 4px 0;
+    }
+    .tool-exec-header {
+      background: #181820;
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #22222a;
+      font-size: 11px;
+    }
+    .tool-exec-name {
+      font-weight: bold;
+      color: #ffffff;
+    }
+    .tool-exec-status {
+      font-size: 9px;
+      text-transform: uppercase;
+      color: #8e8e93;
+    }
+    .tool-exec-status.running {
+      color: #ffffff;
+      animation: flash 1.5s infinite;
+    }
+    .tool-exec-cmd {
+      padding: 10px 12px;
+      background: #08080a;
+      overflow-x: auto;
+      font-size: 11px;
+      white-space: pre;
+      color: #a1a1a8;
+    }
+
+    /* ── Split Screen Diff inside Worker column ── */
+    .worker-split-container {
       display: flex;
       flex-direction: column;
       height: 100%;
     }
-    #stats-bar {
-      display: flex;
-      gap: 24px;
-      padding: 10px 16px;
-      background: #161b22;
-      border-bottom: 1px solid #30363d;
-      flex-shrink: 0;
-    }
-    .stat { display: flex; flex-direction: column; gap: 2px; }
-    .stat-label { font-size: 10px; text-transform: uppercase; color: #8b949e; letter-spacing: 0.5px; }
-    .stat-value { font-size: 16px; font-weight: 600; color: #f0f6fc; }
-    .stat-value.failed { color: #f85149; }
-
-    #filters {
-      display: flex;
-      gap: 12px;
-      padding: 8px 16px;
-      background: #161b22;
-      border-bottom: 1px solid #30363d;
-      flex-shrink: 0;
-      align-items: center;
-    }
-    #filters input[type="text"] {
-      flex: 1;
-      background: #0d1117;
-      border: 1px solid #30363d;
-      color: #c9d1d9;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-family: inherit;
-      font-size: 12px;
-    }
-    #filters select {
-      background: #0d1117;
-      border: 1px solid #30363d;
-      color: #c9d1d9;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-family: inherit;
-      font-size: 12px;
-      cursor: pointer;
-    }
-    #filters label { color: #8b949e; font-size: 11px; }
-    #filters .filter-toggle {
-      background: #21262d;
-      border: 1px solid #30363d;
-      color: #c9d1d9;
-      padding: 4px 10px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 11px;
-      user-select: none;
-    }
-    #filters .filter-toggle.active {
-      background: #1f6feb;
-      border-color: #1f6feb;
-      color: white;
-    }
-
-    /* ── Timeline ── */
-    #timeline {
+    .worker-log-pane {
       flex: 1;
       overflow-y: auto;
-      padding: 12px 16px;
+      min-height: 150px;
     }
-    .event {
-      display: flex;
-      gap: 8px;
-      padding: 6px 10px;
-      margin-bottom: 4px;
-      border-radius: 4px;
-      background: #161b22;
-      border: 1px solid #21262d;
-      border-left: 3px solid #30363d;
-      cursor: pointer;
-      font-size: 12px;
-      transition: background 0.1s;
-    }
-    .event:hover { background: #1c2128; }
-    .event .ts { color: #6e7681; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-    .event .type { font-weight: 600; flex-shrink: 0; min-width: 110px; }
-    .event .level { color: #8b949e; flex-shrink: 0; min-width: 100px; }
-    .event .summary { color: #c9d1d9; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .event .status { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
-
-    /* ── Color rules ── */
-    .event.failed, .event.parseStatus-failed { border-left-color: #f85149 !important; background: #2d1213; }
-    .event.event-halt { background: #2d1213; border-left-color: #f85149 !important; }
-    .event.event-phase_transition { border-left-color: #58a6ff; }
-    .event.event-agent_start { border-left-color: #d2a8ff; }
-    .event.event-agent_end { border-left-color: #d2a8ff; }
-    .event.level-worker { background: rgba(63, 185, 80, 0.05); }
-    .event.level-scrutiny_validator { background: rgba(255, 138, 0, 0.07); }
-    .event.level-user_testing_validator { background: rgba(191, 87, 230, 0.07); }
-    .event.event-tool_call { background: #1c2128; }
-    .event.event-tool_result { background: #1c2128; }
-    .event.event-session_tool_start { background: rgba(88, 166, 255, 0.06); }
-    .event.event-session_tool_end { background: rgba(88, 166, 255, 0.06); }
-    .event.event-validation_recovery { background: rgba(255, 138, 0, 0.10); border-left-color: #ff8a00; }
-    .event.event-integration_preflight { background: rgba(255, 138, 0, 0.10); border-left-color: #ff8a00; }
-    .event.event-tool_result.parseStatus-ok { border-left-color: #3fb950; }
-    .event.event-ping { background: #1c2128; border-left-color: #e3b341; }
-    .event.event-ping.failed { border-left-color: #f85149 !important; background: #2d1213; }
-
-    .status-ok { background: #1a3d23; color: #3fb950; }
-    .status-failed { background: #3d1a1a; color: #f85149; }
-    .status-info { background: #1a2d3d; color: #58a6ff; }
-
-    /* ── Agent span cards ── */
-    .span-card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-left: 3px solid #d2a8ff;
-      border-radius: 6px;
-      margin-bottom: 8px;
-      overflow: hidden;
-    }
-    .span-header {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      padding: 8px 12px;
-      cursor: pointer;
-      user-select: none;
-    }
-    .span-header:hover { background: #1c2128; }
-    .span-toggle { color: #8b949e; font-size: 11px; width: 12px; flex-shrink: 0; }
-    .span-title { font-weight: 600; color: #d2a8ff; }
-    .span-meta { color: #8b949e; font-size: 11px; margin-left: auto; }
-    .span-body {
-      padding: 4px 12px 12px 32px;
-      border-top: 1px solid #21262d;
-    }
-    .span-body.collapsed { display: none; }
-
-    .nested-event {
-      display: flex;
-      gap: 8px;
-      padding: 4px 8px;
-      margin: 2px 0;
-      border-radius: 4px;
-      font-size: 11px;
-      cursor: pointer;
-      border-left: 2px solid #30363d;
-    }
-    .nested-event:hover { background: #1c2128; }
-    .nested-event.failed { border-left-color: #f85149; background: #2d1213; }
-    .nested-event .ts { color: #6e7681; font-variant-numeric: tabular-nums; }
-    .nested-event .summary { color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-    /* ── Modal ── */
-    #modal {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 100;
-    }
-    #modal.hidden { display: none; }
-    #modal .panel {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      width: 80%;
-      max-width: 900px;
-      max-height: 80%;
+    .worker-diff-pane {
+      height: 45%;
+      border-top: 1px solid #1a1a20;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
+      background: #08080a;
     }
-    #modal .panel-header {
+    .diff-header {
+      background: #111114;
+      border-bottom: 1px solid #1a1a20;
+      padding: 6px 16px;
+      font-size: 10px;
+      font-weight: bold;
+      color: #8e8e93;
+      text-transform: uppercase;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 16px;
-      border-bottom: 1px solid #30363d;
     }
-    #modal .panel-header h3 { color: #f0f6fc; font-size: 14px; }
-    #modal .panel-header button {
-      background: #21262d;
-      border: 1px solid #30363d;
-      color: #c9d1d9;
-      padding: 4px 10px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-    #modal pre {
-      padding: 16px;
-      overflow: auto;
+    .diff-content-scroll {
       flex: 1;
-      font-size: 12px;
-      color: #c9d1d9;
-      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-      white-space: pre-wrap;
-      word-break: break-all;
+      overflow-y: auto;
+      padding: 10px;
+      font-size: 11px;
+    }
+    
+    /* Diff hunks */
+    .diff-container { display: flex; flex-direction: column; gap: 8px; }
+    .diff-hunk { border: 1px solid #222228; border-radius: 4px; overflow: hidden; background: #0c0c0e; }
+    .diff-hunk-header { background: #121216; padding: 4px 10px; border-bottom: 1px solid #222228; color: #8e8e93; font-size: 10px; }
+    .diff-line { display: flex; line-height: 1.5; font-family: monospace; }
+    .diff-line-num { width: 32px; text-align: right; padding-right: 6px; color: #5c5c64; user-select: none; }
+    .diff-line-ind { width: 12px; text-align: center; color: #5c5c64; user-select: none; }
+    .diff-line-text { flex: 1; white-space: pre; overflow-x: auto; }
+    .diff-line-ctx { color: #8e8e93; }
+    .diff-line-add { background: rgba(63, 185, 80, 0.12); color: #7ee787; }
+    .diff-line-add .diff-line-ind { color: #3fb950; }
+    .diff-line-del { background: rgba(248, 81, 73, 0.12); color: #ff7b72; }
+    .diff-line-del .diff-line-ind { color: #f85149; }
+
+    /* ── Idle / Sleeping State Screensavers ── */
+    .screensaver-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #3e3e44;
+      text-align: center;
+      padding: 24px;
+      user-select: none;
+    }
+    .screensaver-ascii {
+      font-family: monospace;
+      white-space: pre;
+      line-height: 1.2;
+      font-size: 10px;
+      margin-bottom: 20px;
+      color: #222228;
+    }
+    .screensaver-text {
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: #3e3e44;
+    }
+    .screensaver-sub {
+      font-size: 10px;
+      color: #2a2a30;
+      margin-top: 4px;
+    }
+    .screensaver-cursor {
+      display: inline-block;
+      width: 6px;
+      height: 12px;
+      background: #3e3e44;
+      margin-left: 4px;
+      animation: blink 1s step-end infinite;
+      vertical-align: middle;
     }
 
-    .empty {
-      text-align: center;
-      color: #6e7681;
-      padding: 40px 20px;
-      font-style: italic;
+    /* ── Animations ── */
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
+      70% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 8px rgba(255, 255, 255, 0); }
+      100% { transform: scale(1); opacity: 0; box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
     }
+    @keyframes flash {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 1; }
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 0; }
+      50% { opacity: 1; }
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #09090b; }
+    ::-webkit-scrollbar-thumb { background: #222228; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #33333d; }
   </style>
 </head>
 <body>
-  <div id="app">
-    <div id="stats-bar">
-      <div class="stat">
-        <div class="stat-label">Total Events</div>
-        <div class="stat-value" id="stat-total">0</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Active Agents</div>
-        <div class="stat-value" id="stat-active">0</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Latest Phase</div>
-        <div class="stat-value" id="stat-phase">—</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Parse Failures</div>
-        <div class="stat-value failed" id="stat-failures">0</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Halts</div>
-        <div class="stat-value failed" id="stat-halts">0</div>
-      </div>
+
+  <!-- ── Top Bar ── -->
+  <div id="top-bar">
+    <div class="brand">
+      <div class="brand-logo">RATEL <span>Observatory</span></div>
     </div>
-
-    <div id="filters">
-      <input type="text" id="search" placeholder="Search events..." />
-      <label>Type:
-        <select id="filter-type">
-          <option value="">all</option>
-          <option value="agent_start">agent_start</option>
-          <option value="agent_end">agent_end</option>
-          <option value="tool_call">tool_call</option>
-          <option value="tool_result">tool_result</option>
-          <option value="phase_transition">phase_transition</option>
-          <option value="artifact_write">artifact_write</option>
-          <option value="state_loaded">state_loaded</option>
-          <option value="decision_logged">decision_logged</option>
-          <option value="halt">halt</option>
-          <option value="mission_initialized">mission_initialized</option>
-          <option value="ping">ping</option>
-          <option value="session_tool_start">session_tool_start</option>
-          <option value="session_tool_end">session_tool_end</option>
-          <option value="session_agent_event">session_agent_event</option>
-          <option value="validation_recovery">validation_recovery</option>
-          <option value="integration_preflight">integration_preflight</option>
-        </select>
-      </label>
-      <label>Level:
-        <select id="filter-level">
-          <option value="">all</option>
-          <option value="orchestrator">orchestrator</option>
-          <option value="worker">worker</option>
-          <option value="scrutiny_validator">scrutiny_validator</option>
-          <option value="user_testing_validator">user_testing_validator</option>
-          <option value="research">research</option>
-          <option value="smart_friend">smart_friend</option>
-          <option value="contract_writer">contract_writer</option>
-          <option value="code_review">code_review</option>
-        </select>
-      </label>
-      <label>Status:
-        <select id="filter-status">
-          <option value="">all</option>
-          <option value="ok">ok</option>
-          <option value="failed">failed</option>
-        </select>
-      </label>
-      <span class="filter-toggle" id="toggle-failed-only">Failed only</span>
-      <span class="filter-toggle" id="toggle-spans">Group spans</span>
-    </div>
-
-    <div id="timeline"></div>
-  </div>
-
-  <div id="modal" class="hidden">
-    <div class="panel">
-      <div class="panel-header">
-        <h3 id="modal-title">Event</h3>
-        <button id="modal-close">Close (Esc)</button>
+    <div class="mission-status">
+      <div class="status-item">
+        <span class="status-label">Phase</span>
+        <span id="stat-phase" class="status-value">—</span>
       </div>
-      <pre id="modal-body"></pre>
+      <div class="status-item">
+        <span class="status-label">Engine</span>
+        <span class="status-value" style="display: flex; align-items: center; gap: 6px;">
+          <span class="status-dot active"></span>
+          Running
+        </span>
+      </div>
+      <button id="btn-plan">
+        [+] Plan Checklist
+      </button>
     </div>
   </div>
 
+  <!-- ── Original Feature Section (Goal Ticker) ── -->
+  <div id="original-feature-section" style="background: #0b0b0d; border-bottom: 1px solid #1a1a20; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.2s; flex-shrink: 0; z-index: 90;">
+    <div style="display: flex; align-items: center; gap: 16px; flex: 1; overflow: hidden;">
+      <span style="font-size: 11px; text-transform: uppercase; color: #8e8e93; letter-spacing: 1px; font-weight: 700; white-space: nowrap; font-family: 'Outfit', sans-serif;">
+        Original Feature Goal
+      </span>
+      <div style="flex: 1; overflow: hidden; display: flex; align-items: center;">
+        <marquee scrollamount="2.5" id="goal-text-marquee" style="color: #ffffff; font-weight: 600; font-size: 13px; font-family: 'JetBrains Mono', monospace;">—</marquee>
+      </div>
+    </div>
+    <div id="feature-section-btn" style="font-size: 11px; color: #8e8e93; font-family: 'JetBrains Mono', monospace; margin-left: 16px; flex-shrink: 0; border: 1px solid #222228; padding: 4px 10px; border-radius: 4px; background: #121216; transition: all 0.2s;">
+      [View Plan Checklist]
+    </div>
+  </div>
+
+  <!-- ── Plan Checklist Dialog Popup ── -->
+  <dialog id="plan-dialog" closedby="any" aria-labelledby="planDialogTitle">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid #1a1a20; padding-bottom: 12px; flex-shrink: 0;">
+      <div id="planDialogTitle" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 0.5px;">Original Feature Plan Checklist</div>
+      <button id="btn-close-plan" style="background: transparent; border: none; color: #8e8e93; font-size: 20px; cursor: pointer; line-height: 1; outline: none;">&times;</button>
+    </div>
+    <div id="plan-list">
+      <div class="empty" style="color: #8e8e93; font-style: italic;">No features defined yet.</div>
+    </div>
+  </dialog>
+
+  <!-- ── Side-by-Side 3 Column Grid ── -->
+  <div id="observatory-grid">
+
+    <!-- 1. ORCHESTRATION COLUMN -->
+    <div class="console-pane" id="pane-orchestration">
+      <div class="console-header">
+        <div class="console-title">◈ ORCHESTRATION</div>
+        <div class="console-status-badge">Root Agent</div>
+      </div>
+      <div class="console-body" id="body-orchestration">
+        <!-- Live stream content populated here -->
+      </div>
+    </div>
+
+    <!-- 2. WORKER COLUMN -->
+    <div class="console-pane" id="pane-worker">
+      <div class="console-header">
+        <div class="console-title">◇ WORKER PANEL</div>
+        <div class="console-status-badge" id="badge-worker">Sleeping</div>
+      </div>
+      <!-- Split Container inside worker for Diff viewer -->
+      <div class="worker-split-container">
+        <!-- Top Half: Terminal Logs -->
+        <div class="worker-log-pane">
+          <div class="console-body" id="body-worker">
+            <!-- Sleep screensaver or CLI logs -->
+          </div>
+        </div>
+        <!-- Bottom Half: Code Diff -->
+        <div class="worker-diff-pane" id="container-worker-diff" style="display: none;">
+          <div class="diff-header">
+            <span>Live Hunk Diff View</span>
+            <span style="font-family: monospace; font-size: 9px; color: #5c5c64;">$ git diff</span>
+          </div>
+          <div class="diff-content-scroll" id="body-worker-diff">
+            <!-- Hunk diffs loaded here -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. VALIDATOR COLUMN -->
+    <div class="console-pane" id="pane-validator">
+      <div class="console-header">
+        <div class="console-title">⬪ VALIDATION CONTROL</div>
+        <div class="console-status-badge" id="badge-validator">Sleeping</div>
+      </div>
+      <div class="console-body" id="body-validator">
+        <!-- Sleep screensaver or validator test logs -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Client Logic ── -->
   <script>
     'use strict';
 
-    // ── State ──
+    // State representation
     const state = {
       events: [],
       lastEventCount: 0,
-      filter: { type: '', level: '', status: '', search: '', failedOnly: false, groupSpans: true },
+      activeWorkerSpan: null,
+      activeValidatorSpan: null,
+      planExpanded: false
     };
 
-    // ── DOM refs ──
-    const $timeline = document.getElementById('timeline');
-    const $search = document.getElementById('search');
-    const $filterType = document.getElementById('filter-type');
-    const $filterLevel = document.getElementById('filter-level');
-    const $filterStatus = document.getElementById('filter-status');
-    const $toggleFailedOnly = document.getElementById('toggle-failed-only');
-    const $toggleSpans = document.getElementById('toggle-spans');
-    const $statTotal = document.getElementById('stat-total');
-    const $statActive = document.getElementById('stat-active');
+    // DOM references
+    const $planDialog = document.getElementById('plan-dialog');
+    const $btnClosePlan = document.getElementById('btn-close-plan');
+    const $btnPlan = document.getElementById('btn-plan');
+    const $originalFeatureSection = document.getElementById('original-feature-section');
+    const $goalTextMarquee = document.getElementById('goal-text-marquee');
     const $statPhase = document.getElementById('stat-phase');
-    const $statFailures = document.getElementById('stat-failures');
-    const $statHalts = document.getElementById('stat-halts');
-    const $modal = document.getElementById('modal');
-    const $modalTitle = document.getElementById('modal-title');
-    const $modalBody = document.getElementById('modal-body');
-    const $modalClose = document.getElementById('modal-close');
+    const $planList = document.getElementById('plan-list');
 
-    // ── Helpers ──
+    const $paneOrchestration = document.getElementById('pane-orchestration');
+    const $bodyOrchestration = document.getElementById('body-orchestration');
+
+    const $paneWorker = document.getElementById('pane-worker');
+    const $badgeWorker = document.getElementById('badge-worker');
+    const $bodyWorker = document.getElementById('body-worker');
+    const $containerWorkerDiff = document.getElementById('container-worker-diff');
+    const $bodyWorkerDiff = document.getElementById('body-worker-diff');
+
+    const $paneValidator = document.getElementById('pane-validator');
+    const $badgeValidator = document.getElementById('badge-validator');
+    const $bodyValidator = document.getElementById('body-validator');
+
+    // Toggle Checklist Dialog Popup
+    $btnPlan.addEventListener('click', () => {
+      $planDialog.showModal();
+    });
+
+    $originalFeatureSection.addEventListener('click', () => {
+      $planDialog.showModal();
+    });
+
+    $btnClosePlan.addEventListener('click', () => {
+      $planDialog.close();
+    });
+
+    // Fallback for browsers without closedby support
+    if (!('closedBy' in HTMLDialogElement.prototype)) {
+      $planDialog.addEventListener('click', (event) => {
+        if (event.target !== $planDialog) return;
+        const rect = $planDialog.getBoundingClientRect();
+        const isDialogContent = (
+          rect.top <= event.clientY &&
+          event.clientY <= rect.top + rect.height &&
+          rect.left <= event.clientX &&
+          event.clientX <= rect.left + rect.width
+        );
+        if (isDialogContent) return;
+        $planDialog.close();
+      });
+    }
+
+    // ASCII Screensavers
+    const SLEEP_ASCII_WORKER = `
+ _ _ _  _ _ _  _ _ _  _ _ _ 
+| | | || | | ||  _  ||  _  |
+| | | || | | || | | || |_| |
+|  _  ||  _  || |_| ||  _  |
+|_| |_||_| |_||_ _ _||_| |_|
+    `;
+    const SLEEP_ASCII_VALIDATOR = `
+ _ _ _  _ _ _  _ _ _  _ _ _ 
+|  _  ||  _  ||_ _ _||  _  |
+| | | || |_| |  | |  | | | |
+| |_| ||  _  |  | |  | |_| |
+|_ _ _||_| |_|  |_|  |_ _ _|
+    `;
+
+    function getSleepHtml(type, asciiText, subtitle) {
+      return `
+        <div class="screensaver-container">
+          <div class="screensaver-ascii">${asciiText}</div>
+          <div class="screensaver-text">${type} SLEEPING<span class="screensaver-cursor"></span></div>
+          <div class="screensaver-sub">${subtitle}</div>
+        </div>
+      `;
+    }
+
+    // Helper functions
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
     function fmtTime(iso) {
       try {
         const d = new Date(iso);
         return d.toTimeString().slice(0, 8);
       } catch { return '--:--:--'; }
     }
-    function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    }
+
     function summarizeEvent(e) {
       const d = e.data || {};
-      if (e.event_type === 'agent_start') return `${d.agentType || ''} ${d.featureId ? '['+d.featureId+']' : ''} ${d.milestoneId ? '['+d.milestoneId+']' : ''}`.trim();
-      if (e.event_type === 'agent_end') return `${d.featureId || d.milestoneId || ''} duration=${d.durationMs||0}ms parseStatus=${d.parseStatus||''}`.trim();
-      if (e.event_type === 'tool_call') return `${d.toolName || ''}(${JSON.stringify(d.params || {}).slice(0, 80)})`;
-      if (e.event_type === 'tool_result') return `${d.toolName || ''} → ${d.parseStatus || ''} ${d.durationMs ? d.durationMs+'ms' : ''}`;
-      if (e.event_type === 'session_tool_start') return `${d.toolName || ''} started${d.toolCallId ? ' ['+d.toolCallId+']' : ''}`;
-      if (e.event_type === 'session_tool_end') return `${d.toolName || ''} ended ${d.isError ? 'ERROR' : 'OK'} ${d.durationMs ? d.durationMs+'ms' : ''}`;
-      if (e.event_type === 'session_agent_event') return `${d.sessionEventType || ''}`;
-      if (e.event_type === 'validation_recovery') return `${d.milestoneId || ''}: ${d.fixFeatureCount || 0} fix feature(s) for ${(d.blockingIssueIds || []).join(', ')}`;
-      if (e.event_type === 'integration_preflight') return `${d.milestoneId || ''}: ${d.status || ''} on ${d.branch || 'integration'}${(d.missingFeatureIds || []).length ? ' missing '+d.missingFeatureIds.join(', ') : ''}`;
-      if (e.event_type === 'phase_transition') return `${d.from} → ${d.to} ${d.reason ? '('+d.reason+')' : ''}`;
-      if (e.event_type === 'artifact_write') return `${d.artifactName} (${d.mode}, ${d.byteCount}b)`;
-      if (e.event_type === 'decision_logged') return `[${d.decisionId}] ${d.decision || ''}`;
-      if (e.event_type === 'halt') return `${d.reason || ''} — ${d.resumeHint || ''}`;
-      if (e.event_type === 'mission_initialized') return `goal=${d.goal || '(none)'}`;
-      if (e.event_type === 'ping') return `${d.agentName || ''}: ${d.status || ''} (${d.durationMs||0}ms)${d.error ? ' — '+d.error : ''}`;
-      return JSON.stringify(d).slice(0, 100);
-    }
-    function eventMatchesSearch(e, query) {
-      if (!query) return true;
-      const haystack = JSON.stringify(e).toLowerCase();
-      return haystack.includes(query.toLowerCase());
-    }
-    function eventPassesFilters(e) {
-      const f = state.filter;
-      if (f.type && e.event_type !== f.type) return false;
-      if (f.level && e.agent_level !== f.level) return false;
-      if (f.status) {
-        const ps = e.data && e.data.parseStatus;
-        if (ps !== f.status) return false;
-      }
-      if (f.failedOnly) {
-        const isFailed = e.data && e.data.parseStatus === 'failed';
-        const isHalt = e.event_type === 'halt';
-        if (!isFailed && !isHalt) return false;
-      }
-      if (!eventMatchesSearch(e, f.search)) return false;
-      return true;
+      if (e.event_type === 'agent_start') return `Starting subagent: ${d.agentType || ''} ${d.featureId ? '['+d.featureId+']' : ''}`;
+      if (e.event_type === 'agent_end') return `Subagent finished. Status: ${d.parseStatus || 'unknown'} (${d.durationMs || 0}ms)`;
+      if (e.event_type === 'tool_call') return `${d.toolName || ''}(${JSON.stringify(d.params || {})})`;
+      if (e.event_type === 'tool_result') return `result: ${d.parseStatus || ''} \text{${d.durationMs ? '('+d.durationMs+'ms)' : ''}}`;
+      if (e.event_type === 'session_tool_start') return `Invoked tool: ${d.toolName || ''}`;
+      if (e.event_type === 'session_tool_end') return `Tool returned: ${d.isError ? 'ERROR' : 'SUCCESS'}`;
+      if (e.event_type === 'validation_recovery') return `Validation Recovery triggered for ${d.milestoneId || ''}`;
+      if (e.event_type === 'integration_preflight') return `Preflight check: ${d.status || ''}`;
+      if (e.event_type === 'phase_transition') return `Phase transition: ${d.from} → \sub{${d.to}}`;
+      if (e.event_type === 'artifact_write') return `Wrote file: ${d.artifactName}`;
+      if (e.event_type === 'halt') return `HALT: ${d.reason || ''}`;
+      return d.message || JSON.stringify(d);
     }
 
-    // ── Stats ──
-    function updateStats() {
-      const events = state.events;
-      $statTotal.textContent = events.length;
-      const active = new Set();
-      for (const e of events) {
-        if (e.event_type === 'agent_start' && e.agent_level) active.add(e.span_id);
-        if (e.event_type === 'agent_end' && e.span_id) active.delete(e.span_id);
+    // Diff rendering logic (hunks)
+    function parseUnifiedDiff(diffText) {
+      const lines = diffText.split('\n');
+      const files = [];
+      let currentFile = null;
+      let currentHunk = null;
+
+      for (const line of lines) {
+        if (line.startsWith('diff --git')) {
+          currentFile = { hunks: [] };
+          files.push(currentFile);
+          currentHunk = null;
+        } else if (line.startsWith('@@')) {
+          const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+          if (match) {
+            currentHunk = {
+              oldStart: parseInt(match[1], 10),
+              oldCount: parseInt(match[2] || '1', 10),
+              newStart: parseInt(match[3], 10),
+              newCount: parseInt(match[4] || '1', 10),
+              lines: []
+            };
+            if (currentFile) currentFile.hunks.push(currentHunk);
+          }
+        } else if (currentHunk && (line.startsWith(' ') || line.startsWith('+') || line.startsWith('-'))) {
+          const type = line[0] === '+' ? 'add' : line[0] === '-' ? 'del' : 'ctx';
+          currentHunk.lines.push({ type, text: line.slice(1) });
+        }
       }
-      $statActive.textContent = active.size;
-      const phase = [...events].reverse().find(e => e.event_type === 'phase_transition');
-      $statPhase.textContent = phase ? (phase.data.to || '—') : '—';
-      const failures = events.filter(e => e.data && e.data.parseStatus === 'failed').length;
-      $statFailures.textContent = failures;
-      $statHalts.textContent = events.filter(e => e.event_type === 'halt').length;
+      return files;
     }
 
-    // ── Span tree builder ──
-    function buildSpanTree(events) {
-      // Map: span_id -> { start: event, end: event, children: [event...] }
-      const spans = new Map();
-      const loose = [];
+    function renderDiff(diffText) {
+      if (!diffText || !diffText.trim()) {
+        return '<div style="color: #5c5c64; font-style: italic; text-align: center; margin-top: 15px;">No file modifications.</div>';
+      }
+      const files = parseUnifiedDiff(diffText);
+      if (files.length === 0 || files.every(f => f.hunks.length === 0)) {
+        return '<div style="color: #5c5c64; font-style: italic; text-align: center; margin-top: 15px;">No file modifications.</div>';
+      }
+      let html = '<div class="diff-container">';
+      for (const file of files) {
+        for (const hunk of file.hunks) {
+          html += '<div class="diff-hunk">';
+          html += `<div class="diff-hunk-header">@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@</div>`;
+          let oldNum = hunk.oldStart;
+          let newNum = hunk.newStart;
+          for (const line of hunk.lines) {
+            let oldNumStr = '';
+            let newNumStr = '';
+            let typeClass = '';
+            let indicator = '';
+            if (line.type === 'ctx') {
+              oldNumStr = oldNum;
+              newNumStr = newNum;
+              oldNum++;
+              newNum++;
+              typeClass = 'diff-line-ctx';
+              indicator = ' ';
+            } else if (line.type === 'del') {
+              oldNumStr = oldNum;
+              oldNum++;
+              typeClass = 'diff-line-del';
+              indicator = '-';
+            } else if (line.type === 'add') {
+              newNumStr = newNum;
+              newNum++;
+              typeClass = 'diff-line-add';
+              indicator = '+';
+            }
+            html += `<div class="diff-line ${typeClass}">
+              <span class="diff-line-num">${oldNumStr}</span>
+              <span class="diff-line-ind">${indicator}</span>
+              <span class="diff-line-text">${escapeHtml(line.text)}</span>
+            </div>`;
+          }
+          html += '</div>';
+        }
+      }
+      html += '</div>';
+      return html;
+    }
+
+    // Rendering event rows inside terminal feeds
+    function getEventRowHtml(e) {
+      const timeStr = `[${fmtTime(e.timestamp)}]`;
+      
+      if (e.event_type === 'decision_logged' && e.data && e.data.decision) {
+        return `
+          <div class="thought-card">
+            <div class="thought-header">Thought Process</div>
+            <div>${escapeHtml(e.data.decision)}</div>
+          </div>
+        `;
+      }
+
+      if (e.event_type === 'tool_call' || e.event_type === 'session_tool_start') {
+        const toolName = e.data.toolName;
+        const params = e.data.params || {};
+        const cmd = params.CommandLine || JSON.stringify(params, null, 2);
+        return `
+          <div class="tool-execution-card">
+            <div class="tool-exec-header">
+              <span class="tool-exec-name">${escapeHtml(toolName)}</span>
+              <span class="tool-exec-status running">Executing</span>
+            </div>
+            <div class="tool-exec-cmd">$ ${escapeHtml(cmd)}</div>
+          </div>
+        `;
+      }
+
+      if (e.event_type === 'tool_result' || e.event_type === 'session_tool_end') {
+        const isError = e.data.isError || e.data.parseStatus === 'failed';
+        const statusLabel = isError ? 'FAILED' : 'COMPLETED';
+        return `
+          <div class="system-log">
+            <b>${statusLabel}</b> — ${escapeHtml(summarizeEvent(e))}
+          </div>
+        `;
+      }
+
+      const summary = summarizeEvent(e);
+      return `
+        <div class="cli-line">
+          <span class="cli-prompt">$</span>
+          <span class="cli-content">${escapeHtml(summary)}</span>
+        </div>
+      `;
+    }
+
+    // Core Processing & Rendering
+    function processEvents(events) {
+      // Find active worker/validator spans
+      let activeWorker = null;
+      let activeValidator = null;
+
       for (const e of events) {
         if (e.event_type === 'agent_start') {
-          spans.set(e.span_id, { start: e, end: null, children: [] });
-        } else if (e.event_type === 'agent_end' && spans.has(e.span_id)) {
-          spans.get(e.span_id).end = e;
-        } else {
-          loose.push(e);
-        }
-      }
-      // Attach children by parent_span_id
-      const grouped = [];
-      for (const e of loose) {
-        const parent = e.parent_span_id && spans.get(e.parent_span_id);
-        if (parent) {
-          parent.children.push(e);
-        } else {
-          grouped.push({ type: 'loose', event: e });
-        }
-      }
-      for (const [spanId, span] of spans) {
-        grouped.push({ type: 'span', spanId, span });
-      }
-      // Sort by start timestamp of the leading event
-      grouped.sort((a, b) => {
-        const tsA = a.type === 'span' ? a.span.start.timestamp : a.event.timestamp;
-        const tsB = b.type === 'span' ? b.span.start.timestamp : b.event.timestamp;
-        return tsA.localeCompare(tsB);
-      });
-      return grouped;
-    }
-
-    // ── Render ──
-    function renderTimeline() {
-      const filtered = state.events.filter(eventPassesFilters);
-      const html = [];
-      if (filtered.length === 0) {
-        html.push('<div class="empty">No events yet. The observatory will populate as the mission runs.</div>');
-      } else if (state.filter.groupSpans) {
-        const groups = buildSpanTree(filtered);
-        for (const g of groups) {
-          if (g.type === 'loose') {
-            html.push(renderEventRow(g.event));
-          } else {
-            html.push(renderSpanCard(g.span));
+          if (e.agent_level === 'worker') {
+            activeWorker = e.span_id;
+          } else if (e.agent_level && e.agent_level.includes('validator')) {
+            activeValidator = e.span_id;
+          }
+        } else if (e.event_type === 'agent_end') {
+          if (e.agent_level === 'worker' && activeWorker === e.span_id) {
+            activeWorker = null;
+          } else if (e.agent_level && e.agent_level.includes('validator') && activeValidator === e.span_id) {
+            activeValidator = null;
           }
         }
+      }
+
+      state.activeWorkerSpan = activeWorker;
+      state.activeValidatorSpan = activeValidator;
+
+      // Filter events per column
+      const orchEvents = [];
+      const workerEvents = [];
+      const validatorEvents = [];
+
+      for (const e of events) {
+        // Orchestrator
+        if (e.agent_level === 'orchestrator' || !e.agent_level || e.event_type === 'phase_transition' || e.event_type === 'halt') {
+          orchEvents.push(e);
+        }
+        
+        // Worker
+        if (e.agent_level === 'worker' || e.parent_span_id === activeWorker || e.span_id === activeWorker) {
+          workerEvents.push(e);
+        }
+        
+        // Validator
+        if ((e.agent_level && e.agent_level.includes('validator')) || e.parent_span_id === activeValidator || e.span_id === activeValidator) {
+          validatorEvents.push(e);
+        }
+      }
+
+      // Render Orchestration
+      $paneOrchestration.classList.add('active-running');
+      $bodyOrchestration.innerHTML = orchEvents.map(getEventRowHtml).join('');
+      $bodyOrchestration.scrollTop = $bodyOrchestration.scrollHeight;
+
+      // Render Worker
+      if (state.activeWorkerSpan) {
+        $paneWorker.classList.add('active-running');
+        $badgeWorker.textContent = 'Running';
+        $bodyWorker.innerHTML = workerEvents.map(getEventRowHtml).join('');
+        $bodyWorker.scrollTop = $bodyWorker.scrollHeight;
+        $containerWorkerDiff.style.display = 'flex';
       } else {
-        for (const e of filtered) {
-          html.push(renderEventRow(e));
-        }
+        $paneWorker.classList.remove('active-running');
+        $badgeWorker.textContent = 'Sleeping';
+        $bodyWorker.innerHTML = getSleepHtml('Worker', SLEEP_ASCII_WORKER, 'Waiting for Orchestrator to compile features.');
+        $containerWorkerDiff.style.display = 'none';
       }
-      $timeline.innerHTML = html.join('');
-    }
 
-    function renderEventRow(e) {
-      const summary = summarizeEvent(e);
-      const status = e.data && e.data.parseStatus;
-      const classes = ['event', `event-${e.event_type}`];
-      if (e.agent_level) classes.push(`level-${e.agent_level}`);
-      if (status === 'failed') classes.push('parseStatus-failed', 'failed');
-      else if (status === 'ok') classes.push('parseStatus-ok');
-      const statusHtml = status ? `<span class="status status-${status}">${status}</span>` : '';
-      return `<div class="${classes.join(' ')}" data-event-id="${e.span_id}">
-        <span class="ts">${fmtTime(e.timestamp)}</span>
-        <span class="type">${e.event_type}</span>
-        <span class="level">${e.agent_level || ''}</span>
-        <span class="summary">${escapeHtml(summary)}</span>
-        ${statusHtml}
-      </div>`;
-    }
-
-    function renderSpanCard(span) {
-      const start = span.start;
-      const end = span.end;
-      const endTs = end ? new Date(end.timestamp).getTime() : Date.now();
-      const startTs = new Date(start.timestamp).getTime();
-      const durationMs = endTs - startTs;
-      const status = end && end.data && end.data.parseStatus;
-      const level = start.agent_level || 'agent';
-      const title = `${level}${start.data && start.data.featureId ? ' ['+start.data.featureId+']' : ''}${start.data && start.data.milestoneId ? ' ['+start.data.milestoneId+']' : ''}`;
-      const meta = `${durationMs}ms${status ? ' · '+status : ''}${span.children.length ? ' · '+span.children.length+' nested' : ''}`;
-      const statusHtml = status ? `<span class="status status-${status}">${status}</span>` : '';
-      const childHtml = span.children.length === 0
-        ? '<div class="empty" style="padding: 8px 0; font-size: 11px;">No nested events.</div>'
-        : span.children.map(c => {
-            const childStatus = c.data && c.data.parseStatus;
-            const childClasses = ['nested-event'];
-            if (childStatus === 'failed' || c.event_type === 'halt') childClasses.push('failed');
-            return `<div class="${childClasses.join(' ')}" data-event-id="${c.span_id}">
-              <span class="ts">${fmtTime(c.timestamp)}</span>
-              <span>${c.event_type}</span>
-              <span class="summary">${escapeHtml(summarizeEvent(c))}</span>
-            </div>`;
-          }).join('');
-      return `<div class="span-card">
-        <div class="span-header" data-span-toggle="${start.span_id}">
-          <span class="span-toggle">▼</span>
-          <span class="span-title">${escapeHtml(title)}</span>
-          <span class="span-meta">${escapeHtml(meta)}</span>
-          ${statusHtml}
-        </div>
-        <div class="span-body" data-span-body="${start.span_id}">${childHtml}</div>
-      </div>`;
-    }
-
-    // ── Modal ──
-    function openModal(e) {
-      $modalTitle.textContent = `${e.event_type}${e.agent_level ? ' ('+e.agent_level+')' : ''} — ${e.timestamp}`;
-      $modalBody.textContent = JSON.stringify(e, null, 2);
-      $modal.classList.remove('hidden');
-    }
-    function closeModal() { $modal.classList.add('hidden'); }
-    $modalClose.addEventListener('click', closeModal);
-    $modal.addEventListener('click', (ev) => { if (ev.target === $modal) closeModal(); });
-    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeModal(); });
-
-    // Event delegation for clicks on event rows.
-    $timeline.addEventListener('click', (ev) => {
-      const row = ev.target.closest('[data-event-id]');
-      if (row) {
-        const id = row.dataset.eventId;
-        const e = state.events.find(ev => ev.span_id === id);
-        if (e) openModal(e);
-        return;
+      // Render Validator
+      if (state.activeValidatorSpan) {
+        $paneValidator.classList.add('active-running');
+        $badgeValidator.textContent = 'Running';
+        $bodyValidator.innerHTML = validatorEvents.map(getEventRowHtml).join('');
+        $bodyValidator.scrollTop = $bodyValidator.scrollHeight;
+      } else {
+        $paneValidator.classList.remove('active-running');
+        $badgeValidator.textContent = 'Sleeping';
+        $bodyValidator.innerHTML = getSleepHtml('Validator', SLEEP_ASCII_VALIDATOR, 'Awaiting test verification from Worker output.');
       }
-      const toggle = ev.target.closest('[data-span-toggle]');
-      if (toggle) {
-        const id = toggle.dataset.spanToggle;
-        const body = document.querySelector(`[data-span-body="${id}"]`);
-        const caret = toggle.querySelector('.span-toggle');
-        if (body) {
-          body.classList.toggle('collapsed');
-          if (caret) caret.textContent = body.classList.contains('collapsed') ? '▶' : '▼';
-        }
-      }
-    });
+    }
 
-    // ── Filter wiring ──
-    $search.addEventListener('input', () => { state.filter.search = $search.value; renderTimeline(); });
-    $filterType.addEventListener('change', () => { state.filter.type = $filterType.value; renderTimeline(); });
-    $filterLevel.addEventListener('change', () => { state.filter.level = $filterLevel.value; renderTimeline(); });
-    $filterStatus.addEventListener('change', () => { state.filter.status = $filterStatus.value; renderTimeline(); });
-    $toggleFailedOnly.addEventListener('click', () => {
-      state.filter.failedOnly = !state.filter.failedOnly;
-      $toggleFailedOnly.classList.toggle('active', state.filter.failedOnly);
-      renderTimeline();
-    });
-    $toggleSpans.addEventListener('click', () => {
-      state.filter.groupSpans = !state.filter.groupSpans;
-      $toggleSpans.classList.toggle('active', state.filter.groupSpans);
-      renderTimeline();
-    });
-    $toggleSpans.classList.add('active'); // default on
-
-    // ── Polling ──
+    // API Polling Functions
     async function pollEvents() {
       try {
         const res = await fetch('/api/events');
@@ -578,14 +901,64 @@
         if (events.length === state.lastEventCount) return;
         state.events = events;
         state.lastEventCount = events.length;
-        updateStats();
-        renderTimeline();
+        processEvents(events);
       } catch (err) {
-        console.error('Polling failed:', err);
+        console.error('Failed to poll events:', err);
       }
     }
+
+    async function pollDiff() {
+      try {
+        const res = await fetch('/api/diff');
+        if (!res.ok) return;
+        const data = await res.json();
+        $bodyWorkerDiff.innerHTML = renderDiff(data.diff);
+      } catch (err) {
+        console.error('Failed to poll diffs:', err);
+      }
+    }
+
+    async function pollMission() {
+      try {
+        const res = await fetch('/api/mission');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Update Goal
+        $goalTextMarquee.textContent = data.requirements?.goal || 'No goal specified';
+        $statPhase.textContent = data.state?.phase || '—';
+
+        // Plan features list
+        const features = data.features?.features || [];
+        if (features.length === 0) {
+          $planList.innerHTML = '<div style="color: #8e8e93; font-style: italic;">No features defined yet.</div>';
+        } else {
+          $planList.innerHTML = features.map(f => {
+            const isDone = f.status === 'completed';
+            const checkbox = isDone ? '[✓]' : (f.status === 'active' || f.status === 'running' ? '[●]' : '[ ]');
+            return `
+              <div class="plan-item ${isDone ? 'completed' : ''}">
+                <div class="plan-item-checkbox">${checkbox}</div>
+                <div class="plan-item-text"><b>${escapeHtml(f.id)}</b>: ${escapeHtml(f.title || '')}</div>
+              </div>
+            `;
+          }).join('');
+        }
+      } catch (err) {
+        console.error('Failed to poll mission state:', err);
+      }
+    }
+
+    // Initialize Polling loops
     pollEvents();
     setInterval(pollEvents, 500);
+
+    pollDiff();
+    setInterval(pollDiff, 1000);
+
+    pollMission();
+    setInterval(pollMission, 1000);
+
   </script>
 </body>
 </html>
