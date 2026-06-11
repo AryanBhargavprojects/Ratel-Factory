@@ -11,6 +11,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
   <a href="#architecture">Architecture</a> •
+  <a href="#adapters">Adapters</a> •
   <a href="#how-it-works">How It Works</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#development">Development</a>
@@ -40,6 +41,38 @@ Ratel is an **AI Software Factory** — a framework for running autonomous softw
 
 ### Installation
 
+Ratel supports multiple coding agents. Choose the installer for your agent:
+
+#### OpenCode
+
+```bash
+curl -fsSL https://ratel.dev/install-opencode.sh | bash
+```
+
+This installs:
+- `@ratel/core` — the factory service
+- `@ratel/opencode` — the OpenCode plugin with `/ratel` commands and tools
+- Command stubs: `/ratel`, `/ratel-mission`, `/ratel-observatory`
+- Starts the Ratel service in the background
+
+#### Pi SDK
+
+```bash
+curl -fsSL https://ratel.dev/install-pi.sh | bash
+```
+
+This installs:
+- `@ratel/core` — the factory service
+- `@ratel/pi-extension` — the Pi extension with lifecycle hooks and tools
+- Starts the Ratel service in the background
+
+Then activate the extension:
+```bash
+pi install @ratel/pi-extension
+```
+
+#### Development (from source)
+
 ```bash
 # Clone the repository
 git clone <repository-url>
@@ -48,11 +81,21 @@ cd ratel
 # Install dependencies
 npm install
 
-# Build the factory
-npm run build
+# Build all packages
+npm run build:all
 
-# Start the factory in development mode
+# Start the factory in direct mode
 npm run dev
+```
+
+**Installer flags:**
+- `--dev` — Install from local workspace instead of npm
+- `--port 9999` — Override the default service port (8765)
+- `--help` — Show usage
+
+**Example:**
+```bash
+bash install/install-opencode.sh --dev --port 9999
 ```
 
 ### Running a Mission
@@ -69,7 +112,17 @@ npm run dev
 ## Architecture
 
 ```
-User
+User (OpenCode or Pi SDK)
+  ↓
+Adapter (thin wrapper — no orchestration logic)
+  │   • OpenCode Plugin: /ratel commands, ratel_start_mission tool
+  │   • Pi Extension: lifecycle hooks, phase management, tools
+  ↓
+Ratel Service (HTTP API)
+  │   • Mission management
+  │   • Worker spawning
+  │   • Validation
+  │   • Observatory
   ↓
 Orchestrator (mission planning, user interaction, phase transitions)
   ├─→ Research Agent (read-only investigation)
@@ -81,6 +134,16 @@ Orchestrator (mission planning, user interaction, phase transitions)
   └─→ User-Testing Validator (browser-based scenario execution)
             └─→ Sharded per .feature file
 ```
+
+### Adapter Architecture
+
+Ratel uses a **service-first** architecture:
+
+- **Core Service** (`@ratel/core`) — runs as a standalone HTTP service. All state lives here.
+- **Adapters** are thin HTTP clients that register tools/commands with the agent's extension API.
+- **Direct mode** — `src/adapters/pi-sdk/main.ts` runs the core in-process without the HTTP layer (for development).
+
+**Key rule:** Adapters hold no state. All state lives in the service.
 
 ### Key Components
 
@@ -183,38 +246,84 @@ See `skills-lock.json` for the skills manifest.
 ### Scripts
 
 ```bash
-npm run dev       # Start factory in development mode (tsx)
-npm run build     # Compile TypeScript to dist/
-npm start         # Run compiled factory (node dist/main.js)
-npm test          # Run all tests (77 tests)
+# Development
+npm run dev          # Start factory in direct mode (tsx)
+npm run dev:core     # Start core service (tsx)
+
+# Building
+npm run build        # Build root package
+npm run build:all    # Build all packages
+
+# Testing
+npm test             # Run all tests (10 tests)
+npm test:all         # Test all packages
+
+# Running
+npm start            # Run compiled factory (node dist/main.js)
+
+# Package-specific
+npm run build --workspace=packages/core
+npm run build --workspace=packages/opencode-plugin
+npm run build --workspace=packages/pi-extension
 ```
 
 ### Project Structure
 
 ```
 ratel/
-├── src/                    # Factory source code
-│   ├── main.ts            # Entry point, session lifecycle
-│   ├── orchestrator.ts    # OrchestratorAgent class
-│   ├── worker.ts          # Worker agent spawning
-│   ├── validators.ts      # Scrutiny & user-testing validators
-│   ├── tools.ts           # Orchestrator tool definitions
-│   ├── prompts.ts         # System prompts for all agents
-│   ├── workspace-resolution.ts  # Canonical workspace discovery
-│   ├── user-testing-coordinator.ts  # Shard coordinator
-│   ├── feature-completion.ts      # Completion gate logic
-│   ├── report-submission.ts       # Structured report tools
-│   ├── mission-schema.ts         # Artifact normalization
-│   ├── artifacts.ts              # Mission artifact I/O
-│   ├── types.ts                 # TypeScript interfaces
-│   └── ...
-├── test/                   # Factory tests (14 test files)
+├── packages/
+│   ├── core/                     # @ratel/core — Factory service
+│   │   ├── src/
+│   │   │   ├── api.ts            # HTTP API server
+│   │   │   ├── index.ts          # Service entry point
+│   │   │   ├── core/             # Factory core logic
+│   │   │   │   ├── orchestrator.ts
+│   │   │   │   ├── tools.ts
+│   │   │   │   ├── workers/
+│   │   │   │   ├── mission/
+│   │   │   │   └── ...
+│   │   │   └── observatory/      # Dashboard service
+│   │   └── package.json
+│   │
+│   ├── opencode-plugin/          # @ratel/opencode — OpenCode plugin
+│   │   ├── src/
+│   │   │   ├── plugin.ts         # Plugin entry
+│   │   │   ├── service.ts        # HTTP client
+│   │   │   ├── commands.ts       # Command handlers
+│   │   │   └── prompts.ts        # Prompts
+│   │   ├── commands/             # Slash command stubs
+│   │   │   ├── ratel.md
+│   │   │   ├── ratel-mission.md
+│   │   │   └── ratel-observatory.md
+│   │   └── package.json
+│   │
+│   └── pi-extension/             # @ratel/pi-extension — Pi extension
+│       ├── src/
+│       │   ├── extension.ts      # Extension entry
+│       │   ├── service.ts        # HTTP client
+│       │   ├── tool-scope.ts     # Phase management
+│       │   ├── commands.ts       # Command handlers
+│       │   └── prompts.ts        # Prompts
+│       └── package.json
+│
+├── src/                    # Factory source code (backward compat)
+│   ├── core/              # Original core logic
+│   ├── observatory/       # Original observatory
+│   └── adapters/          # Pi SDK direct mode
+│       └── pi-sdk/
+│           ├── main.ts    # Direct/headless entry
+│           └── agents.ts  # Pi-specific helpers
+│
+├── test/                   # Factory tests (10 tests)
+├── install/               # Installer scripts
+│   ├── install-opencode.sh
+│   └── install-pi.sh
+│
 ├── .pi/skills/            # Pi SDK skills
 ├── skills/                # Custom skills
-├── skills-lock.json       # Skills manifest
 ├── ratel.json             # Factory configuration
 ├── tsconfig.json          # TypeScript configuration
-└── package.json           # Dependencies (Pi SDK, TypeBox)
+└── package.json           # Workspace root
 ```
 
 ### Testing
@@ -235,6 +344,55 @@ When the factory starts, it launches a read-only observatory dashboard:
 - URL: `http://localhost:8765` (auto-falls back if port busy)
 - Shows: agent spans, tool calls, parse status, phase transitions, halt events
 - Data source: `.missions/current/events.jsonl`
+
+---
+
+## Adapters
+
+### OpenCode Plugin (`@ratel/opencode`)
+
+**Commands:**
+- `/ratel` — Toggle factory mode
+- `/ratel-mission` — Show current mission status
+- `/ratel-observatory` — Open Observatory dashboard
+
+**Tools:**
+- `ratel_start_mission` — Start a new mission with a goal
+- `ratel_get_status` — Get mission status
+- `ratel_run_worker` — Run a worker for a feature
+- `ratel_run_validation` — Run validation for a milestone
+
+### Pi Extension (`@ratel/pi-extension`)
+
+**Commands:**
+- `/ratel` — Toggle factory mode
+- `/ratel-mission` — Show current mission status
+- `/ratel-observatory` — Open Observatory dashboard
+
+**Tools:**
+- `ratel_start_mission` — Start a new mission
+- `ratel_run_worker` — Run a worker for a feature
+- `ratel_run_validator` — Run validation for a milestone
+
+**Lifecycle hooks:**
+- `session_start` — Restore persisted phase state
+- `before_agent_start` — Inject factory context
+- `turn_end` — Track phase transitions based on tool usage
+- `tool_call` — Gate writes during planning phase
+
+### Service API
+
+```bash
+GET  /health                    → { status: "ok" }
+POST /api/mission/start         → { goal: string } → { missionId }
+GET  /api/mission/status        → { missionId } → { state }
+POST /api/mission/worker        → { missionId, featureId } → { status }
+POST /api/mission/validate      → { missionId, milestoneId } → { status }
+GET  /api/mission/artifacts     → { missionId } → { artifacts }
+POST /api/mission/complete      → { missionId, featureId } → { status }
+GET  /api/observatory/events    → { events }
+GET  /api/observatory/status    → { enabled, url }
+```
 
 ---
 

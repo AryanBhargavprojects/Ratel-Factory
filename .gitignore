@@ -36,10 +36,12 @@ test-directory*/
 implementation_spec.md
 context.md
 factory_analysis.md
-
 .pi/orch/
-
 build-cmd.sh
+adapter_plan.md
+
+# reference directories
+plannotator/
 
 # Brainstorm session files
 .superpowers/

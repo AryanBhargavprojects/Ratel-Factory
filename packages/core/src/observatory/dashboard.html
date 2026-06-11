@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ratel Observatory</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-size: 13px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    /* ── Layout ── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    #stats-bar {
+      display: flex;
+      gap: 24px;
+      padding: 10px 16px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      flex-shrink: 0;
+    }
+    .stat { display: flex; flex-direction: column; gap: 2px; }
+    .stat-label { font-size: 10px; text-transform: uppercase; color: #8b949e; letter-spacing: 0.5px; }
+    .stat-value { font-size: 16px; font-weight: 600; color: #f0f6fc; }
+    .stat-value.failed { color: #f85149; }
+
+    #filters {
+      display: flex;
+      gap: 12px;
+      padding: 8px 16px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      flex-shrink: 0;
+      align-items: center;
+    }
+    #filters input[type="text"] {
+      flex: 1;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    #filters select {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #filters label { color: #8b949e; font-size: 11px; }
+    #filters .filter-toggle {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      user-select: none;
+    }
+    #filters .filter-toggle.active {
+      background: #1f6feb;
+      border-color: #1f6feb;
+      color: white;
+    }
+
+    /* ── Timeline ── */
+    #timeline {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+    .event {
+      display: flex;
+      gap: 8px;
+      padding: 6px 10px;
+      margin-bottom: 4px;
+      border-radius: 4px;
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-left: 3px solid #30363d;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.1s;
+    }
+    .event:hover { background: #1c2128; }
+    .event .ts { color: #6e7681; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .event .type { font-weight: 600; flex-shrink: 0; min-width: 110px; }
+    .event .level { color: #8b949e; flex-shrink: 0; min-width: 100px; }
+    .event .summary { color: #c9d1d9; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .event .status { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
+
+    /* ── Color rules ── */
+    .event.failed, .event.parseStatus-failed { border-left-color: #f85149 !important; background: #2d1213; }
+    .event.event-halt { background: #2d1213; border-left-color: #f85149 !important; }
+    .event.event-phase_transition { border-left-color: #58a6ff; }
+    .event.event-agent_start { border-left-color: #d2a8ff; }
+    .event.event-agent_end { border-left-color: #d2a8ff; }
+    .event.level-worker { background: rgba(63, 185, 80, 0.05); }
+    .event.level-scrutiny_validator { background: rgba(255, 138, 0, 0.07); }
+    .event.level-user_testing_validator { background: rgba(191, 87, 230, 0.07); }
+    .event.event-tool_call { background: #1c2128; }
+    .event.event-tool_result { background: #1c2128; }
+    .event.event-session_tool_start { background: rgba(88, 166, 255, 0.06); }
+    .event.event-session_tool_end { background: rgba(88, 166, 255, 0.06); }
+    .event.event-validation_recovery { background: rgba(255, 138, 0, 0.10); border-left-color: #ff8a00; }
+    .event.event-integration_preflight { background: rgba(255, 138, 0, 0.10); border-left-color: #ff8a00; }
+    .event.event-tool_result.parseStatus-ok { border-left-color: #3fb950; }
+    .event.event-ping { background: #1c2128; border-left-color: #e3b341; }
+    .event.event-ping.failed { border-left-color: #f85149 !important; background: #2d1213; }
+
+    .status-ok { background: #1a3d23; color: #3fb950; }
+    .status-failed { background: #3d1a1a; color: #f85149; }
+    .status-info { background: #1a2d3d; color: #58a6ff; }
+
+    /* ── Agent span cards ── */
+    .span-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-left: 3px solid #d2a8ff;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+    .span-header {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .span-header:hover { background: #1c2128; }
+    .span-toggle { color: #8b949e; font-size: 11px; width: 12px; flex-shrink: 0; }
+    .span-title { font-weight: 600; color: #d2a8ff; }
+    .span-meta { color: #8b949e; font-size: 11px; margin-left: auto; }
+    .span-body {
+      padding: 4px 12px 12px 32px;
+      border-top: 1px solid #21262d;
+    }
+    .span-body.collapsed { display: none; }
+
+    .nested-event {
+      display: flex;
+      gap: 8px;
+      padding: 4px 8px;
+      margin: 2px 0;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      border-left: 2px solid #30363d;
+    }
+    .nested-event:hover { background: #1c2128; }
+    .nested-event.failed { border-left-color: #f85149; background: #2d1213; }
+    .nested-event .ts { color: #6e7681; font-variant-numeric: tabular-nums; }
+    .nested-event .summary { color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── Modal ── */
+    #modal {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    #modal.hidden { display: none; }
+    #modal .panel {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      width: 80%;
+      max-width: 900px;
+      max-height: 80%;
+      display: flex;
+      flex-direction: column;
+    }
+    #modal .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid #30363d;
+    }
+    #modal .panel-header h3 { color: #f0f6fc; font-size: 14px; }
+    #modal .panel-header button {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    #modal pre {
+      padding: 16px;
+      overflow: auto;
+      flex: 1;
+      font-size: 12px;
+      color: #c9d1d9;
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .empty {
+      text-align: center;
+      color: #6e7681;
+      padding: 40px 20px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="stats-bar">
+      <div class="stat">
+        <div class="stat-label">Total Events</div>
+        <div class="stat-value" id="stat-total">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Active Agents</div>
+        <div class="stat-value" id="stat-active">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Latest Phase</div>
+        <div class="stat-value" id="stat-phase">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Parse Failures</div>
+        <div class="stat-value failed" id="stat-failures">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Halts</div>
+        <div class="stat-value failed" id="stat-halts">0</div>
+      </div>
+    </div>
+
+    <div id="filters">
+      <input type="text" id="search" placeholder="Search events..." />
+      <label>Type:
+        <select id="filter-type">
+          <option value="">all</option>
+          <option value="agent_start">agent_start</option>
+          <option value="agent_end">agent_end</option>
+          <option value="tool_call">tool_call</option>
+          <option value="tool_result">tool_result</option>
+          <option value="phase_transition">phase_transition</option>
+          <option value="artifact_write">artifact_write</option>
+          <option value="state_loaded">state_loaded</option>
+          <option value="decision_logged">decision_logged</option>
+          <option value="halt">halt</option>
+          <option value="mission_initialized">mission_initialized</option>
+          <option value="ping">ping</option>
+          <option value="session_tool_start">session_tool_start</option>
+          <option value="session_tool_end">session_tool_end</option>
+          <option value="session_agent_event">session_agent_event</option>
+          <option value="validation_recovery">validation_recovery</option>
+          <option value="integration_preflight">integration_preflight</option>
+        </select>
+      </label>
+      <label>Level:
+        <select id="filter-level">
+          <option value="">all</option>
+          <option value="orchestrator">orchestrator</option>
+          <option value="worker">worker</option>
+          <option value="scrutiny_validator">scrutiny_validator</option>
+          <option value="user_testing_validator">user_testing_validator</option>
+          <option value="research">research</option>
+          <option value="smart_friend">smart_friend</option>
+          <option value="contract_writer">contract_writer</option>
+          <option value="code_review">code_review</option>
+        </select>
+      </label>
+      <label>Status:
+        <select id="filter-status">
+          <option value="">all</option>
+          <option value="ok">ok</option>
+          <option value="failed">failed</option>
+        </select>
+      </label>
+      <span class="filter-toggle" id="toggle-failed-only">Failed only</span>
+      <span class="filter-toggle" id="toggle-spans">Group spans</span>
+    </div>
+
+    <div id="timeline"></div>
+  </div>
+
+  <div id="modal" class="hidden">
+    <div class="panel">
+      <div class="panel-header">
+        <h3 id="modal-title">Event</h3>
+        <button id="modal-close">Close (Esc)</button>
+      </div>
+      <pre id="modal-body"></pre>
+    </div>
+  </div>
+
+  <script>
+    'use strict';
+
+    // ── State ──
+    const state = {
+      events: [],
+      lastEventCount: 0,
+      filter: { type: '', level: '', status: '', search: '', failedOnly: false, groupSpans: true },
+    };
+
+    // ── DOM refs ──
+    const $timeline = document.getElementById('timeline');
+    const $search = document.getElementById('search');
+    const $filterType = document.getElementById('filter-type');
+    const $filterLevel = document.getElementById('filter-level');
+    const $filterStatus = document.getElementById('filter-status');
+    const $toggleFailedOnly = document.getElementById('toggle-failed-only');
+    const $toggleSpans = document.getElementById('toggle-spans');
+    const $statTotal = document.getElementById('stat-total');
+    const $statActive = document.getElementById('stat-active');
+    const $statPhase = document.getElementById('stat-phase');
+    const $statFailures = document.getElementById('stat-failures');
+    const $statHalts = document.getElementById('stat-halts');
+    const $modal = document.getElementById('modal');
+    const $modalTitle = document.getElementById('modal-title');
+    const $modalBody = document.getElementById('modal-body');
+    const $modalClose = document.getElementById('modal-close');
+
+    // ── Helpers ──
+    function fmtTime(iso) {
+      try {
+        const d = new Date(iso);
+        return d.toTimeString().slice(0, 8);
+      } catch { return '--:--:--'; }
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function summarizeEvent(e) {
+      const d = e.data || {};
+      if (e.event_type === 'agent_start') return `${d.agentType || ''} ${d.featureId ? '['+d.featureId+']' : ''} ${d.milestoneId ? '['+d.milestoneId+']' : ''}`.trim();
+      if (e.event_type === 'agent_end') return `${d.featureId || d.milestoneId || ''} duration=${d.durationMs||0}ms parseStatus=${d.parseStatus||''}`.trim();
+      if (e.event_type === 'tool_call') return `${d.toolName || ''}(${JSON.stringify(d.params || {}).slice(0, 80)})`;
+      if (e.event_type === 'tool_result') return `${d.toolName || ''} → ${d.parseStatus || ''} ${d.durationMs ? d.durationMs+'ms' : ''}`;
+      if (e.event_type === 'session_tool_start') return `${d.toolName || ''} started${d.toolCallId ? ' ['+d.toolCallId+']' : ''}`;
+      if (e.event_type === 'session_tool_end') return `${d.toolName || ''} ended ${d.isError ? 'ERROR' : 'OK'} ${d.durationMs ? d.durationMs+'ms' : ''}`;
+      if (e.event_type === 'session_agent_event') return `${d.sessionEventType || ''}`;
+      if (e.event_type === 'validation_recovery') return `${d.milestoneId || ''}: ${d.fixFeatureCount || 0} fix feature(s) for ${(d.blockingIssueIds || []).join(', ')}`;
+      if (e.event_type === 'integration_preflight') return `${d.milestoneId || ''}: ${d.status || ''} on ${d.branch || 'integration'}${(d.missingFeatureIds || []).length ? ' missing '+d.missingFeatureIds.join(', ') : ''}`;
+      if (e.event_type === 'phase_transition') return `${d.from} → ${d.to} ${d.reason ? '('+d.reason+')' : ''}`;
+      if (e.event_type === 'artifact_write') return `${d.artifactName} (${d.mode}, ${d.byteCount}b)`;
+      if (e.event_type === 'decision_logged') return `[${d.decisionId}] ${d.decision || ''}`;
+      if (e.event_type === 'halt') return `${d.reason || ''} — ${d.resumeHint || ''}`;
+      if (e.event_type === 'mission_initialized') return `goal=${d.goal || '(none)'}`;
+      if (e.event_type === 'ping') return `${d.agentName || ''}: ${d.status || ''} (${d.durationMs||0}ms)${d.error ? ' — '+d.error : ''}`;
+      return JSON.stringify(d).slice(0, 100);
+    }
+    function eventMatchesSearch(e, query) {
+      if (!query) return true;
+      const haystack = JSON.stringify(e).toLowerCase();
+      return haystack.includes(query.toLowerCase());
+    }
+    function eventPassesFilters(e) {
+      const f = state.filter;
+      if (f.type && e.event_type !== f.type) return false;
+      if (f.level && e.agent_level !== f.level) return false;
+      if (f.status) {
+        const ps = e.data && e.data.parseStatus;
+        if (ps !== f.status) return false;
+      }
+      if (f.failedOnly) {
+        const isFailed = e.data && e.data.parseStatus === 'failed';
+        const isHalt = e.event_type === 'halt';
+        if (!isFailed && !isHalt) return false;
+      }
+      if (!eventMatchesSearch(e, f.search)) return false;
+      return true;
+    }
+
+    // ── Stats ──
+    function updateStats() {
+      const events = state.events;
+      $statTotal.textContent = events.length;
+      const active = new Set();
+      for (const e of events) {
+        if (e.event_type === 'agent_start' && e.agent_level) active.add(e.span_id);
+        if (e.event_type === 'agent_end' && e.span_id) active.delete(e.span_id);
+      }
+      $statActive.textContent = active.size;
+      const phase = [...events].reverse().find(e => e.event_type === 'phase_transition');
+      $statPhase.textContent = phase ? (phase.data.to || '—') : '—';
+      const failures = events.filter(e => e.data && e.data.parseStatus === 'failed').length;
+      $statFailures.textContent = failures;
+      $statHalts.textContent = events.filter(e => e.event_type === 'halt').length;
+    }
+
+    // ── Span tree builder ──
+    function buildSpanTree(events) {
+      // Map: span_id -> { start: event, end: event, children: [event...] }
+      const spans = new Map();
+      const loose = [];
+      for (const e of events) {
+        if (e.event_type === 'agent_start') {
+          spans.set(e.span_id, { start: e, end: null, children: [] });
+        } else if (e.event_type === 'agent_end' && spans.has(e.span_id)) {
+          spans.get(e.span_id).end = e;
+        } else {
+          loose.push(e);
+        }
+      }
+      // Attach children by parent_span_id
+      const grouped = [];
+      for (const e of loose) {
+        const parent = e.parent_span_id && spans.get(e.parent_span_id);
+        if (parent) {
+          parent.children.push(e);
+        } else {
+          grouped.push({ type: 'loose', event: e });
+        }
+      }
+      for (const [spanId, span] of spans) {
+        grouped.push({ type: 'span', spanId, span });
+      }
+      // Sort by start timestamp of the leading event
+      grouped.sort((a, b) => {
+        const tsA = a.type === 'span' ? a.span.start.timestamp : a.event.timestamp;
+        const tsB = b.type === 'span' ? b.span.start.timestamp : b.event.timestamp;
+        return tsA.localeCompare(tsB);
+      });
+      return grouped;
+    }
+
+    // ── Render ──
+    function renderTimeline() {
+      const filtered = state.events.filter(eventPassesFilters);
+      const html = [];
+      if (filtered.length === 0) {
+        html.push('<div class="empty">No events yet. The observatory will populate as the mission runs.</div>');
+      } else if (state.filter.groupSpans) {
+        const groups = buildSpanTree(filtered);
+        for (const g of groups) {
+          if (g.type === 'loose') {
+            html.push(renderEventRow(g.event));
+          } else {
+            html.push(renderSpanCard(g.span));
+          }
+        }
+      } else {
+        for (const e of filtered) {
+          html.push(renderEventRow(e));
+        }
+      }
+      $timeline.innerHTML = html.join('');
+    }
+
+    function renderEventRow(e) {
+      const summary = summarizeEvent(e);
+      const status = e.data && e.data.parseStatus;
+      const classes = ['event', `event-${e.event_type}`];
+      if (e.agent_level) classes.push(`level-${e.agent_level}`);
+      if (status === 'failed') classes.push('parseStatus-failed', 'failed');
+      else if (status === 'ok') classes.push('parseStatus-ok');
+      const statusHtml = status ? `<span class="status status-${status}">${status}</span>` : '';
+      return `<div class="${classes.join(' ')}" data-event-id="${e.span_id}">
+        <span class="ts">${fmtTime(e.timestamp)}</span>
+        <span class="type">${e.event_type}</span>
+        <span class="level">${e.agent_level || ''}</span>
+        <span class="summary">${escapeHtml(summary)}</span>
+        ${statusHtml}
+      </div>`;
+    }
+
+    function renderSpanCard(span) {
+      const start = span.start;
+      const end = span.end;
+      const endTs = end ? new Date(end.timestamp).getTime() : Date.now();
+      const startTs = new Date(start.timestamp).getTime();
+      const durationMs = endTs - startTs;
+      const status = end && end.data && end.data.parseStatus;
+      const level = start.agent_level || 'agent';
+      const title = `${level}${start.data && start.data.featureId ? ' ['+start.data.featureId+']' : ''}${start.data && start.data.milestoneId ? ' ['+start.data.milestoneId+']' : ''}`;
+      const meta = `${durationMs}ms${status ? ' · '+status : ''}${span.children.length ? ' · '+span.children.length+' nested' : ''}`;
+      const statusHtml = status ? `<span class="status status-${status}">${status}</span>` : '';
+      const childHtml = span.children.length === 0
+        ? '<div class="empty" style="padding: 8px 0; font-size: 11px;">No nested events.</div>'
+        : span.children.map(c => {
+            const childStatus = c.data && c.data.parseStatus;
+            const childClasses = ['nested-event'];
+            if (childStatus === 'failed' || c.event_type === 'halt') childClasses.push('failed');
+            return `<div class="${childClasses.join(' ')}" data-event-id="${c.span_id}">
+              <span class="ts">${fmtTime(c.timestamp)}</span>
+              <span>${c.event_type}</span>
+              <span class="summary">${escapeHtml(summarizeEvent(c))}</span>
+            </div>`;
+          }).join('');
+      return `<div class="span-card">
+        <div class="span-header" data-span-toggle="${start.span_id}">
+          <span class="span-toggle">▼</span>
+          <span class="span-title">${escapeHtml(title)}</span>
+          <span class="span-meta">${escapeHtml(meta)}</span>
+          ${statusHtml}
+        </div>
+        <div class="span-body" data-span-body="${start.span_id}">${childHtml}</div>
+      </div>`;
+    }
+
+    // ── Modal ──
+    function openModal(e) {
+      $modalTitle.textContent = `${e.event_type}${e.agent_level ? ' ('+e.agent_level+')' : ''} — ${e.timestamp}`;
+      $modalBody.textContent = JSON.stringify(e, null, 2);
+      $modal.classList.remove('hidden');
+    }
+    function closeModal() { $modal.classList.add('hidden'); }
+    $modalClose.addEventListener('click', closeModal);
+    $modal.addEventListener('click', (ev) => { if (ev.target === $modal) closeModal(); });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeModal(); });
+
+    // Event delegation for clicks on event rows.
+    $timeline.addEventListener('click', (ev) => {
+      const row = ev.target.closest('[data-event-id]');
+      if (row) {
+        const id = row.dataset.eventId;
+        const e = state.events.find(ev => ev.span_id === id);
+        if (e) openModal(e);
+        return;
+      }
+      const toggle = ev.target.closest('[data-span-toggle]');
+      if (toggle) {
+        const id = toggle.dataset.spanToggle;
+        const body = document.querySelector(`[data-span-body="${id}"]`);
+        const caret = toggle.querySelector('.span-toggle');
+        if (body) {
+          body.classList.toggle('collapsed');
+          if (caret) caret.textContent = body.classList.contains('collapsed') ? '▶' : '▼';
+        }
+      }
+    });
+
+    // ── Filter wiring ──
+    $search.addEventListener('input', () => { state.filter.search = $search.value; renderTimeline(); });
+    $filterType.addEventListener('change', () => { state.filter.type = $filterType.value; renderTimeline(); });
+    $filterLevel.addEventListener('change', () => { state.filter.level = $filterLevel.value; renderTimeline(); });
+    $filterStatus.addEventListener('change', () => { state.filter.status = $filterStatus.value; renderTimeline(); });
+    $toggleFailedOnly.addEventListener('click', () => {
+      state.filter.failedOnly = !state.filter.failedOnly;
+      $toggleFailedOnly.classList.toggle('active', state.filter.failedOnly);
+      renderTimeline();
+    });
+    $toggleSpans.addEventListener('click', () => {
+      state.filter.groupSpans = !state.filter.groupSpans;
+      $toggleSpans.classList.toggle('active', state.filter.groupSpans);
+      renderTimeline();
+    });
+    $toggleSpans.classList.add('active'); // default on
+
+    // ── Polling ──
+    async function pollEvents() {
+      try {
+        const res = await fetch('/api/events');
+        if (!res.ok) return;
+        const events = await res.json();
+        if (events.length === state.lastEventCount) return;
+        state.events = events;
+        state.lastEventCount = events.length;
+        updateStats();
+        renderTimeline();
+      } catch (err) {
+        console.error('Polling failed:', err);
+      }
+    }
+    pollEvents();
+    setInterval(pollEvents, 500);
+  </script>
+</body>
+</html>

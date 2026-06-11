@@ -1,0 +1,34 @@
+{
+  "name": "@ratel/pi-extension",
+  "version": "0.1.0",
+  "description": "Ratel Pi Extension — Factory adapter for Pi SDK",
+  "type": "module",
+  "main": "dist/index.js",
+  "pi": {
+    "extensions": ["./"]
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/extension.ts"
+  },
+  "dependencies": {
+    "@ratel/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.79.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.0",
+    "@earendil-works/pi-agent-core": "^0.79.0",
+    "@earendil-works/pi-ai": "^0.79.0",
+    "@earendil-works/pi-tui": "^0.79.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

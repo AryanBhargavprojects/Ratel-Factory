@@ -1,0 +1,1 @@
+Open Ratel Observatory dashboard

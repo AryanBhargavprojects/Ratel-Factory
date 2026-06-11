@@ -1,0 +1,25 @@
+{
+  "name": "@ratel/opencode",
+  "version": "0.1.0",
+  "description": "Ratel OpenCode Plugin — Factory adapter for OpenCode",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/plugin.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.1.10",
+    "@ratel/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

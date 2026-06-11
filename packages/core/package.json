@@ -1,0 +1,44 @@
+{
+  "name": "@ratel/core",
+  "version": "0.1.0",
+  "description": "Ratel AI Software Factory — Core Service",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./api": {
+      "import": "./dist/api.js",
+      "types": "./dist/api.d.ts"
+    },
+    "./service": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./core/*": {
+      "import": "./dist/core/*.js",
+      "types": "./dist/core/*.d.ts"
+    },
+    "./observatory/*": {
+      "import": "./dist/observatory/*.js",
+      "types": "./dist/observatory/*.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').cpSync('src/observatory/dashboard.html','dist/observatory/dashboard.html')\"",
+    "dev": "tsx src/index.ts --serve",
+    "start": "node dist/index.js --serve"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.79.0",
+    "@earendil-works/pi-coding-agent": "^0.79.0",
+    "@sinclair/typebox": "^0.34.49",
+    "pi-orch-extension": "^1.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
