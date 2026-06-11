@@ -1,10 +1,11 @@
 import { execFile as execFileCb } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { resolveCanonicalWorkspace } from "./workspace-resolution.js";
-import { getGlobalLogger } from "./observability/event-logger.js";
+import { getGlobalLogger } from "../observability/event-logger.js";
+import type { FeatureAssertionDocument } from "./feature-assertions.js";
 
 const execFile = promisify(execFileCb);
 
@@ -229,6 +230,51 @@ export async function prepareSerialWorkerBranch(
     featureBranch,
     integrationHead,
   };
+}
+
+/**
+ * Copy resolved .feature files into the worker's git workspace so the
+ * worker can reference them by relative path (e.g. features/*.feature).
+ * Only documents resolved successfully are copied; missing refs are skipped.
+ */
+export async function copyFeatureFilesToWorkspace(
+  repoPath: string,
+  documents: FeatureAssertionDocument[],
+): Promise<string[]> {
+  const featuresDir = join(repoPath, "features");
+  const copied: string[] = [];
+
+  try {
+    await mkdir(featuresDir, { recursive: true });
+  } catch {
+    const logger = getGlobalLogger();
+    logger?.decisionLogged(
+      "feature-copy-mkdir-failed",
+      `copyFeatureFilesToWorkspace: cannot create ${featuresDir}`,
+      "skipped",
+      "Failed to create features/ directory in workspace — feature files will not be copied.",
+    );
+    return copied;
+  }
+
+  for (const doc of documents) {
+    const destPath = join(featuresDir, doc.filename);
+    try {
+      await writeFile(destPath, doc.content, "utf-8");
+      copied.push(destPath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const logger = getGlobalLogger();
+      logger?.decisionLogged(
+        "feature-copy-write-failed",
+        `copyFeatureFilesToWorkspace: ${doc.filename}`,
+        "skipped",
+        `Failed to copy ${doc.filename} to workspace: ${message}`,
+      );
+    }
+  }
+
+  return copied;
 }
 
 export async function finalizeSerialWorkerBranch(

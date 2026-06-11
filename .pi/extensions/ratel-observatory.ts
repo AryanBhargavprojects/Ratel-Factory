@@ -8,4 +8,4 @@
  * rest of the source code and stays testable.
  */
 
-export { default } from "../../src/observability/dashboard.js";
+export { default } from "../../src/observatory/dashboard.js";

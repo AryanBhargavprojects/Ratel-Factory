@@ -16,13 +16,13 @@ import type {
   UserTestingReport,
   Feature,
   ReportSource,
-} from "./types.js";
-import { createReportReceiver, persistSubmittedReport } from "./report-submission.js";
-import { extractLastJsonLine, writeRawOutput } from "./jsonl.js";
-import { getUserTestingConfig } from "./config.js";
-import { getGlobalLogger } from "./observability/event-logger.js";
-import { listFeatureFiles, readFeatureFile } from "./artifacts.js";
-import { spawnUserTestingShardAgent } from "./validators.js";
+} from "../types.js";
+import { createReportReceiver, persistSubmittedReport } from "../report-submission.js";
+import { extractLastJsonLine, writeRawOutput } from "../utils/jsonl.js";
+import { getUserTestingConfig } from "../config.js";
+import { getGlobalLogger } from "../observability/event-logger.js";
+import { listFeatureFiles, readFeatureFile } from "../artifacts.js";
+import { spawnUserTestingShardAgent } from "../workers/validators.js";
 
 /**
  * Parse assertion references into file + optional scenario selectors.
@@ -166,7 +166,7 @@ export async function runShard(
   let responseText = "";
   let timedOut = false;
   let error: string | undefined;
-  let shardReceiver: ReturnType<typeof import("./validators.js").createSubmitUserTestingShardReportTool>["receiver"] | undefined;
+  let shardReceiver: ReturnType<typeof import("../workers/validators.js").createSubmitUserTestingShardReportTool>["receiver"] | undefined;
 
   try {
     const shardResult = await spawnUserTestingShardAgent(shard, cwd, model, parentSpanId);

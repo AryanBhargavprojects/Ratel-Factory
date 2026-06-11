@@ -26,20 +26,20 @@ import {
   InteractiveMode,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { ORCHESTRATOR_PROMPT } from "./prompts.js";
-import { ORCHESTRATOR_TOOLS, setToolCwd } from "./tools.js";
-import { ensureMissionInitialized } from "./artifacts.js";
-import { startObservatory, type ObservatoryHandle } from "./observability/service.js";
+import { ORCHESTRATOR_PROMPT } from "../../core/prompts.js";
+import { ORCHESTRATOR_TOOLS, setToolCwd } from "../../core/tools.js";
+import { ensureMissionInitialized } from "../../core/artifacts.js";
+import { startObservatory, type ObservatoryHandle } from "../../observatory/service.js";
 import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
-} from "./skills.js";
-import { getModelConfig, getObservabilityConfig, resolveModel } from "./config.js";
+} from "../../core/utils/skills.js";
+import { getModelConfig, getObservabilityConfig, resolveModel } from "../../core/config.js";
 import {
   EventLogger,
   setGlobalLogger,
   clearGlobalLogger,
-} from "./observability/event-logger.js";
+} from "../../core/observability/event-logger.js";
 
 /**
  * Names of the 14 orchestrator skills that get loaded into the main session.
@@ -214,7 +214,7 @@ async function main(): Promise<void> {
   process.on("beforeExit", () => void shutdown());
   // Uncaught exceptions: log and attempt graceful shutdown, but do NOT
   // unconditionally exit. The EventLogger is fail-soft by design (see
-  // src/observability/event-logger.ts), so most logging-related errors
+  // src/core/observability/event-logger.ts), so most logging-related errors
   // are already swallowed. Any exception that reaches here is likely a
   // real bug — log it loudly so the user can see, but keep the TUI
   // running so they can recover state and decide what to do.

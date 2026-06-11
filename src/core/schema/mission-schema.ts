@@ -1,4 +1,4 @@
-import type { ArtifactName, Feature, Milestone, MissionPhase, MissionRequirements, MissionStateFile, WorkerSkillsConfig } from "./types.js";
+import type { ArtifactName, Feature, Milestone, MissionPhase, MissionRequirements, MissionStateFile, WorkerSkillsConfig } from "../types.js";
 
 export class MissionArtifactSchemaError extends Error {
   constructor(message: string) {

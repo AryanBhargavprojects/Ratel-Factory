@@ -1,6 +1,6 @@
 import type { Server } from "node:http";
-import { startDashboardServerOnAvailablePort, type DashboardServerHandle } from "./dashboard-server.js";
-import type { ResolvedObservabilityConfig } from "../config.js";
+import { startDashboardServerOnAvailablePort, type DashboardServerHandle } from "./server.js";
+import type { ResolvedObservabilityConfig } from "../core/config.js";
 
 export interface StartObservatoryOptions {
   cwd: string;

@@ -1,5 +1,5 @@
-import type { Feature } from "./types.js";
-import { readFeatureFile } from "./artifacts.js";
+import type { Feature } from "../types.js";
+import { readFeatureFile } from "../artifacts.js";
 
 export interface FeatureAssertionSelection {
   kind: "full-file" | "scenario";

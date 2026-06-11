@@ -1,6 +1,6 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
-import type { Feature } from "./types.js";
+import type { Feature } from "../types.js";
 import { resolveCanonicalWorkspace } from "./workspace-resolution.js";
 
 const execFile = promisify(execFileCb);

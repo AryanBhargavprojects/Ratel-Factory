@@ -13,7 +13,7 @@ import { mkdir } from "node:fs/promises";
 import { join, isAbsolute } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
-import { readRequirements } from "./artifacts.js";
+import { readRequirements } from "../artifacts.js";
 
 const execFile = promisify(execFileCb);
 

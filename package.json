@@ -4,9 +4,9 @@
   "description": "Ratel — AI Software Factory",
   "type": "module",
   "scripts": {
-    "build": "tsc && node -e \"require('fs').cpSync('src/observability/dashboard.html','dist/observability/dashboard.html')\"",
-    "dev": "tsx src/main.ts",
-    "start": "node dist/main.js",
+    "build": "tsc && node -e \"require('fs').cpSync('src/observatory/dashboard.html','dist/observatory/dashboard.html')\"",
+    "dev": "tsx src/adapters/pi-sdk/main.ts",
+    "start": "node dist/adapters/pi-sdk/main.js",
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {

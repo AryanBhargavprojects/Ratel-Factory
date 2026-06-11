@@ -25,7 +25,7 @@ import {
   normalizeMilestonesDocument,
   normalizeStateDocument,
   selectCompletedFeaturesForMilestone,
-} from "./mission-schema.js";
+} from "./schema/mission-schema.js";
 
 export const MISSION_DIR = ".missions/current";
 

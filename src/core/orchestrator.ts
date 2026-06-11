@@ -14,7 +14,7 @@ import { loadMissionState, summarizeMissionState, ensureMissionInitialized } fro
 import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
-} from "./skills.js";
+} from "./utils/skills.js";
 import { getModelConfig, resolveModel } from "./config.js";
 
 /**

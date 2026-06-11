@@ -1,4 +1,4 @@
-import { writeRawOutput } from "./jsonl.js";
+import { writeRawOutput } from "../utils/jsonl.js";
 
 /**
  * Persist the complete text returned by a worker agent before any parser or

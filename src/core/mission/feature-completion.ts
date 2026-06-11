@@ -4,9 +4,9 @@
  * This module decides WHETHER the requested transition is structurally valid.
  */
 
-import type { WorkerRunReceipt, Feature } from "./types.js";
-import { readWorkerReceipt } from "./report-submission.js";
-import { readFeatures, writeFeatures, getMissionDir } from "./artifacts.js";
+import type { WorkerRunReceipt, Feature } from "../types.js";
+import { readWorkerReceipt } from "../report-submission.js";
+import { readFeatures, writeFeatures, getMissionDir } from "../artifacts.js";
 import { join } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";

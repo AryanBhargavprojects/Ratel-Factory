@@ -18,6 +18,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { spawn } from "node:child_process";
+import { logDashboardUrl } from "../../src/observatory/server.js";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -191,7 +192,7 @@ export class RatelBottomWidget {
     const contextWindowStr = formatTokens(contextWindow);
 
     // Left: clickable [🛰️Dashboard] link to observatory
-    const dashboardUrl = "http://localhost:8765";
+    const dashboardUrl = "http://localhost:${port}";
     const dashboardLink = `\x1b]8;;${dashboardUrl}\x07[🛰️Dashboard]\x1b]8;;\x07`;
 
     // Right: repo info, git branch, context usage (using Nerd Font icons, no 📁)

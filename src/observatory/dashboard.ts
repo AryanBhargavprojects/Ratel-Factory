@@ -17,7 +17,7 @@
 
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { startDashboardServer } from "./dashboard-server.js";
+import { startDashboardServer } from "./server.js";
 import type { Server } from "node:http";
 
 let activeServer: Server | undefined;

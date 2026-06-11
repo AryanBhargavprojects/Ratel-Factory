@@ -37,36 +37,36 @@ import {
 import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
-} from "./skills.js";
+} from "./utils/skills.js";
 import {
   spawnResearchAgent,
   spawnSmartFriendAgent,
   spawnContractAgent,
-} from "./agents.js";
-import { spawnWorkerAgent } from "./worker.js";
-import { spawnScrutinyValidator, spawnUserTestingValidator } from "./validators.js";
+} from "../adapters/pi-sdk/agents.js";
+import { spawnWorkerAgent } from "./workers/worker.js";
+import { spawnScrutinyValidator, spawnUserTestingValidator } from "./workers/validators.js";
 import type { MissionPhase, ArtifactName, Feature, ScrutinyReport, UserTestingReport } from "./types.js";
 import { getModelConfig, setModelConfig, listAvailableModels, resolveModel } from "./config.js";
-import { extractLastJsonLine, writeRawOutput } from "./jsonl.js";
+import { extractLastJsonLine, writeRawOutput } from "./utils/jsonl.js";
 import { getGlobalLogger } from "./observability/event-logger.js";
-import { ensureSkillsInstalled } from "./skill-installer.js";
+import { ensureSkillsInstalled } from "./utils/skill-installer.js";
 import {
   canonicalizeMissionArtifactContent,
   isStructuredArtifact,
   MissionArtifactSchemaError,
-} from "./mission-schema.js";
-import { writeWorkerRawOutput } from "./worker-output.js";
-import { buildValidationRecoveryPlan } from "./validation-recovery.js";
-import { checkCompletedFeatureIntegration } from "./integration-preflight.js";
-import { resolveFeatureAssertions, formatFeatureAssertionsForPrompt, computeFeatureComplexity } from "./feature-assertions.js";
-import { prepareSerialWorkerBranch, finalizeSerialWorkerBranch } from "./worker-workspace.js";
+} from "./schema/mission-schema.js";
+import { writeWorkerRawOutput } from "./workers/worker-output.js";
+import { buildValidationRecoveryPlan } from "./mission/validation-recovery.js";
+import { checkCompletedFeatureIntegration } from "./mission/integration-preflight.js";
+import { resolveFeatureAssertions, formatFeatureAssertionsForPrompt, computeFeatureComplexity } from "./mission/feature-assertions.js";
+import { prepareSerialWorkerBranch, finalizeSerialWorkerBranch, copyFeatureFilesToWorkspace } from "./mission/worker-workspace.js";
 import {
   evaluateCompletionGate,
   applyFeatureCompletion,
   wouldIntroduceCompletedTransition,
-} from "./feature-completion.js";
+} from "./mission/feature-completion.js";
 import { createReportReceiver, persistSubmittedReport, persistWorkerReceipt } from "./report-submission.js";
-import { runUserTestingCoordinator } from "./user-testing-coordinator.js";
+import { runUserTestingCoordinator } from "./mission/user-testing-coordinator.js";
 
 /** Shared cwd reference — set by OrchestratorAgent at init time. */
 let _cwd: string = process.cwd();
@@ -898,6 +898,15 @@ export const runWorkerTool = defineTool({
         // time, so a local feature branch in the integration checkout avoids
         // duplicated worktrees/node_modules and prevents stale integration.
         const workspace = await prepareSerialWorkerBranch(_cwd, feature.id);
+
+        // Copy resolved .feature assertion files into the worker's workspace
+        // so the worker can find them at features/*.feature. Only resolved
+        // documents are copied; missing references are skipped.
+        let copiedFeatureFiles: string[] = [];
+        if (workspace.status !== "blocked" && workspace.repoPath) {
+          copiedFeatureFiles = await copyFeatureFilesToWorkspace(workspace.repoPath, resolvedAssertions.documents);
+        }
+
         if (workspace.status === "blocked") {
           contentText = [
             `Cannot start worker ${feature.id}: serial workspace preparation blocked.`,
@@ -1037,6 +1046,7 @@ export const runWorkerTool = defineTool({
           assertions: {
             resolvedCount: resolvedAssertions.documents.length,
             missing: resolvedAssertions.missing,
+            copiedFeatureFiles,
           },
           workspace,
           workspaceFinalization,

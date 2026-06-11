@@ -109,8 +109,8 @@ export interface WorkerRunReceipt {
   handoffPath: string;
   rawFilename: string;
   handoff: WorkerHandoff;
-  workspace: import("./worker-workspace.js").WorkerWorkspaceResult;
-  workspaceFinalization: import("./worker-workspace.js").WorkerWorkspaceResult;
+  workspace: import("./mission/worker-workspace.js").WorkerWorkspaceResult;
+  workspaceFinalization: import("./mission/worker-workspace.js").WorkerWorkspaceResult;
 }
 
 /**

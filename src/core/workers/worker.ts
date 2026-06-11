@@ -11,19 +11,19 @@ import {
   type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { WORKER_PROMPT } from "./prompts.js";
-import type { WorkerHandoff, WorkerResult, Feature } from "./types.js";
+import { WORKER_PROMPT } from "../prompts.js";
+import type { WorkerHandoff, WorkerResult, Feature } from "../types.js";
 import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
-} from "./skills.js";
-import { resolveModel } from "./config.js";
-import { extractLastJsonLine, type ParseResult } from "./jsonl.js";
-import { getGlobalLogger } from "./observability/event-logger.js";
-import { observeAgentSession } from "./observability/session-events.js";
+} from "../utils/skills.js";
+import { resolveModel } from "../config.js";
+import { extractLastJsonLine, type ParseResult } from "../utils/jsonl.js";
+import { getGlobalLogger } from "../observability/event-logger.js";
+import { observeAgentSession } from "../observability/session-events.js";
 import { createWorkerSessionSettings } from "./worker-settings.js";
-import type { WorkerWorkspaceResult } from "./worker-workspace.js";
-import { createReportReceiver, persistSubmittedReport } from "./report-submission.js";
+import type { WorkerWorkspaceResult } from "../mission/worker-workspace.js";
+import { createReportReceiver, persistSubmittedReport } from "../report-submission.js";
 
 /**
  * Collect the full text response from a session after prompting.
@@ -284,7 +284,7 @@ Implement this feature using public-interface TDD. Keep scope to the acceptance 
     // Timeout — return a structured failure handoff so the orchestrator
     // can decide whether to retry, skip, or halt.
     const timeoutNote = err instanceof Error ? err.message : "Worker timed out";
-    const handoffResult: import("./jsonl.js").ParseResult <WorkerHandoff> = {
+    const handoffResult: import("../utils/jsonl.js").ParseResult <WorkerHandoff> = {
       parseStatus: "failed",
       data: {
         featureId: feature.id,
@@ -326,7 +326,7 @@ Implement this feature using public-interface TDD. Keep scope to the acceptance 
   const submissionResult = handoffReceiver.getResult();
   let handoff: WorkerHandoff;
   let parseStatus: "ok" | "failed";
-  let reportSource: import("./types.js").ReportSource;
+  let reportSource: import("../types.js").ReportSource;
 
   if (submissionResult.report && submissionResult.source === "tool_submission") {
     handoff = submissionResult.report;

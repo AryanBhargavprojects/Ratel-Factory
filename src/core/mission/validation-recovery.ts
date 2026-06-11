@@ -1,4 +1,4 @@
-import type { Feature, ScrutinyReport, UserTestingReport, ValidationIssue } from "./types.js";
+import type { Feature, ScrutinyReport, UserTestingReport, ValidationIssue } from "../types.js";
 
 export type ValidationRecoveryKind = "no_blocking_issues" | "fix_features_required";
 

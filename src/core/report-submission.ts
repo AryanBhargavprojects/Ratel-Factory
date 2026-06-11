@@ -6,7 +6,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WorkerHandoff, ScrutinyReport, UserTestingShardReport, ReportSource } from "./types.js";
-import { WorkerHandoffSchema, ScrutinyReportSchema, UserTestingShardReportSchema, validateSchema } from "./report-schemas.js";
+import { WorkerHandoffSchema, ScrutinyReportSchema, UserTestingShardReportSchema, validateSchema } from "./schema/report-schemas.js";
 
 export interface ReportSubmissionResult<T> {
   source: ReportSource;

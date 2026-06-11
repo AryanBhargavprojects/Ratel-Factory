@@ -126,7 +126,7 @@ function isAddressInUse(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "EADDRINUSE";
 }
 
-function logDashboardUrl(port: number): void {
+export function logDashboardUrl(port: number): void {
   console.log(`\n🛰️  Ratel Observatory Dashboard`);
   console.log(`   http://localhost:${port}\n`);
 }

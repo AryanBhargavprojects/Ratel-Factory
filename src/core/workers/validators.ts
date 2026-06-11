@@ -9,18 +9,18 @@ import {
   type AgentSession,
   defineTool,
 } from "@earendil-works/pi-coding-agent";
-import { resolveModel } from "./config.js";
+import { resolveModel } from "../config.js";
 import { Type } from "@sinclair/typebox";
-import { SCRUTINY_VALIDATOR_PROMPT, CODE_REVIEW_PROMPT, USER_TESTING_VALIDATOR_PROMPT, USER_TESTING_SHARD_PROMPT } from "./prompts.js";
-import type { UserTestingShard } from "./types.js";
+import { SCRUTINY_VALIDATOR_PROMPT, CODE_REVIEW_PROMPT, USER_TESTING_VALIDATOR_PROMPT, USER_TESTING_SHARD_PROMPT } from "../prompts.js";
+import type { UserTestingShard } from "../types.js";
 import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
-} from "./skills.js";
-import { getGlobalLogger } from "./observability/event-logger.js";
-import { observeAgentSession } from "./observability/session-events.js";
-import { createReportReceiver, persistSubmittedReport } from "./report-submission.js";
-import type { ScrutinyReport, UserTestingShardReport } from "./types.js";
+} from "../utils/skills.js";
+import { getGlobalLogger } from "../observability/event-logger.js";
+import { observeAgentSession } from "../observability/session-events.js";
+import { createReportReceiver, persistSubmittedReport } from "../report-submission.js";
+import type { ScrutinyReport, UserTestingShardReport } from "../types.js";
 
 // resolveModel moved to src/config.ts
 

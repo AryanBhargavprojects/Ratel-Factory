@@ -17,15 +17,15 @@ import {
   RESEARCH_AGENT_PROMPT,
   SMART_FRIEND_PROMPT,
   CONTRACT_AGENT_PROMPT,
-} from "./prompts.js";
+} from "../../core/prompts.js";
 import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
-} from "./skills.js";
-import { resolveModel } from "./config.js";
-import { getGlobalLogger } from "./observability/event-logger.js";
-import { observeAgentSession } from "./observability/session-events.js";
-import { writeFeatureFile } from "./artifacts.js";
+} from "../../core/utils/skills.js";
+import { resolveModel } from "../../core/config.js";
+import { getGlobalLogger } from "../../core/observability/event-logger.js";
+import { observeAgentSession } from "../../core/observability/session-events.js";
+import { writeFeatureFile } from "../../core/artifacts.js";
 
 /** Common skill filter: replace auto-discovered skills with only the role-specific set. */
 function isolateSkills(
@@ -61,7 +61,7 @@ function buildContractAgentCustomTools(cwd: string) {
         required: ["artifact", "content"],
       },
       execute: async (_id: string, params: { artifact: string; content: string; mode?: string }) => {
-        const { writeArtifact } = await import("./artifacts.js");
+        const { writeArtifact } = await import("../../core/artifacts.js");
         const mode = params.mode === "append" ? "append" : "overwrite";
         await writeArtifact(cwd, params.artifact as any, params.content, mode);
         getGlobalLogger()?.artifactWrite(params.artifact, mode, Buffer.byteLength(params.content, "utf-8"));
