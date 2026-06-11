@@ -215,6 +215,33 @@ test("OPTIONS /api/diff returns CORS headers", async () => {
   }
 });
 
+test("GET /api/mission returns mission state, requirements, and features", async () => {
+  const tempDir = join(process.cwd(), "test-temp-mission-api");
+  mkdirSync(tempDir, { recursive: true });
+  mkdirSync(join(tempDir, ".missions", "current"), { recursive: true });
+
+  try {
+    writeFileSync(join(tempDir, ".missions", "current", "state.json"), JSON.stringify({ phase: "testing" }), "utf-8");
+    writeFileSync(join(tempDir, ".missions", "current", "requirements.json"), JSON.stringify({ goal: "verify dashboard" }), "utf-8");
+    writeFileSync(join(tempDir, ".missions", "current", "features.json"), JSON.stringify({ features: [] }), "utf-8");
+
+    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
+    try {
+      const res = await httpGet(`${serverHandle.url}/api/mission`);
+      assert.strictEqual(res.status, 200);
+      const parsed = JSON.parse(res.body);
+      assert.strictEqual(parsed.state.phase, "testing");
+      assert.strictEqual(parsed.requirements.goal, "verify dashboard");
+    } finally {
+      await serverHandle.close();
+    }
+  } finally {
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
 const DASHBOARD_PATH = join(process.cwd(), "src", "observatory", "dashboard.html");
 
 function getDashboardHtml(): string {
@@ -236,25 +263,25 @@ test("dashboard is a single self-contained HTML file with inline CSS and JS", ()
   assert.strictEqual(html.match(externalJsRegex)?.length ?? 0, 0, "should not reference external JS files");
 });
 
-test("timeline pane occupies 35% width", () => {
+test("timeline pane occupies 38% width", () => {
   const html = getDashboardHtml();
-  const timelineWidthRegex = /#timeline\s*\{[^}]*width:\s*35%/;
-  const flexBasisRegex = /#timeline\s*\{[^}]*flex:\s*0\s+0\s+35%/;
-  const flexRegex = /#timeline\s*\{[^}]*flex:\s*35%/;
+  const timelineWidthRegex = /#timeline\s*\{[^}]*width:\s*38%/;
+  const flexBasisRegex = /#timeline\s*\{[^}]*flex:\s*0\s+0\s+38%/;
+  const flexRegex = /#timeline\s*\{[^}]*flex:\s*38%/;
   assert.ok(
     timelineWidthRegex.test(html) || flexBasisRegex.test(html) || flexRegex.test(html),
-    "timeline should have 35% width via width or flex"
+    "timeline should have 38% width via width or flex"
   );
 });
 
-test("details pane occupies 65% width", () => {
+test("details pane occupies 62% width", () => {
   const html = getDashboardHtml();
-  const detailsWidthRegex = /#details\s*\{[^}]*width:\s*65%/;
-  const flexBasisRegex = /#details\s*\{[^}]*flex:\s*0\s+0\s+65%/;
-  const flexRegex = /#details\s*\{[^}]*flex:\s*65%/;
+  const detailsWidthRegex = /#details\s*\{[^}]*width:\s*62%/;
+  const flexBasisRegex = /#details\s*\{[^}]*flex:\s*0\s+0\s+62%/;
+  const flexRegex = /#details\s*\{[^}]*flex:\s*62%/;
   assert.ok(
     detailsWidthRegex.test(html) || flexBasisRegex.test(html) || flexRegex.test(html),
-    "details pane should have 65% width via width or flex"
+    "details pane should have 62% width via width or flex"
   );
 });
 

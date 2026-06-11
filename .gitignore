@@ -40,3 +40,7 @@ factory_analysis.md
 .pi/orch/
 
 build-cmd.sh
+
+# Brainstorm session files
+.superpowers/
+

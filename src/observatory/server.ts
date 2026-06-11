@@ -162,6 +162,36 @@ function createDashboardServer(cwd: string): Server {
       return;
     }
 
+    // API: Return mission state, requirements, and features.
+    if (url === "/api/mission" || url === "/api/mission/") {
+      try {
+        const statePath = join(cwd, ".missions", "current", "state.json");
+        const reqPath = join(cwd, ".missions", "current", "requirements.json");
+        const featPath = join(cwd, ".missions", "current", "features.json");
+
+        let state = {};
+        let requirements = {};
+        let features = {};
+
+        try {
+          state = JSON.parse(await readFile(statePath, "utf-8"));
+        } catch {}
+        try {
+          requirements = JSON.parse(await readFile(reqPath, "utf-8"));
+        } catch {}
+        try {
+          features = JSON.parse(await readFile(featPath, "utf-8"));
+        } catch {}
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ state, requirements, features }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      }
+      return;
+    }
+
     // Serve the dashboard HTML for all other routes.
     try {
       const html = await readFile(DASHBOARD_HTML_PATH, "utf-8");

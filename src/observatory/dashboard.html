@@ -31,17 +31,32 @@
       overflow: hidden;
     }
     #timeline {
-      width: 35%;
+      width: 38%;
       overflow-y: auto;
       padding: 12px 16px;
       border-right: 1px solid #333333;
     }
     #details {
-      width: 65%;
+      width: 62%;
       overflow-y: auto;
       padding: 16px;
       display: flex;
       flex-direction: column;
+    }
+    .pane-section {
+      background: #111111;
+      border: 1px solid #222222;
+      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .pane-section-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #8e8e93;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      font-weight: bold;
     }
     #details-placeholder {
       color: #8e8e93;
@@ -88,7 +103,7 @@
     }
     .tab.active {
       color: #ffffff;
-      border-bottom-color: #0a84ff;
+      border-bottom-color: #ffffff;
     }
     .tab:hover {
       color: #ffffff;
@@ -106,7 +121,7 @@
     .stat { display: flex; flex-direction: column; gap: 2px; }
     .stat-label { font-size: 10px; text-transform: uppercase; color: #8e8e93; letter-spacing: 0.5px; }
     .stat-value { font-size: 16px; font-weight: 600; color: #ffffff; }
-    .stat-value.failed { color: #ff453a; }
+    .stat-value.failed { color: #ffffff; text-decoration: underline; text-decoration-color: #8e8e93; }
 
     /* ── Filters ── */
     #filters {
@@ -178,33 +193,33 @@
     .event .status { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
 
     /* ── Color rules ── */
-    .event.failed, .event.parseStatus-failed { border-left-color: #ff453a !important; background: #2a1010; }
-    .event.event-halt { background: #2a1010; border-left-color: #ff453a !important; }
-    .event.event-phase_transition { border-left-color: #0a84ff; }
-    .event.event-agent_start { border-left-color: #bf5af2; }
-    .event.event-agent_end { border-left-color: #bf5af2; }
-    .event.level-worker { background: rgba(48, 209, 88, 0.05); }
-    .event.level-scrutiny_validator { background: rgba(255, 159, 10, 0.07); }
-    .event.level-user_testing_validator { background: rgba(191, 90, 242, 0.07); }
+    .event.failed, .event.parseStatus-failed { border-left-color: #ffffff !important; background: #1c1c1e; }
+    .event.event-halt { background: #1c1c1e; border-left-color: #ffffff !important; }
+    .event.event-phase_transition { border-left-color: #8e8e93; }
+    .event.event-agent_start { border-left-color: #ffffff; }
+    .event.event-agent_end { border-left-color: #ffffff; }
+    .event.level-worker { background: rgba(255, 255, 255, 0.02); }
+    .event.level-scrutiny_validator { background: rgba(255, 255, 255, 0.04); }
+    .event.level-user_testing_validator { background: rgba(255, 255, 255, 0.04); }
     .event.event-tool_call { background: #1c1c1e; }
     .event.event-tool_result { background: #1c1c1e; }
-    .event.event-session_tool_start { background: rgba(10, 132, 255, 0.06); }
-    .event.event-session_tool_end { background: rgba(10, 132, 255, 0.06); }
-    .event.event-validation_recovery { background: rgba(255, 159, 10, 0.10); border-left-color: #ff9f0a; }
-    .event.event-integration_preflight { background: rgba(255, 159, 10, 0.10); border-left-color: #ff9f0a; }
-    .event.event-tool_result.parseStatus-ok { border-left-color: #30d158; }
-    .event.event-ping { background: #1c1c1e; border-left-color: #ffd60a; }
-    .event.event-ping.failed { border-left-color: #ff453a !important; background: #2a1010; }
+    .event.event-session_tool_start { background: rgba(255, 255, 255, 0.03); }
+    .event.event-session_tool_end { background: rgba(255, 255, 255, 0.03); }
+    .event.event-validation_recovery { background: rgba(255, 255, 255, 0.05); border-left-color: #ffffff; }
+    .event.event-integration_preflight { background: rgba(255, 255, 255, 0.05); border-left-color: #ffffff; }
+    .event.event-tool_result.parseStatus-ok { border-left-color: #8e8e93; }
+    .event.event-ping { background: #1c1c1e; border-left-color: #8e8e93; }
+    .event.event-ping.failed { border-left-color: #ffffff !important; background: #1c1c1e; }
 
-    .status-ok { background: #0f2e1b; color: #30d158; }
-    .status-failed { background: #3d1a1a; color: #ff453a; }
-    .status-info { background: #0a1f33; color: #0a84ff; }
+    .status-ok { background: #222222; color: #ffffff; border: 1px solid #8e8e93; }
+    .status-failed { background: #ffffff; color: #000000; }
+    .status-info { background: #111111; color: #8e8e93; border: 1px solid #333333; }
 
     /* ── Agent span cards ── */
     .span-card {
       background: #111111;
       border: 1px solid #333333;
-      border-left: 3px solid #bf5af2;
+      border-left: 3px solid #ffffff;
       border-radius: 6px;
       margin-bottom: 8px;
       overflow: hidden;
@@ -219,7 +234,7 @@
     }
     .span-header:hover { background: #1c1c1e; }
     .span-toggle { color: #8e8e93; font-size: 11px; width: 12px; flex-shrink: 0; }
-    .span-title { font-weight: 600; color: #bf5af2; }
+    .span-title { font-weight: 600; color: #ffffff; }
     .span-meta { color: #8e8e93; font-size: 11px; margin-left: auto; }
     .span-body {
       padding: 4px 12px 12px 32px;
@@ -238,7 +253,7 @@
       border-left: 2px solid #333333;
     }
     .nested-event:hover { background: #1c1c1e; }
-    .nested-event.failed { border-left-color: #ff453a; background: #2a1010; }
+    .nested-event.failed { border-left-color: #ffffff; background: #1c1c1e; }
     .nested-event .ts { color: #8e8e93; font-variant-numeric: tabular-nums; }
     .nested-event .summary { color: #ffffff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -389,14 +404,39 @@
     </div>
 
     <div id="main">
-      <div id="timeline"></div>
+      <div id="timeline">
+        <div class="pane-section">
+          <div class="pane-section-title">Original Goal</div>
+          <div id="mission-goal" style="font-size: 12px; line-height: 1.4; color: #ffffff;">—</div>
+        </div>
+        <div class="pane-section">
+          <div class="pane-section-title">Active Process Tree</div>
+          <div id="active-process-tree"></div>
+        </div>
+        <div class="pane-section">
+          <div class="pane-section-title">Original Plan</div>
+          <div id="original-plan-list"></div>
+        </div>
+      </div>
       <div id="details">
         <div id="tab-bar">
           <div class="tab active" id="tab-diff" data-tab="diff">Live Workspace Diff</div>
+          <div class="tab" id="tab-logs" data-tab="logs">Raw Event Logs</div>
           <div class="tab" id="tab-json" data-tab="json">Event Raw JSON</div>
         </div>
-        <div id="details-content">
-          <div id="details-placeholder">Select an event to view details</div>
+        <div id="details-content" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+          <!-- Diff tab content container -->
+          <div id="diff-tab-content" style="display: flex; flex: 1; overflow: hidden; flex-direction: column;">
+            <div id="details-placeholder">Select an event to view details</div>
+          </div>
+          <!-- Logs tab content container -->
+          <div id="logs-tab-content" style="display: none; flex: 1; overflow-y: auto;">
+            <div id="raw-events-list" style="padding: 10px;"></div>
+          </div>
+          <!-- JSON tab content container -->
+          <div id="json-tab-content" style="display: none; flex: 1; overflow-y: auto;">
+            <pre id="raw-json-content" style="padding: 16px; font-family: monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; color: #ffffff;"></pre>
+          </div>
         </div>
       </div>
     </div>
@@ -431,6 +471,7 @@
     const $details = document.getElementById('details');
     const $detailsContent = document.getElementById('details-content');
     const $tabDiff = document.getElementById('tab-diff');
+    const $tabLogs = document.getElementById('tab-logs');
     const $tabJson = document.getElementById('tab-json');
 
     // ── Helpers ──
@@ -621,7 +662,114 @@
       return grouped;
     }
 
-    // ── Render ──
+    // ── Process Tree Calculation (Claude Code style) ──
+    function calculateProcessTree(events) {
+      const activeSpans = new Map();
+      
+      // 1. Gather active spans
+      for (const e of events) {
+        if (e.event_type === 'agent_start') {
+          activeSpans.set(e.span_id, {
+            spanId: e.span_id,
+            parentSpanId: e.parent_span_id,
+            agentLevel: e.agent_level,
+            agentType: e.data.agentType,
+            featureId: e.data.featureId,
+            timestamp: e.timestamp,
+            activeTool: null,
+            childSpans: []
+          });
+        } else if (e.event_type === 'agent_end') {
+          activeSpans.delete(e.span_id);
+        }
+      }
+
+      // 2. Scan events for active tools within running spans
+      for (const e of events) {
+        const parentSpanId = e.parent_span_id;
+        if (parentSpanId && activeSpans.has(parentSpanId)) {
+          const span = activeSpans.get(parentSpanId);
+          if (e.event_type === 'session_tool_start') {
+            span.activeTool = {
+              name: e.data.toolName,
+              command: e.data.params?.CommandLine || JSON.stringify(e.data.params || {})
+            };
+          } else if (e.event_type === 'session_tool_end') {
+            span.activeTool = null;
+          }
+        }
+      }
+
+      // 3. Orchestrator node
+      const orchNode = {
+        spanId: 'orchestrator',
+        agentLevel: 'orchestrator',
+        agentType: 'orchestrator',
+        activeTool: null,
+        childSpans: []
+      };
+
+      for (const e of events) {
+        if (e.agent_level === 'orchestrator') {
+          if (e.event_type === 'tool_call') {
+            orchNode.activeTool = {
+              name: e.data.toolName,
+              command: JSON.stringify(e.data.params || {})
+            };
+          } else if (e.event_type === 'tool_result') {
+            orchNode.activeTool = null;
+          }
+        }
+      }
+
+      const roots = [orchNode];
+
+      // 4. Build hierarchy
+      for (const span of activeSpans.values()) {
+        if (span.parentSpanId && activeSpans.has(span.parentSpanId)) {
+          activeSpans.get(span.parentSpanId).childSpans.push(span);
+        } else {
+          orchNode.childSpans.push(span);
+        }
+      }
+
+      return roots;
+    }
+
+    function renderProcessTree(roots) {
+      const $tree = document.getElementById('active-process-tree');
+      if (!$tree) return;
+
+      function renderNode(node, depth = 0) {
+        const indent = depth * 12;
+        let toolHtml = '';
+        if (node.activeTool) {
+          toolHtml = `
+            <div style="margin-left: 20px; margin-top: 4px; padding: 4px; background: #000000; border-left: 2px solid #ffffff; font-family: monospace; font-size: 10px; color: #ffffff; overflow-x: auto;">
+              <span style="color: #8e8e93;">[Running]:</span> ${escapeHtml(node.activeTool.name)}<br/>
+              <span style="color: #ffffff;">$ ${escapeHtml(node.activeTool.command)}</span>
+            </div>
+          `;
+        }
+        const icon = node.agentLevel === 'orchestrator' ? '◈' : (node.agentLevel === 'worker' ? '◇' : '⬪');
+        const label = `${icon} <b>${escapeHtml(node.agentLevel || node.agentType)}</b>${node.featureId ? ' ['+escapeHtml(node.featureId)+']' : ''}`;
+        
+        const childrenHtml = node.childSpans.map(c => renderNode(c, depth + 1)).join('');
+        return `
+          <div style="margin-left: ${indent}px; margin-top: 6px; font-size: 11px; border-left: ${depth > 0 ? '1px solid #222222' : 'none'}; padding-left: ${depth > 0 ? '6px' : '0'};">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span>${label}</span>
+            </div>
+            ${toolHtml}
+            ${childrenHtml}
+          </div>
+        `;
+      }
+
+      $tree.innerHTML = roots.map(r => renderNode(r)).join('');
+    }
+
+    // ── Render logs list to the Raw Event Logs tab ──
     function renderTimeline() {
       const filtered = state.events.filter(eventPassesFilters);
       const html = [];
@@ -641,7 +789,10 @@
           html.push(renderEventRow(e));
         }
       }
-      $timeline.innerHTML = html.join('');
+      const $rawList = document.getElementById('raw-events-list');
+      if ($rawList) {
+        $rawList.innerHTML = html.join('');
+      }
     }
 
     function renderEventRow(e) {
@@ -700,31 +851,39 @@
     function activateTab(tab) {
       state.activeTab = tab;
       if ($tabDiff) $tabDiff.classList.toggle('active', tab === 'diff');
+      if ($tabLogs) $tabLogs.classList.toggle('active', tab === 'logs');
       if ($tabJson) $tabJson.classList.toggle('active', tab === 'json');
       renderDetails();
     }
 
     // ── Details pane ──
     function renderDetails() {
+      const $diffContent = document.getElementById('diff-tab-content');
+      const $logsContent = document.getElementById('logs-tab-content');
+      const $jsonContent = document.getElementById('json-tab-content');
+
+      if ($diffContent) $diffContent.style.display = state.activeTab === 'diff' ? 'flex' : 'none';
+      if ($logsContent) $logsContent.style.display = state.activeTab === 'logs' ? 'block' : 'none';
+      if ($jsonContent) $jsonContent.style.display = state.activeTab === 'json' ? 'block' : 'none';
+
       if (state.activeTab === 'diff') {
-        $detailsContent.innerHTML = `<div id="diff-viewer">${renderDiff(state.diff.diff)}</div>`;
-      } else {
+        const $diffViewer = document.getElementById('diff-tab-content');
+        if ($diffViewer) {
+          $diffViewer.innerHTML = `<div id="diff-viewer" style="width: 100%; overflow-y: auto;">${renderDiff(state.diff.diff)}</div>`;
+        }
+      } else if (state.activeTab === 'json') {
+        const $rawJsonContent = document.getElementById('raw-json-content');
+        if (!$rawJsonContent) return;
         if (!state.selectedEventId) {
-          $detailsContent.innerHTML = '<div id="details-placeholder">Select an event to view raw JSON</div>';
+          $rawJsonContent.textContent = 'Select an event from the Raw Event Logs tab to view raw JSON';
           return;
         }
         const e = state.events.find(ev => ev.span_id === state.selectedEventId);
         if (!e) {
-          $detailsContent.innerHTML = '<div id="details-placeholder">Event not found</div>';
+          $rawJsonContent.textContent = 'Event not found';
           return;
         }
-        const title = `${e.event_type}${e.agent_level ? ' ('+e.agent_level+')' : ''} — ${e.timestamp}`;
-        $detailsContent.innerHTML = `
-          <div id="details-header">
-            <h3>${escapeHtml(title)}</h3>
-          </div>
-          <pre id="details-body">${escapeHtml(JSON.stringify(e, null, 2))}</pre>
-        `;
+        $rawJsonContent.textContent = JSON.stringify(e, null, 2);
       }
     }
 
@@ -742,8 +901,8 @@
       activateTab('diff');
     }
 
-    // Event delegation for clicks on timeline.
-    $timeline.addEventListener('click', (ev) => {
+    // Event delegation for clicks on timeline logs or detail panels.
+    document.getElementById('main').addEventListener('click', (ev) => {
       const row = ev.target.closest('[data-event-id]');
       if (row) {
         const id = row.dataset.eventId;
@@ -799,6 +958,11 @@
         state.lastEventCount = events.length;
         updateStats();
         renderTimeline();
+        
+        // Update Active Process Tree
+        const tree = calculateProcessTree(events);
+        renderProcessTree(tree);
+
         if (state.activeTab === 'json' && state.selectedEventId) {
           renderDetails();
         }
@@ -821,10 +985,55 @@
       }
     }
 
+    async function pollMission() {
+      try {
+        const res = await fetch('/api/mission');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        // Render Goal
+        const $goal = document.getElementById('mission-goal');
+        if ($goal) {
+          $goal.textContent = data.requirements?.goal || 'No goal specified';
+        }
+
+        // Render Plan Checklist
+        const $plan = document.getElementById('original-plan-list');
+        if ($plan) {
+          const features = data.features?.features || [];
+          if (features.length === 0) {
+            $plan.innerHTML = '<div style="color: #8e8e93; font-style: italic;">No features defined yet.</div>';
+          } else {
+            $plan.innerHTML = features.map(f => {
+              const isDone = f.status === 'completed';
+              const icon = isDone ? '[✓]' : (f.status === 'active' || f.status === 'running' ? '[●]' : '[ ]');
+              const titleStyle = isDone ? 'text-decoration: line-through; color: #8e8e93;' : 'color: #ffffff; font-weight: bold;';
+              return `
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span>${icon}</span>
+                  <span style="${titleStyle}">${escapeHtml(f.id)}: ${escapeHtml(f.title || '')}</span>
+                </div>
+              `;
+            }).join('');
+          }
+        }
+
+        // Update Phase stat
+        const $statPhase = document.getElementById('stat-phase');
+        if ($statPhase) {
+          $statPhase.textContent = data.state?.phase || '—';
+        }
+      } catch (err) {
+        console.error('Mission polling failed:', err);
+      }
+    }
+
     pollEvents();
     setInterval(pollEvents, 500);
     pollDiff();
     setInterval(pollDiff, 1000);
+    pollMission();
+    setInterval(pollMission, 1000);
   </script>
 </body>
 </html>
