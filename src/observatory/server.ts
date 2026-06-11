@@ -15,6 +15,11 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
+import { resolveCanonicalWorkspace } from "../core/mission/workspace-resolution.js";
+
+const execFile = promisify(execFileCb);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -117,6 +122,42 @@ function createDashboardServer(cwd: string): Server {
         // The dashboard will simply render an empty timeline.
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end("[]");
+      }
+      return;
+    }
+
+    // API: Return git diff and status for the canonical workspace.
+    if (url === "/api/diff" || url.startsWith("/api/diff")) {
+      try {
+        const workspace = await resolveCanonicalWorkspace(cwd);
+        if (!workspace) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ diff: "", status: "Not a git repository" }));
+          return;
+        }
+
+        let diff = "";
+        let status = "";
+
+        try {
+          const diffResult = await execFile("git", ["diff"], { cwd: workspace });
+          diff = diffResult.stdout;
+        } catch {
+          diff = "";
+        }
+
+        try {
+          const statusResult = await execFile("git", ["status", "--short"], { cwd: workspace });
+          status = statusResult.stdout;
+        } catch {
+          status = "Error reading git status";
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ diff, status }));
+      } catch {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ diff: "", status: "Error resolving workspace" }));
       }
       return;
     }
