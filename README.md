@@ -21,9 +21,8 @@
 <p align="center">
   <a href="#what-is-ratel">What is Ratel?</a> •
   <a href="#key-features">Key Features</a> •
-  <a href="#quick-start">Quick Start</a> •
+  <a href="#installation--setup">Installation & Setup</a> •
   <a href="#architecture">Architecture</a> •
-  <a href="#adapters">Adapters</a> •
   <a href="#how-it-works">How It Works</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#development">Development</a>
@@ -53,47 +52,43 @@ Ratel is an **AI Software Factory** — a framework designed for running autonom
 
 ---
 
-## Quick Start
+## Installation & Setup
 
-### Prerequisites
+Ratel supports multiple coding agent integrations. You can install it using the automated script installers or set it up manually from source.
 
-*   Node.js 18+ and `npm`
-*   Git
-*   *(Optional)* API keys for OpenAI, Anthropic, or local LLMs running via Ollama
+### 1. Automated Installation
 
-### Installation
-
-Ratel supports multiple coding agents. Choose the installer for your agent:
+Choose the installer matching your target coding agent ecosystem:
 
 #### OpenCode
 
 ```bash
+# Download and execute the OpenCode adapter installer
 curl -fsSL https://ratel.dev/install-opencode.sh | bash
 ```
 
-This installs:
-- `@ratel/core` — the factory service
-- `@ratel/opencode` — the OpenCode plugin with `/ratel` commands and tools
-- Command stubs: `/ratel`, `/ratel-mission`, `/ratel-observatory`
-- Starts the Ratel service in the background
+This script will automatically:
+*   Download and install the core Ratel factory daemon.
+*   Add the `@ratel/opencode` plugin hook configuration inside your `opencode.json`.
+*   Configure command stubs (`/ratel`, `/ratel-mission`, `/ratel-observatory`) and launch the server in the background.
 
 #### Pi SDK
 
 ```bash
+# Download and execute the Pi SDK adapter installer
 curl -fsSL https://ratel.dev/install-pi.sh | bash
 ```
 
-This installs:
-- `@ratel/core` — the factory service
-- `@ratel/pi-extension` — the Pi extension with lifecycle hooks and tools
-- Starts the Ratel service in the background
-
-Then activate the extension:
+Once completed, activate the extension inside your Pi session:
 ```bash
 pi install @ratel/pi-extension
 ```
 
-#### Development (from source)
+This will register lifecycle hooks, state restorations, and custom toolsets (such as `run_worker` and `run_validator`) inside the Pi runtime context.
+
+### 2. Manual Source Setup (Development Mode)
+
+If you are developing custom adapters, dashboard components, or core tools, build the codebase from source:
 
 ```bash
 # Clone the repository
@@ -106,7 +101,7 @@ npm install
 # Build all packages
 npm run build:all
 
-# Start the factory in direct mode
+# Start the factory in direct, interactive mode
 npm run dev
 ```
 
@@ -120,20 +115,28 @@ npm run dev
 bash install/install-opencode.sh --dev --port 9999
 ```
 
-### Running a Mission
-
-1.  Start the factory in interactive developer mode:
-    ```bash
-    npm run dev
-    ```
-2.  The factory will enter the **Intake** phase and prompt you for a goal.
-3.  Describe your requirements (e.g., *"A real-time currency calculator with visual charting"*).
-4.  Ratel will compile constraints, generate Gherkin specifications, and boot the **Observatory Dashboard** at `http://localhost:8765`.
-5.  Open the dashboard, review the plan and feature files, edit them if necessary, and click **Approve & Run Mission** to begin execution.
-
 ---
 
 ## Architecture
+
+Ratel separates client-side platform hooks (Adapters) from factory scheduling and orchestration logic (Core), running either as a standalone service or in direct in-process mode.
+
+```mermaid
+graph TD
+    User([User CLI / UI]) -->|1. Goal| Hook[Adapter Layer: OpenCode / Pi SDK]
+    Hook -->|2. Register Tools & Hooks| Daemon[Ratel Core Service]
+    Daemon -->|3. Start Dashboard| Obs[Observatory Server]
+    Obs -->|Widescreen Plan Approval Gate| User
+    
+    Daemon -->|4. Research| Res[Research Agent]
+    Daemon -->|5. Create Contract| Contract[Contract Writer]
+    Daemon -->|6. Delegate Coding| Worker[Worker Agent]
+    Daemon -->|7. Request Verification| Val[User-Testing Coordinator]
+    
+    Worker -->|Writes features & tests| Branch[Isolated git Branch]
+    Val -->|Decomposes scenarios| Shards[Parallel Test Shards]
+    Shards -->|Browser Automation| Branch
+```
 
 ```
 User (OpenCode or Pi SDK)
@@ -173,13 +176,14 @@ Ratel uses a **service-first** architecture:
 
 | Component | Responsibility |
 |---|---|
-| **Orchestrator** | Coordinates the mission lifecycle, schedules agent tasks, and enforces step transitions. |
-| **Research Agent** | Investigates the workspace code in a read-only environment to discover dependencies. |
-| **Contract Writer** | Translates user requirements into a unified `validation-contract.md` and discrete `.feature` Gherkin specs. |
-| **Worker Agent** | Implements the features in isolated branches following strict Test-Driven Development (TDD) principles. |
-| **Scrutiny Validator** | Automatically builds, lints, and runs static analyses over the worker's changes. |
-| **User-Testing Coordinator** | Shards Gherkin specifications and runs browser automation in parallel to verify end-to-end user flows. |
-| **Observatory Dashboard** | Serves as the interactive web interface for timeline feeds, code diffing, and manual plan revision. |
+| **Adapter Layer** | Client-side wrappers (`src/adapters`) that map Ratel tools and slash commands into native agent environments (OpenCode CLI, Pi Interactive TUI). |
+| **Orchestrator** | Coordinates the lifecycle flow, schedules agent sessions, and manages state checkpoints. |
+| **Research Agent** | Inspects the repository and codebase structure to identify dependencies and constraints in a read-only environment. |
+| **Contract Writer** | Formulates the high-level `validation-contract.md` and generates individual Gherkin `.feature` specifications. |
+| **Worker Agent** | Implements code changes in parallel git branches under test-driven development (TDD). |
+| **Scrutiny Validator** | Automatically verifies code syntax, typings, lints, and executes code reviews on worker submissions. |
+| **User-Testing Coordinator** | Schedules sharded browser runs using cucumber frameworks to verify user flows. |
+| **Observatory Dashboard** | Node HTTP web dashboard (`src/observatory`) used for monitoring timelines, viewing file diffs, and reviewing Gherkin plans. |
 
 ---
 
@@ -221,6 +225,11 @@ Ratel is configured via a global `ratel.json` file in the root directory:
 {
   "name": "ratel",
   "version": "0.1.0",
+  "observability": {
+    "enabled": true,
+    "port": 8765,
+    "autoOpen": false
+  },
   "orchestrator": {
     "model": "openai/gpt-4o",
     "thinkingLevel": "medium",
@@ -310,7 +319,7 @@ ratel/
 │       │   └── prompts.ts        # Prompts
 │       └── package.json
 │
-├── src/                    # Factory source code (backward compat)
+├── src/                    # Factory source code (backward compat / direct mode)
 │   ├── core/              # Original core logic
 │   ├── observatory/       # Original observatory
 │   └── adapters/          # Pi SDK direct mode
@@ -420,15 +429,3 @@ GET  /api/observatory/status    → { enabled, url }
 - Deterministic product behavior rules
 - Replacing validators with deterministic BDD runners
 - Heavy deterministic state machines
-
----
-
-## License
-
-[Add your license here]
-
----
-
-<p align="center">
-  <em>Built with the Pi SDK — agent-native orchestration for autonomous software development</em>
-</p>
