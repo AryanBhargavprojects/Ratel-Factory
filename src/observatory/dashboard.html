@@ -458,6 +458,17 @@
     ::-webkit-scrollbar-track { background: #09090b; }
     ::-webkit-scrollbar-thumb { background: #222228; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #33333d; }
+
+    /* ── Plan Review Console (Widescreen Editor) ── */
+    #plan-review-console {
+      display: none;
+      flex: 1;
+      padding: 16px;
+      gap: 16px;
+      overflow: hidden;
+      box-sizing: border-box;
+      height: calc(100vh - 56px);
+    }
   </style>
 </head>
 <body>
@@ -485,6 +496,8 @@
     </div>
   </div>
 
+
+
   <!-- ── Original Feature Section (Goal Ticker) ── -->
   <div id="original-feature-section" style="background: #0b0b0d; border-bottom: 1px solid #1a1a20; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.2s; flex-shrink: 0; z-index: 90;">
     <div style="display: flex; align-items: center; gap: 16px; flex: 1; overflow: hidden;">
@@ -510,6 +523,8 @@
       <div class="empty" style="color: #8e8e93; font-style: italic;">No features defined yet.</div>
     </div>
   </dialog>
+
+
 
   <!-- ── Side-by-Side 3 Column Grid ── -->
   <div id="observatory-grid">
@@ -565,6 +580,66 @@
 
   </div>
 
+  <!-- ── Widescreen Plan Review Console ── -->
+  <div id="plan-review-console">
+    <!-- Left Pane: Contract Editor & Preview (Flex: 2) -->
+    <div class="console-pane" style="flex: 2; display: flex; flex-direction: column;">
+      <div class="console-header" style="padding: 10px 16px; flex-shrink: 0;">
+        <div class="console-title" style="color: #ffffff; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">
+          <span>📄 VALIDATION CONTRACT</span>
+          <span style="font-family: monospace; font-size: 10px; color: #8e8e93; font-weight: normal;">validation-contract.md</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-tab-preview" style="background: #18181c; border: 1px solid #c586c0; color: #ffffff; padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; font-family: 'JetBrains Mono', monospace; outline: none; transition: all 0.2s;">Preview</button>
+          <button id="btn-tab-edit" style="background: transparent; border: 1px solid #222228; color: #8e8e93; padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; font-family: 'JetBrains Mono', monospace; outline: none; transition: all 0.2s;">Edit Markdown</button>
+        </div>
+      </div>
+      <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; background: #050507; position: relative;">
+        <!-- Preview Tab -->
+        <div id="tab-content-preview" style="flex: 1; overflow-y: auto; padding: 24px; font-size: 13.5px; line-height: 1.6; color: #e1e1e6; scroll-behavior: smooth;">
+          <!-- Rendered markdown content -->
+        </div>
+        <!-- Edit Tab -->
+        <textarea id="tab-content-edit" style="display: none; flex: 1; width: 100%; border: none; background: #050507; padding: 20px; color: #e1e1e6; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.5; resize: none; outline: none; box-sizing: border-box;" placeholder="Type markdown contract here..."></textarea>
+      </div>
+    </div>
+
+    <!-- Right Pane: Context, Checklist, Feedback & Actions (Flex: 1.2) -->
+    <div style="flex: 1.2; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; padding-right: 4px;">
+      
+      <!-- Goal / Target Card -->
+      <div class="console-pane" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;">
+        <div style="font-size: 10px; text-transform: uppercase; color: #8e8e93; font-weight: 700; letter-spacing: 0.5px;">Mission Goal</div>
+        <div id="review-mission-goal" style="font-size: 15px; font-weight: 600; color: #ffffff; line-height: 1.4;">—</div>
+      </div>
+
+      <!-- Feature Checklist -->
+      <div class="console-pane" style="flex: 1; display: flex; flex-direction: column; min-height: 180px;">
+        <div class="console-header" style="padding: 10px 16px; flex-shrink: 0;">
+          <div class="console-title">🛠️ PLANNED FEATURES</div>
+        </div>
+        <div id="review-features-list" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <!-- Checklist items populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Feedback & Actions Pane -->
+      <div class="console-pane" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; flex-shrink: 0;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-size: 10px; text-transform: uppercase; color: #8e8e93; font-weight: 700; letter-spacing: 0.5px;">Feedback / Comments (Required for requesting edits)</label>
+          <textarea id="review-feedback" placeholder="Type feedback comments here if you want the orchestrator to revise the plan..." style="width: 100%; height: 80px; background: #050507; border: 1px solid #222228; border-radius: 6px; padding: 10px; color: #e1e1e6; font-family: sans-serif; font-size: 12px; resize: none; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='#c586c0'" onblur="this.style.borderColor='#222228'"></textarea>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div style="display: flex; gap: 12px; margin-top: 4px;">
+          <button id="btn-review-reject" style="flex: 1; background: transparent; border: 1px solid #cf6679; color: #cf6679; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; outline: none; transition: all 0.2s;" onmouseover="this.style.background='rgba(207,102,121,0.1)'" onmouseout="this.style.background='transparent'">Request Edits</button>
+          <button id="btn-review-approve" style="flex: 1.3; background: #c586c0; border: none; color: #000000; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; outline: none; transition: all 0.2s;" onmouseover="this.style.background='#d89cd3'" onmouseout="this.style.background='#c586c0'">Approve & Run Mission</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ── Client Logic ── -->
   <script>
     'use strict';
@@ -587,18 +662,19 @@
     const $statPhase = document.getElementById('stat-phase');
     const $planList = document.getElementById('plan-list');
 
-    const $paneOrchestration = document.getElementById('pane-orchestration');
-    const $bodyOrchestration = document.getElementById('body-orchestration');
+    const $planReviewConsole = document.getElementById('plan-review-console');
+    const $observatoryGrid = document.getElementById('observatory-grid');
+    const $btnTabPreview = document.getElementById('btn-tab-preview');
+    const $btnTabEdit = document.getElementById('btn-tab-edit');
+    const $tabContentPreview = document.getElementById('tab-content-preview');
+    const $tabContentEdit = document.getElementById('tab-content-edit');
+    const $reviewMissionGoal = document.getElementById('review-mission-goal');
+    const $reviewFeaturesList = document.getElementById('review-features-list');
+    const $reviewFeedback = document.getElementById('review-feedback');
+    const $btnReviewReject = document.getElementById('btn-review-reject');
+    const $btnReviewApprove = document.getElementById('btn-review-approve');
 
-    const $paneWorker = document.getElementById('pane-worker');
-    const $badgeWorker = document.getElementById('badge-worker');
-    const $bodyWorker = document.getElementById('body-worker');
-    const $containerWorkerDiff = document.getElementById('container-worker-diff');
-    const $bodyWorkerDiff = document.getElementById('body-worker-diff');
-
-    const $paneValidator = document.getElementById('pane-validator');
-    const $badgeValidator = document.getElementById('badge-validator');
-    const $bodyValidator = document.getElementById('body-validator');
+    let rawContractMd = "";
 
     // Toggle Checklist Dialog Popup
     $btnPlan.addEventListener('click', () => {
@@ -629,6 +705,112 @@
       });
     }
 
+    // Tab switching event listeners
+    $btnTabPreview.addEventListener('click', () => {
+      $btnTabPreview.style.borderColor = '#c586c0';
+      $btnTabPreview.style.color = '#ffffff';
+      $btnTabPreview.style.background = '#18181c';
+      
+      $btnTabEdit.style.borderColor = '#222228';
+      $btnTabEdit.style.color = '#8e8e93';
+      $btnTabEdit.style.background = 'transparent';
+
+      rawContractMd = $tabContentEdit.value;
+      $tabContentPreview.innerHTML = renderMarkdownToHtml(rawContractMd);
+
+      $tabContentPreview.style.display = 'block';
+      $tabContentEdit.style.display = 'none';
+    });
+
+    $btnTabEdit.addEventListener('click', () => {
+      $btnTabEdit.style.borderColor = '#c586c0';
+      $btnTabEdit.style.color = '#ffffff';
+      $btnTabEdit.style.background = '#18181c';
+      
+      $btnTabPreview.style.borderColor = '#222228';
+      $btnTabPreview.style.color = '#8e8e93';
+      $btnTabPreview.style.background = 'transparent';
+
+      $tabContentEdit.value = rawContractMd;
+
+      $tabContentPreview.style.display = 'none';
+      $tabContentEdit.style.display = 'block';
+      $tabContentEdit.focus();
+    });
+
+    // Action: Approve
+    $btnReviewApprove.addEventListener('click', async () => {
+      if ($tabContentEdit.style.display === 'block') {
+        rawContractMd = $tabContentEdit.value;
+      }
+      $btnReviewApprove.disabled = true;
+      $btnReviewReject.disabled = true;
+      try {
+        const res = await fetch('/api/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            feedback: $reviewFeedback.value,
+            files: {
+              'validation-contract.md': rawContractMd
+            }
+          })
+        });
+        if (res.ok) {
+          $planReviewConsole.style.display = 'none';
+          $observatoryGrid.style.display = 'grid';
+          alert('Plan approved successfully! Resuming orchestrator...');
+        } else {
+          alert('Failed to submit approval.');
+          $btnReviewApprove.disabled = false;
+          $btnReviewReject.disabled = false;
+        }
+      } catch (err) {
+        console.error(err);
+        $btnReviewApprove.disabled = false;
+        $btnReviewReject.disabled = false;
+      }
+    });
+
+    // Action: Request Edits
+    $btnReviewReject.addEventListener('click', async () => {
+      if ($tabContentEdit.style.display === 'block') {
+        rawContractMd = $tabContentEdit.value;
+      }
+      if (!$reviewFeedback.value.trim()) {
+        alert('Please specify what changes you want the orchestrator to make in the feedback box.');
+        return;
+      }
+      $btnReviewApprove.disabled = true;
+      $btnReviewReject.disabled = true;
+      try {
+        const res = await fetch('/api/reject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            feedback: $reviewFeedback.value,
+            files: {
+              'validation-contract.md': rawContractMd
+            }
+          })
+        });
+        if (res.ok) {
+          $planReviewConsole.style.display = 'none';
+          $observatoryGrid.style.display = 'grid';
+          alert('Feedback submitted! The orchestrator will now revise the plan.');
+        } else {
+          alert('Failed to submit feedback.');
+          $btnReviewApprove.disabled = false;
+          $btnReviewReject.disabled = false;
+        }
+      } catch (err) {
+        console.error(err);
+        $btnReviewApprove.disabled = false;
+        $btnReviewReject.disabled = false;
+      }
+    });
+
+
     // ASCII Screensavers
     const SLEEP_ASCII_WORKER = `
  _ _ _  _ _ _  _ _ _  _ _ _ 
@@ -658,6 +840,80 @@
     // Helper functions
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function renderMarkdownToHtml(md) {
+      if (!md) return '<div style="color: #8e8e93; font-style: italic;">No contract content.</div>';
+      
+      let html = escapeHtml(md);
+
+      // Preprocess code blocks
+      const codeBlocks = [];
+      html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
+        const id = `__CODE_BLOCK_${codeBlocks.length}__`;
+        codeBlocks.push(code);
+        return id;
+      });
+
+      // Inline code
+      const inlineCode = [];
+      html = html.replace(/`([^`\n]+)`/g, (match, code) => {
+        const id = `__INLINE_CODE_${inlineCode.length}__`;
+        inlineCode.push(code);
+        return id;
+      });
+
+      // Headers
+      html = html.replace(/^### (.*$)/gim, '<h3 style="font-family: \'Outfit\', sans-serif; font-size: 15px; font-weight: 700; color: #ffffff; margin-top: 20px; margin-bottom: 8px; border-bottom: 1px solid #222228; padding-bottom: 4px;">$1</h3>');
+      html = html.replace(/^## (.*$)/gim, '<h2 style="font-family: \'Outfit\', sans-serif; font-size: 18px; font-weight: 700; color: #ffffff; margin-top: 24px; margin-bottom: 12px; border-bottom: 1px solid #222228; padding-bottom: 6px;">$1</h2>');
+      html = html.replace(/^# (.*$)/gim, '<h1 style="font-family: \'Outfit\', sans-serif; font-size: 22px; font-weight: 700; color: #ffffff; margin-top: 28px; margin-bottom: 16px; border-bottom: 1px solid #222228; padding-bottom: 8px;">$1</h1>');
+
+      // Checkboxes
+      html = html.replace(/^\s*[-*]\s+\[[xX]\]\s+(.*$)/gim, '<div style="display: flex; align-items: flex-start; gap: 8px; margin: 6px 0; font-size: 13px;"><span style="color: #c586c0; font-weight: bold; font-family: \'JetBrains Mono\', monospace; user-select: none;">[✓]</span><span style="color: #8e8e93; text-decoration: line-through;">$1</span></div>');
+      html = html.replace(/^\s*[-*]\s+\[\s*\]\s+(.*$)/gim, '<div style="display: flex; align-items: flex-start; gap: 8px; margin: 6px 0; font-size: 13px;"><span style="color: #8e8e93; font-weight: bold; font-family: \'JetBrains Mono\', monospace; user-select: none;">[ ]</span><span style="color: #e1e1e6;">$1</span></div>');
+
+      // Unordered list items
+      html = html.replace(/^\s*[-*]\s+(?!__)(.*$)/gim, '<li style="margin-left: 20px; margin-top: 4px; margin-bottom: 4px; font-size: 13px; color: #d1d1d6; list-style-type: square;">$1</li>');
+
+      // Bold text
+      html = html.replace(/\*\*([\s\S]*?)\*\*/g, '<strong style="color: #ffffff; font-weight: 600;">$1</strong>');
+
+      // Horizontal rules
+      html = html.replace(/^---$/gim, '<hr style="border: none; border-top: 1px solid #222228; margin: 24px 0;">');
+
+      // Paragraphs
+      const lines = html.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line && !line.startsWith('<h') && !line.startsWith('<div') && !line.startsWith('<li') && !line.startsWith('<hr') && !line.startsWith('__CODE_BLOCK_') && !line.startsWith('__INLINE_CODE_')) {
+          lines[i] = `<p style="margin: 10px 0; font-size: 13.5px; color: #d1d1d6; line-height: 1.6;">${lines[i]}</p>`;
+        }
+      }
+      html = lines.join('\n');
+
+      // Restore inline code
+      inlineCode.forEach((code, idx) => {
+        html = html.replace(new RegExp(`__INLINE_CODE_${idx}__`, 'g'), `<code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #16161a; padding: 2px 6px; border-radius: 4px; border: 1px solid #222228; color: #c586c0;">${code}</code>`);
+      });
+
+      // Restore code blocks
+      codeBlocks.forEach((code, idx) => {
+        const lines = code.trim().split('\n');
+        let lang = '';
+        let content = code;
+        if (lines[0] && !lines[0].includes(' ') && lines[0].length < 15) {
+          lang = lines[0].trim();
+          content = lines.slice(1).join('\n');
+        }
+        html = html.replace(new RegExp(`__CODE_BLOCK_${idx}__`, 'g'), `
+          <div style="background: #050507; border: 1px solid #1a1a20; border-radius: 8px; margin: 16px 0; overflow: hidden; display: flex; flex-direction: column;">
+            ${lang ? `<div style="background: #111114; padding: 6px 16px; font-size: 10px; font-family: 'JetBrains Mono', monospace; color: #8e8e93; text-transform: uppercase; font-weight: bold; border-bottom: 1px solid #1a1a20; display: flex; justify-content: space-between;"><span>${lang}</span></div>` : ''}
+            <pre style="margin: 0; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; overflow-x: auto; color: #e1e1e6; line-height: 1.5; white-space: pre;">${content}</pre>
+          </div>
+        `);
+      });
+
+      return html;
     }
 
     function fmtTime(iso) {
@@ -928,7 +1184,47 @@
         $goalTextMarquee.textContent = data.requirements?.goal || 'No goal specified';
         $statPhase.textContent = data.state?.phase || '—';
 
-        // Plan features list
+        const isPendingReview = data.state?.phase === 'user_approval';
+        if (isPendingReview) {
+          $planReviewConsole.style.display = 'flex';
+          $observatoryGrid.style.display = 'none';
+
+          // Populate review context
+          $reviewMissionGoal.textContent = data.requirements?.goal || 'No goal specified';
+          
+          if (document.activeElement !== $tabContentEdit) {
+            if (rawContractMd !== (data.validationContractMd || "")) {
+              rawContractMd = data.validationContractMd || "";
+              $tabContentPreview.innerHTML = renderMarkdownToHtml(rawContractMd);
+              $tabContentEdit.value = rawContractMd;
+            }
+          }
+
+          // Populate review checklist
+          const features = data.features?.features || [];
+          if (features.length === 0) {
+            $reviewFeaturesList.innerHTML = '<div style="color: #8e8e93; font-style: italic;">No features defined yet.</div>';
+          } else {
+            $reviewFeaturesList.innerHTML = features.map(f => {
+              const isDone = f.status === 'completed';
+              const checkbox = isDone ? '[✓]' : (f.status === 'active' || f.status === 'running' ? '[●]' : '[ ]');
+              return `
+                <div class="plan-item ${isDone ? 'completed' : ''}">
+                  <div class="plan-item-checkbox">${checkbox}</div>
+                  <div class="plan-item-text"><b>${escapeHtml(f.id)}</b>: ${escapeHtml(f.title || '')}</div>
+                </div>
+              `;
+            }).join('');
+          }
+
+          $btnReviewApprove.disabled = false;
+          $btnReviewReject.disabled = false;
+        } else {
+          $planReviewConsole.style.display = 'none';
+          $observatoryGrid.style.display = 'grid';
+        }
+
+        // Plan features list (for the dialog popup checklist)
         const features = data.features?.features || [];
         if (features.length === 0) {
           $planList.innerHTML = '<div style="color: #8e8e93; font-style: italic;">No features defined yet.</div>';

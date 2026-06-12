@@ -204,7 +204,7 @@ test("OPTIONS /api/diff returns CORS headers", async () => {
       const allowOrigin = res.headers["access-control-allow-origin"];
       const allowMethods = res.headers["access-control-allow-methods"];
       assert.strictEqual(allowOrigin, "*");
-      assert.strictEqual(allowMethods, "GET, OPTIONS");
+      assert.strictEqual(allowMethods, "GET, POST, OPTIONS");
     } finally {
       await serverHandle.close();
     }
@@ -373,3 +373,176 @@ test("dist/observatory/dashboard.html exists and matches src", () => {
 
   assert.strictEqual(distContent, srcContent, "copied file must be byte-for-byte identical to source");
 });
+
+import { registerApprovalResolver, resolvePendingApproval } from "../src/observatory/server.ts";
+
+test("Approval resolver registration and resolution", async () => {
+  let resolvedValue: any = null;
+  registerApprovalResolver((val) => {
+    resolvedValue = val;
+  });
+
+  const success = resolvePendingApproval({ approved: true, feedback: "Looks good" });
+  assert.strictEqual(success, true, "Should successfully resolve pending approval");
+  assert.deepStrictEqual(resolvedValue, { approved: true, feedback: "Looks good" });
+
+  const successSecond = resolvePendingApproval({ approved: false });
+  assert.strictEqual(successSecond, false, "Should not resolve when no resolver is registered");
+});
+
+import { request } from "node:http";
+
+function httpPost(url: string, body: any): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url);
+    const req = request(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+      (res) => {
+        let resBody = "";
+        res.on("data", (chunk) => { resBody += chunk; });
+        res.on("end", () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            body: resBody,
+          });
+        });
+      }
+    );
+    req.on("error", reject);
+    req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+test("POST /api/approve writes files and resolves approval", async () => {
+  const tempDir = join(process.cwd(), "test-temp-approve-endpoint");
+  mkdirSync(tempDir, { recursive: true });
+  mkdirSync(join(tempDir, ".missions", "current"), { recursive: true });
+
+  try {
+    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
+    try {
+      let resolverCalled = false;
+      registerApprovalResolver((decision) => {
+        resolverCalled = true;
+        assert.strictEqual(decision.approved, true);
+        assert.strictEqual(decision.feedback, "LGTM");
+      });
+
+      const res = await httpPost(`${serverHandle.url}/api/approve`, {
+        feedback: "LGTM",
+        files: {
+          "validation-contract.md": "updated contract text"
+        }
+      });
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(resolverCalled, true);
+      
+      const fileContent = readFileSync(join(tempDir, ".missions", "current", "validation-contract.md"), "utf-8");
+      assert.strictEqual(fileContent, "updated contract text");
+    } finally {
+      await serverHandle.close();
+    }
+  } finally {
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
+test("POST /api/reject writes files and resolves rejection", async () => {
+  const tempDir = join(process.cwd(), "test-temp-reject-endpoint");
+  mkdirSync(tempDir, { recursive: true });
+  mkdirSync(join(tempDir, ".missions", "current"), { recursive: true });
+
+  try {
+    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
+    try {
+      let resolverCalled = false;
+      registerApprovalResolver((decision) => {
+        resolverCalled = true;
+        assert.strictEqual(decision.approved, false);
+        assert.strictEqual(decision.feedback, "Need OAuth");
+      });
+
+      const res = await httpPost(`${serverHandle.url}/api/reject`, {
+        feedback: "Need OAuth",
+        files: {
+          "validation-contract.md": "contract with comments"
+        }
+      });
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(resolverCalled, true);
+      
+      const fileContent = readFileSync(join(tempDir, ".missions", "current", "validation-contract.md"), "utf-8");
+      assert.strictEqual(fileContent, "contract with comments");
+    } finally {
+      await serverHandle.close();
+    }
+  } finally {
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
+test("GET /api/mission returns mission state, requirements, and features, and raw validation-contract.md", async () => {
+  const tempDir = join(process.cwd(), "test-temp-mission-api-md");
+  mkdirSync(tempDir, { recursive: true });
+  mkdirSync(join(tempDir, ".missions", "current"), { recursive: true });
+
+  try {
+    writeFileSync(join(tempDir, ".missions", "current", "state.json"), JSON.stringify({ phase: "testing" }), "utf-8");
+    writeFileSync(join(tempDir, ".missions", "current", "requirements.json"), JSON.stringify({ goal: "verify dashboard" }), "utf-8");
+    writeFileSync(join(tempDir, ".missions", "current", "features.json"), JSON.stringify({ features: [] }), "utf-8");
+    writeFileSync(join(tempDir, ".missions", "current", "validation-contract.md"), "### Gherkin Scenario 1...", "utf-8");
+
+    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
+    try {
+      const res = await httpGet(`${serverHandle.url}/api/mission`);
+      assert.strictEqual(res.status, 200);
+      const parsed = JSON.parse(res.body);
+      assert.strictEqual(parsed.state.phase, "testing");
+      assert.strictEqual(parsed.requirements.goal, "verify dashboard");
+      assert.strictEqual(parsed.validationContractMd, "### Gherkin Scenario 1...");
+    } finally {
+      await serverHandle.close();
+    }
+  } finally {
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
+import { waitForUserApprovalTool } from "../src/core/tools.ts";
+
+test("wait_for_user_approval tool blocks and resolves on approval", async () => {
+  let toolPromiseResolved = false;
+  const toolPromise = waitForUserApprovalTool.execute("test-call", {});
+
+  toolPromise.then((result) => {
+    toolPromiseResolved = true;
+    assert.strictEqual(result.details.approved, true);
+    assert.strictEqual(result.details.feedback, "Go ahead!");
+    assert.ok(result.content[0].text.includes("approved"), "should mention approval");
+  });
+
+  // Resolve approval
+  resolvePendingApproval({ approved: true, feedback: "Go ahead!" });
+
+  await toolPromise;
+  assert.strictEqual(toolPromiseResolved, true);
+});
+
+
+
+
