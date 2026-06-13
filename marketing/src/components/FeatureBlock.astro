@@ -9,9 +9,9 @@ const { num, title, codeSnippet } = Astro.props;
 <div class="feature-block">
   <div class="feature-num">{num}</div>
   <h3 class="feature-title">{title}</h3>
-  <p class="feature-desc">
+  <div class="feature-desc">
     <slot />
-  </p>
+  </div>
   {codeSnippet && <code class="feature-code">{codeSnippet}</code>}
 </div>
 
