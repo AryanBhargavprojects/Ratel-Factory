@@ -33,6 +33,7 @@ import {
   listFeatureFiles,
   writeFeatureFile,
   getCompletedFeaturesForMilestone,
+  getIntegratedFeaturesForMilestone,
 } from "./artifacts.js";
 import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
@@ -56,17 +57,18 @@ import {
 } from "./schema/mission-schema.js";
 import { writeWorkerRawOutput } from "./workers/worker-output.js";
 import { buildValidationRecoveryPlan } from "./mission/validation-recovery.js";
-import { checkCompletedFeatureIntegration } from "./mission/integration-preflight.js";
+import { checkIntegratedFeatureIntegration } from "./mission/integration-preflight.js";
 import { resolveFeatureAssertions, formatFeatureAssertionsForPrompt, computeFeatureComplexity } from "./mission/feature-assertions.js";
 import { prepareSerialWorkerBranch, finalizeSerialWorkerBranch, copyFeatureFilesToWorkspace } from "./mission/worker-workspace.js";
 import {
-  evaluateCompletionGate,
-  applyFeatureCompletion,
-  wouldIntroduceCompletedTransition,
+  evaluateFeatureIntegrationGate,
+  applyFeatureIntegration,
+  wouldIntroduceIntegratedTransition,
 } from "./mission/feature-completion.js";
 import { createReportReceiver, persistSubmittedReport, persistWorkerReceipt } from "./report-submission.js";
 import { runUserTestingCoordinator } from "./mission/user-testing-coordinator.js";
 import { getCurrentDashboardUrl } from "../observatory/server.js";
+import { evaluateMilestoneValidation, applyMilestoneValidation, markMissionCompleted } from "./mission/validation-finalization.js";
 import type { MissionExecutionContext } from "./mission/execution-context.js";
 
 /**
@@ -418,7 +420,7 @@ export function writeMissionArtifactTool(context: MissionExecutionContext) {
         }
       }
 
-      // If writing features.json, block direct transitions to "completed".
+      // If writing features.json, block direct transitions to "integrated" or "validated".
       if (artifact === "features.json") {
         const currentFeatures = await readFeatures(context.scope);
         let proposedFeatures: Feature[] | undefined;
@@ -427,12 +429,12 @@ export function writeMissionArtifactTool(context: MissionExecutionContext) {
         } catch {
           /* invalid JSON handled by canonicalizeMissionArtifactContent above */
         }
-        const transitionCheck = wouldIntroduceCompletedTransition(currentFeatures, proposedFeatures);
+        const transitionCheck = wouldIntroduceIntegratedTransition(currentFeatures, proposedFeatures);
         if (transitionCheck.blocked) {
           context.logger.toolResult("write_mission_artifact", { parseStatus: "failed", error: transitionCheck.reason });
           return {
             content: [{ type: "text" as const, text: `ERROR: ${transitionCheck.reason}` }],
-            details: { error: "completed_transition_blocked", artifact, reason: transitionCheck.reason },
+            details: { error: "integrated_transition_blocked", artifact, reason: transitionCheck.reason },
           };
         }
       }
@@ -472,38 +474,38 @@ export function writeMissionArtifactTool(context: MissionExecutionContext) {
 }
 
 /**
- * Mark a feature as completed through the non-bypassable completion gate.
- * The orchestrator decides WHEN to request completion.
+ * Mark a feature as integrated through the non-bypassable integration gate.
+ * The orchestrator decides WHEN to request integration.
  * The gate validates WHETHER the requested transition is structurally and operationally valid.
  */
-export function markFeatureCompletedTool(context: MissionExecutionContext) {
+export function markFeatureIntegratedTool(context: MissionExecutionContext) {
   return defineTool({
-    name: "mark_feature_completed",
-    label: "Mark Feature Completed",
+    name: "mark_feature_integrated",
+    label: "Mark Feature Integrated",
     description:
-      "Mark a feature as completed after verifying the worker handoff is clean, " +
+      "Mark a feature as integrated after verifying the worker handoff is clean, " +
       "no high issues were discovered, leftUndone is empty, and the workspace was merged or skipped. " +
-      "This is the ONLY way to transition a feature to 'completed'. " +
-      "Do NOT write features.json directly to mark completion.",
+      "This is the ONLY way to transition a feature to 'integrated'. " +
+      "Workers CANNOT complete or validate a feature. Do NOT write features.json directly to mark integration.",
     parameters: Type.Object({
-      featureId: Type.String({ description: "Feature ID to mark as completed" }),
+      featureId: Type.String({ description: "Feature ID to mark as integrated" }),
     }),
     execute: async (_toolCallId, params) => {
-      context.logger.toolCall("mark_feature_completed", { featureId: params.featureId });
+      context.logger.toolCall("mark_feature_integrated", { featureId: params.featureId });
 
-      const gate = await evaluateCompletionGate(context.scope, params.featureId);
+      const gate = await evaluateFeatureIntegrationGate(context.scope, params.featureId);
 
       const resultDetails = !gate.success
         ? { success: false as const, featureId: params.featureId, commitSha: undefined as string | undefined, errors: gate.errors }
         : { success: true as const, featureId: params.featureId, commitSha: gate.commitSha, errors: [] as string[] };
 
       if (!gate.success) {
-        context.logger.toolResult("mark_feature_completed", { success: false, errors: gate.errors });
+        context.logger.toolResult("mark_feature_integrated", { success: false, errors: gate.errors });
         return {
           content: [{
             type: "text" as const,
             text: [
-              `Feature ${params.featureId} cannot be marked completed:`,
+              `Feature ${params.featureId} cannot be marked integrated:`,
               "",
               ...gate.errors.map((e) => `- ${e}`),
               "",
@@ -514,13 +516,13 @@ export function markFeatureCompletedTool(context: MissionExecutionContext) {
         };
       }
 
-      await applyFeatureCompletion(context.scope, params.featureId, gate.commitSha);
+      await applyFeatureIntegration(context.scope, params.featureId, gate.commitSha);
 
-      context.logger.toolResult("mark_feature_completed", { success: true, featureId: params.featureId, commitSha: gate.commitSha });
+      context.logger.toolResult("mark_feature_integrated", { success: true, featureId: params.featureId, commitSha: gate.commitSha });
       return {
         content: [{
           type: "text" as const,
-          text: `Feature ${params.featureId} marked as completed.${gate.commitSha ? ` Commit: ${gate.commitSha}` : ""}`,
+          text: `Feature ${params.featureId} marked as integrated.${gate.commitSha ? ` Commit: ${gate.commitSha}` : ""}`,
         }],
         details: resultDetails,
       };
@@ -734,19 +736,19 @@ export function runValidationTool(context: MissionExecutionContext) {
       let contentText = "";
       let details: Record<string, unknown> = {};
 
-      // 1. Read completed features for this milestone through the canonical
+      // 1. Read integrated features for this milestone through the canonical
       //    artifact schema boundary. This accepts legacy mission artifacts at the
       //    edge but exposes only canonical Feature objects to validators.
-      const milestoneFeatures = await getCompletedFeaturesForMilestone(context.scope, params.milestoneId);
+      const milestoneFeatures = await getIntegratedFeaturesForMilestone(context.scope, params.milestoneId);
 
       if (milestoneFeatures.length === 0) {
-        contentText = `No completed features found for milestone ${params.milestoneId}.`;
-        details = { error: "no_completed_features", milestoneId: params.milestoneId };
+        contentText = `No integrated features found for milestone ${params.milestoneId}.`;
+        details = { error: "no_integrated_features", milestoneId: params.milestoneId };
       } else {
         // 2. Deterministic integration preflight. Validation runs against the
         //    canonical integration branch, so completed feature commits must be
         //    reachable from that branch before spawning expensive validators.
-        const preflight = await checkCompletedFeatureIntegration(context.scope, milestoneFeatures);
+        const preflight = await checkIntegratedFeatureIntegration(context.scope, milestoneFeatures);
         context.logger.integrationPreflight({
           milestoneId: params.milestoneId,
           status: preflight.status,
@@ -763,7 +765,7 @@ export function runValidationTool(context: MissionExecutionContext) {
             `**Preflight status:** failed`,
             `**Integration branch:** ${preflight.branch}`,
             `**Repository:** ${preflight.repoPath ?? "unknown"}`,
-            `**Missing completed features:** ${preflight.missing.map((item) => item.featureId).join(", ")}`,
+            `**Missing integrated features:** ${preflight.missing.map((item) => item.featureId).join(", ")}`,
             "",
             preflight.recoveryInstruction,
             "",
@@ -1104,7 +1106,7 @@ export function runUserTestingTool(context: MissionExecutionContext) {
     name: "run_user_testing",
     label: "Run User Testing",
     description:
-      "Spawns the User-Testing Validator to perform end-to-end browser validation of completed features. " +
+      "Spawns the User-Testing Validator to perform end-to-end browser validation of integrated features. " +
       "MUST be called AFTER run_validation passes. The validator reads Gherkin .feature files, starts the app, " +
       "opens it with agent-browser, executes scenarios step-by-step, and writes a structured report with " +
       "screenshot evidence.",
@@ -1115,13 +1117,13 @@ export function runUserTestingTool(context: MissionExecutionContext) {
       const startTime = Date.now();
       context.logger.toolCall("run_user_testing", { milestoneId: params.milestoneId });
 
-      const milestoneFeatures = await getCompletedFeaturesForMilestone(context.scope, params.milestoneId);
+      const milestoneFeatures = await getIntegratedFeaturesForMilestone(context.scope, params.milestoneId);
 
       if (milestoneFeatures.length === 0) {
         const durationMs = Date.now() - startTime;
         context.logger.toolResult("run_user_testing", { durationMs });
         return {
-          content: [{ type: "text" as const, text: `No completed features found for milestone ${params.milestoneId}` }],
+          content: [{ type: "text" as const, text: `No integrated features found for milestone ${params.milestoneId}` }],
           details: { error: "no_completed_features", milestoneId: params.milestoneId } as Record<string, unknown>,
         };
       }
@@ -1152,7 +1154,7 @@ export function runUserTestingTool(context: MissionExecutionContext) {
               `**Preflight status:** failed`,
               `**Integration branch:** ${preflight.branch}`,
               `**Repository:** ${preflight.repoPath ?? "unknown"}`,
-              `**Missing completed features:** ${preflight.missing.map((item) => item.featureId).join(", ")}`,
+              `**Missing integrated features:** ${preflight.missing.map((item) => item.featureId).join(", ")}`,
               "",
               preflight.recoveryInstruction,
               "",
@@ -1853,6 +1855,124 @@ export function waitForUserApprovalTool(context: MissionExecutionContext) {
   });
 }
 
+/**
+ * Mark a milestone as validated after scrutiny and user testing reports pass.
+ * The orchestrator decides WHEN to request validation.
+ * The gate verifies report existence, freshness, automated checks, and blocking issues.
+ */
+export function markMilestoneValidatedTool(context: MissionExecutionContext) {
+  return defineTool({
+    name: "mark_milestone_validated",
+    label: "Mark Milestone Validated",
+    description:
+      "Mark a milestone as validated after verifying both scrutiny and user-testing reports pass all gates. " +
+      "This transitions integrated features to validated and marks the milestone as completed. " +
+      "Only validators can produce validated features.",
+    parameters: Type.Object({
+      milestoneId: Type.String({ description: "Milestone ID to validate" }),
+      scrutinyReportFilename: Type.String({ description: "Filename of the scrutiny report in validation-reports/" }),
+      userTestingReportFilename: Type.String({ description: "Filename of the user-testing report in validation-reports/" }),
+    }),
+    execute: async (_toolCallId, params) => {
+      context.logger.toolCall("mark_milestone_validated", {
+        milestoneId: params.milestoneId,
+        scrutinyReportFilename: params.scrutinyReportFilename,
+        userTestingReportFilename: params.userTestingReportFilename,
+      });
+
+      const result = await evaluateMilestoneValidation(context.scope, {
+        milestoneId: params.milestoneId,
+        scrutinyReportFilename: params.scrutinyReportFilename,
+        userTestingReportFilename: params.userTestingReportFilename,
+      });
+
+      if (!result.success) {
+        context.logger.toolResult("mark_milestone_validated", { success: false, errors: result.errors });
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Milestone ${params.milestoneId} cannot be marked validated:`,
+              "",
+              ...result.errors.map((e) => `- ${e}`),
+              "",
+              "Address the issues and retry.",
+            ].join("\n"),
+          }],
+          details: { success: false, errors: result.errors },
+        };
+      }
+
+      await applyMilestoneValidation(context.scope, result);
+
+      context.logger.toolResult("mark_milestone_validated", {
+        success: true,
+        milestoneId: params.milestoneId,
+        featureIds: result.featureIds,
+      });
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Milestone ${params.milestoneId} marked as validated. Features transitioned: ${result.featureIds.join(", ")}.`,
+        }],
+        details: { success: true, milestoneId: params.milestoneId, featureIds: result.featureIds },
+      };
+    },
+  });
+}
+
+/**
+ * Mark the entire mission as completed.
+ * Verifies all features are validated and all milestones are completed.
+ */
+export function markMissionCompletedTool(context: MissionExecutionContext) {
+  return defineTool({
+    name: "mark_mission_completed",
+    label: "Mark Mission Completed",
+    description:
+      "Mark the entire mission as completed after verifying all features are validated and all milestones are completed. " +
+      "This is the ONLY way to transition mission phase to 'completed'.",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, _params) => {
+      context.logger.toolCall("mark_mission_completed", {});
+
+      const result = await markMissionCompleted(context.scope);
+
+      if (!result.success) {
+        context.logger.toolResult("mark_mission_completed", { success: false, errors: result.errors });
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `Mission cannot be marked completed:`,
+              "",
+              ...result.errors.map((e) => `- ${e}`),
+            ].join("\n"),
+          }],
+          details: { success: false, errors: result.errors },
+        };
+      }
+
+      const currentState = await readState(context.scope);
+      await writeState(context.scope, {
+        ...(currentState ?? { version: 0 }),
+        phase: "completed",
+        version: (currentState?.version ?? 0) + 1,
+        updatedAt: new Date().toISOString(),
+      });
+
+      context.logger.toolResult("mark_mission_completed", { success: true, phase: "completed" });
+      return {
+        content: [{
+          type: "text" as const,
+          text: "Mission marked as completed.",
+        }],
+        details: { success: true, phase: "completed" },
+      };
+    },
+  });
+}
+
 /** Create orchestrator custom tools from a mission execution context. */
 export function createOrchestratorTools(context: MissionExecutionContext) {
   return [
@@ -1860,7 +1980,9 @@ export function createOrchestratorTools(context: MissionExecutionContext) {
     askSmartFriendTool(context),
     draftValidationContractTool(context),
     writeMissionArtifactTool(context),
-    markFeatureCompletedTool(context),
+    markFeatureIntegratedTool(context),
+    markMilestoneValidatedTool(context),
+    markMissionCompletedTool(context),
     loadMissionStateTool(context),
     haltMissionTool(context),
     logDecisionTool(context),

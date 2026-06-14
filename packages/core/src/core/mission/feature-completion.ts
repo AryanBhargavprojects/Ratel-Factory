@@ -1,20 +1,20 @@
 /**
- * Non-bypassable feature completion gate.
- * The orchestrator decides WHEN to request completion.
+ * Non-bypassable feature integration gate.
+ * The orchestrator decides WHEN to request integration.
  * This module decides WHETHER the requested transition is structurally valid.
  */
 
 import type { WorkerRunReceipt, Feature } from "../types.js";
 import { readWorkerReceipt } from "../report-submission.js";
 import { readFeatures, writeFeatures } from "../artifacts.js";
-import type { MissionScope } from "../mission/scope.js";
+import type { MissionScope } from "../scope.js";
 import { join } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCb);
 
-export interface CompletionGateResult {
+export interface IntegrationGateResult {
   success: boolean;
   featureId: string;
   commitSha?: string;
@@ -42,7 +42,7 @@ async function isCommitReachable(
 }
 
 /**
- * Evaluate the completion gate for a feature.
+ * Evaluate the integration gate for a feature.
  *
  * Conditions:
  * - receipt.parseStatus === "ok"
@@ -53,10 +53,10 @@ async function isCommitReachable(
  * - for "merged": commit is reachable from integration branch
  * - for "skipped": no integration repo was available, and handoff contains a commit when project is a git repo
  */
-export async function evaluateCompletionGate(
+export async function evaluateFeatureIntegrationGate(
   scope: MissionScope,
   featureId: string,
-): Promise<CompletionGateResult> {
+): Promise<IntegrationGateResult> {
   const errors: string[] = [];
 
   // 1. Read features
@@ -70,8 +70,8 @@ export async function evaluateCompletionGate(
     return { success: false, featureId, errors: [`Feature ${featureId} not found.`] };
   }
 
-  // Idempotent: already completed
-  if (feature.status === "completed") {
+  // Idempotent: already integrated or validated
+  if (feature.status === "integrated" || feature.status === "validated") {
     return { success: true, featureId, errors: [] };
   }
 
@@ -138,10 +138,10 @@ export async function evaluateCompletionGate(
 }
 
 /**
- * Apply the completion transition: update features.json with completed status and commitSha.
- * This is the ONLY path that may write status="completed".
+ * Apply the integration transition: update features.json with integrated status and commitSha.
+ * This is the ONLY path that may write status="integrated".
  */
-export async function applyFeatureCompletion(
+export async function applyFeatureIntegration(
   scope: MissionScope,
   featureId: string,
   commitSha?: string,
@@ -151,7 +151,7 @@ export async function applyFeatureCompletion(
 
   const updated = features.map((f) =>
     f.id === featureId
-      ? { ...f, status: "completed" as const, commitSha: commitSha ?? f.commitSha }
+      ? { ...f, status: "integrated" as const, commitSha: commitSha ?? f.commitSha, integratedAt: new Date().toISOString() }
       : f,
   );
 
@@ -159,32 +159,46 @@ export async function applyFeatureCompletion(
 }
 
 /**
- * Check whether a features.json write would introduce an invalid completed transition.
- * Used by write_mission_artifact to reject direct completed transitions.
+ * Check whether a features.json write would introduce an invalid integrated or validated transition.
+ * Used by write_mission_artifact to reject direct transitions.
  */
-export function wouldIntroduceCompletedTransition(
+export function wouldIntroduceIntegratedTransition(
   currentFeatures: Feature[] | undefined,
   proposedFeatures: Feature[] | undefined,
 ): { blocked: boolean; reason?: string } {
-  if (!currentFeatures || !proposedFeatures) return { blocked: false };
+  if (!proposedFeatures) return { blocked: false };
 
-  const currentStatusById = new Map(currentFeatures.map((f) => [f.id, f.status]));
+  const currentStatusById = new Map(currentFeatures?.map((f) => [f.id, f.status]) ?? []);
 
   for (const proposed of proposedFeatures) {
     const currentStatus = currentStatusById.get(proposed.id);
     if (!currentStatus) {
       // New feature
-      if (proposed.status === "completed") {
+      if (proposed.status === "integrated") {
         return {
           blocked: true,
-          reason: `New feature ${proposed.id} cannot be created with status "completed". Use mark_feature_completed instead.`,
+          reason: `New feature ${proposed.id} cannot be created with status "integrated". Use mark_feature_integrated instead.`,
         };
       }
-    } else if (currentStatus !== "completed" && proposed.status === "completed") {
-      return {
-        blocked: true,
-        reason: `Feature ${proposed.id} cannot transition from "${currentStatus}" to "completed" through direct artifact write. Use mark_feature_completed instead.`,
-      };
+      if (proposed.status === "validated") {
+        return {
+          blocked: true,
+          reason: `New feature ${proposed.id} cannot be created with status "validated". Only validators can produce validated.`,
+        };
+      }
+    } else {
+      if (currentStatus !== "integrated" && proposed.status === "integrated") {
+        return {
+          blocked: true,
+          reason: `Feature ${proposed.id} cannot transition from "${currentStatus}" to "integrated" through direct artifact write. Use mark_feature_integrated instead.`,
+        };
+      }
+      if (currentStatus !== "validated" && proposed.status === "validated") {
+        return {
+          blocked: true,
+          reason: `Feature ${proposed.id} cannot transition from "${currentStatus}" to "validated" through direct artifact write. Only validators can produce validated.`,
+        };
+      }
     }
   }
 

@@ -158,9 +158,9 @@ export async function readFeatures(scope: import("./mission/scope.js").MissionSc
   }
 }
 
-export async function getCompletedFeaturesForMilestone(scope: import("./mission/scope.js").MissionScope, milestoneId: string): Promise<Feature[]> {
+export async function getIntegratedFeaturesForMilestone(scope: import("./mission/scope.js").MissionScope, milestoneId: string): Promise<Feature[]> {
   const features = await readFeatures(scope);
-  return features ? selectCompletedFeaturesForMilestone(features, milestoneId) : [];
+  return features ? selectIntegratedFeaturesForMilestone(features, milestoneId) : [];
 }
 
 export async function writeMilestones(scope: import("./mission/scope.js").MissionScope, milestones: Milestone[]): Promise<void> {
@@ -303,12 +303,13 @@ export async function listFeatureFiles(scope: import("./mission/scope.js").Missi
   }
 }
 
-export async function writeValidationReport(scope: import("./mission/scope.js").MissionScope, report: ScrutinyReport): Promise<void> {
+export async function writeValidationReport(scope: import("./mission/scope.js").MissionScope, report: ScrutinyReport): Promise<string> {
   const reportsDir = join(getMissionDir(scope), "validation-reports");
   await mkdir(reportsDir, { recursive: true });
   const filename = `${report.validatorType}-${report.milestoneId}-${Date.now()}.json`;
   const path = join(reportsDir, filename);
   await atomicWriteJson(path, report);
+  return filename;
 }
 
 export async function listValidationReports(scope: import("./mission/scope.js").MissionScope, milestoneId?: string): Promise<string[]> {
@@ -349,12 +350,13 @@ export async function readWorkerSkillsConfig(scope: import("./mission/scope.js")
   }
 }
 
-export async function writeUserTestingReport(scope: import("./mission/scope.js").MissionScope, report: UserTestingReport): Promise<void> {
+export async function writeUserTestingReport(scope: import("./mission/scope.js").MissionScope, report: UserTestingReport): Promise<string> {
   const reportsDir = join(getMissionDir(scope), "validation-reports");
   await mkdir(reportsDir, { recursive: true });
   const filename = `user-testing-${report.milestoneId}-${Date.now()}.json`;
   const path = join(reportsDir, filename);
   await atomicWriteJson(path, report);
+  return filename;
 }
 
 export async function listUserTestingReports(scope: import("./mission/scope.js").MissionScope, milestoneId?: string): Promise<string[]> {

@@ -93,31 +93,31 @@ function featureCommitSha(feature: Feature): string | undefined {
 
 function buildRecoveryInstruction(branch: string, missing: MissingIntegrationFeature[]): string {
   if (missing.length === 0) {
-    return `All verifiable completed feature commits are reachable from ${branch}.`;
+    return `All verifiable integrated feature commits are reachable from ${branch}.`;
   }
 
   const mergeTargets = missing.map((item) => item.branchHint ?? item.commitSha).join(", ");
   const featureIds = missing.map((item) => item.featureId).join(", ");
   return [
-    `Do not run milestone validation yet. Completed feature commit(s) for ${featureIds} are not reachable from ${branch}.`,
+    `Do not run milestone validation yet. Integrated feature commit(s) for ${featureIds} are not reachable from ${branch}.`,
     `Create a same-milestone merge recovery feature: merge ${mergeTargets} into ${branch} in dependency order, resolve conflicts, verify the commits or equivalent diffs are present, then rerun checks before validation.`,
   ].join(" ");
 }
 
 /**
- * Ensure completed feature commits are present on the canonical integration
+ * Ensure integrated feature commits are present on the canonical integration
  * branch before validators run. Validation must inspect the integration branch,
  * not isolated feature worktrees, so accepting handoffs without this check lets
  * the same blocking issues repeat indefinitely.
  */
-export async function checkCompletedFeatureIntegration(
+export async function checkIntegratedFeatureIntegration(
   scope: MissionScope,
   features: Feature[],
   branch = "integration",
 ): Promise<IntegrationPreflightResult> {
   const repoPath = await findIntegrationRepo(scope, branch);
-  const completedWithCommits = features
-    .filter((feature) => feature.status === "completed")
+  const integratedWithCommits = features
+    .filter((feature) => feature.status === "integrated" || feature.status === "validated")
     .map((feature) => ({ feature, commitSha: featureCommitSha(feature) }))
     .filter((item): item is { feature: Feature; commitSha: string } => Boolean(item.commitSha));
 
@@ -125,7 +125,7 @@ export async function checkCompletedFeatureIntegration(
     return {
       status: "skipped",
       branch,
-      checkedFeatureCount: completedWithCommits.length,
+      checkedFeatureCount: integratedWithCommits.length,
       missing: [],
       reason: `No git repository with branch ${branch} was found under ${scope.projectRoot}; integration preflight skipped.`,
       recoveryInstruction: `No git repository with branch ${branch} was found; validation can proceed only if this mission does not use an integration branch.`,
@@ -133,7 +133,7 @@ export async function checkCompletedFeatureIntegration(
   }
 
   const missing: MissingIntegrationFeature[] = [];
-  for (const { feature, commitSha } of completedWithCommits) {
+  for (const { feature, commitSha } of integratedWithCommits) {
     const exists = await commitExists(repoPath, commitSha);
     const reachable = exists && await commitReachableFromBranch(repoPath, commitSha, branch);
     if (!reachable) {
@@ -150,7 +150,7 @@ export async function checkCompletedFeatureIntegration(
     status: missing.length > 0 ? "failed" : "ok",
     branch,
     repoPath,
-    checkedFeatureCount: completedWithCommits.length,
+    checkedFeatureCount: integratedWithCommits.length,
     missing,
     recoveryInstruction: buildRecoveryInstruction(branch, missing),
   };

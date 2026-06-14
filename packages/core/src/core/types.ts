@@ -48,8 +48,10 @@ export interface Feature {
   description: string;
   assertions: string[]; // assertion IDs this feature claims to satisfy
   milestoneId: string;
-  status: "pending" | "in_progress" | "completed" | "blocked";
+  status: "pending" | "in_progress" | "integrated" | "validated" | "blocked";
   commitSha?: string;
+  integratedAt?: string;
+  validatedAt?: string;
 }
 
 export interface Milestone {

@@ -50,10 +50,10 @@ export async function buildShards(
   basePort: number,
   shardTimeoutMs: number,
 ): Promise<{ shards: UserTestingShard[]; unresolvedRefs: string[]; coverageStatus: "complete" | "incomplete" }> {
-  // Collect all assertion references from completed features in this milestone
+  // Collect all assertion references from integrated or validated features in this milestone
   const allRefs: string[] = [];
   for (const feature of features) {
-    if (feature.milestoneId === milestoneId && feature.status === "completed") {
+    if (feature.milestoneId === milestoneId && (feature.status === "integrated" || feature.status === "validated")) {
       allRefs.push(...feature.assertions);
     }
   }
@@ -81,7 +81,7 @@ export async function buildShards(
 
   // Map features to files for featureIds
   for (const feature of features) {
-    if (feature.milestoneId === milestoneId && feature.status === "completed") {
+    if (feature.milestoneId === milestoneId && (feature.status === "integrated" || feature.status === "validated")) {
       for (const ref of feature.assertions) {
         const { file } = parseAssertionRef(ref);
         const entry = byFile.get(file);
