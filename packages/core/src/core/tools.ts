@@ -33,6 +33,7 @@ import {
   listFeatureFiles,
   writeFeatureFile,
   getIntegratedFeaturesForMilestone,
+  appendDecision,
 } from "./artifacts.js";
 import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
@@ -54,6 +55,7 @@ import {
   isStructuredArtifact,
   MissionArtifactSchemaError,
 } from "./schema/mission-schema.js";
+import { ValidationContractSchema, validateSchema } from "./schema/report-schemas.js";
 import { writeWorkerRawOutput } from "./workers/worker-output.js";
 import { buildValidationRecoveryPlan } from "./mission/validation-recovery.js";
 import { checkIntegratedFeatureIntegration } from "./mission/integration-preflight.js";
@@ -694,11 +696,17 @@ export function logDecisionTool(context: MissionExecutionContext) {
       context.logger.toolCall("log_decision", { context: params.context, decision: params.decision });
       const id = `DEC-${Date.now()}`;
       const timestamp = new Date().toISOString();
-      const entry = `## ${id}\n**Timestamp:** ${timestamp}\n**Context:** ${params.context}\n**Decision:** ${params.decision}\n**Rationale:** ${params.rationale}\n\n`;
-      await writeArtifact(context.scope, "decision-log.md", entry, "append", context.logger);
+      const decision = {
+        id,
+        timestamp,
+        context: params.context,
+        decision: params.decision,
+        rationale: params.rationale,
+      };
+      await appendDecision(context.scope, decision, context.logger);
       context.logger.toolResult("log_decision", { decisionId: id });
       return {
-        content: [{ type: "text", text: `Logged decision ${id} to decision-log.md.` }],
+        content: [{ type: "text", text: `Logged decision ${id} to decisions.jsonl.` }],
         details: { decisionId: id },
       };
     },

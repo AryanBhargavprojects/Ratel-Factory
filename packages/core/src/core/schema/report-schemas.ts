@@ -160,6 +160,33 @@ export const UserTestingShardReportSchema = Type.Object({
 
 export type UserTestingShardReportSchemaType = Static<typeof UserTestingShardReportSchema>;
 
+export const ValidationContractSchema = Type.Object({
+  version: Type.Number(),
+  createdAt: Type.String(),
+  assertions: Type.Array(
+    Type.Object({
+      id: Type.String(),
+      title: Type.String(),
+      description: Type.String(),
+      featureFile: Type.String(),
+      scenario: Type.String(),
+      evidenceType: Type.Union([
+        Type.Literal("screenshot"),
+        Type.Literal("test"),
+        Type.Literal("log"),
+        Type.Literal("manual"),
+      ]),
+      requirementRefs: Type.Array(Type.String()),
+      preconditions: Type.Optional(Type.Array(Type.String())),
+      successCriteria: Type.String(),
+    }),
+  ),
+  gaps: Type.Array(Type.String()),
+  crossCuttingAssertions: Type.Array(Type.String()),
+});
+
+export type ValidationContractSchemaType = Static<typeof ValidationContractSchema>;
+
 /**
  * Validate a value against a TypeBox schema.
  * Returns { valid: true } or { valid: false, errors: string[] }.

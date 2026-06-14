@@ -49,30 +49,6 @@ function isolateSkills(
 function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger | undefined) {
   return [
     {
-      name: "write_mission_artifact",
-      label: "Write Mission Artifact",
-      description:
-        "Write or append a canonical mission artifact under .ratel/missions/<missionId>/. " +
-        "Use this to write 'validation-contract.md' as the contract summary. " +
-        "Mode is 'overwrite' (default) or 'append'.",
-      parameters: {
-        type: "object" as const,
-        properties: {
-          artifact: { type: "string" as const, description: "Artifact name, e.g. 'validation-contract.md'" },
-          content: { type: "string" as const, description: "Full content to write" },
-          mode: { type: "string" as const, enum: ["overwrite", "append"], default: "overwrite" },
-        },
-        required: ["artifact", "content"],
-      },
-      execute: async (_id: string, params: { artifact: string; content: string; mode?: string }) => {
-        const { writeArtifact } = await import("./artifacts.js");
-        const mode = params.mode === "append" ? "append" : "overwrite";
-        await writeArtifact(scope, params.artifact as any, params.content, mode, logger);
-        logger?.artifactWrite(params.artifact, mode, Buffer.byteLength(params.content, "utf-8"));
-        return { content: [{ type: "text" as const, text: `Wrote ${params.artifact} (${mode}).` }], details: {} };
-      },
-    },
-    {
       name: "write_feature_file",
       label: "Write Feature File",
       description:
@@ -97,6 +73,102 @@ function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger 
         await writeFeatureFile(scope, params.filename, params.content);
         logger?.artifactWrite(`features/${params.filename}`, "overwrite", Buffer.byteLength(params.content, "utf-8"));
         return { content: [{ type: "text" as const, text: `Wrote .ratel/missions/${scope.missionId}/features/${params.filename} (${Buffer.byteLength(params.content, "utf-8")} bytes).` }], details: {} };
+      },
+    },
+    {
+      name: "submit_validation_contract",
+      label: "Submit Validation Contract",
+      description:
+        "Submit a structured ValidationContract object after all .feature files are written. " +
+        "The tool validates the contract with TypeBox, indexes every written feature file, " +
+        "verifies every assertion's feature and scenario reference, rejects duplicate assertion IDs, " +
+        "and atomically writes validation-contract.json and validation-contract.md. " +
+        "Do NOT call this until you have written at least one valid .feature file.",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          contract: {
+            type: "object" as const,
+            description: "Structured ValidationContract object with version, createdAt, assertions, gaps, crossCuttingAssertions",
+          },
+        },
+        required: ["contract"],
+      },
+      execute: async (_id: string, params: { contract: unknown }) => {
+        const { validateSchema } = await import("./schema/report-schemas.js");
+        const { ValidationContractSchema } = await import("./schema/report-schemas.js");
+        const { indexGherkinFeature } = await import("./mission/gherkin-index.js");
+        const { writeValidationContract, listFeatureFiles, readFeatureFile } = await import("./artifacts.js");
+
+        const validation = validateSchema(ValidationContractSchema, params.contract);
+        if (!validation.valid) {
+          return {
+            content: [{ type: "text" as const, text: `ERROR: Invalid contract.\n${validation.errors.join("\n")}` }],
+            details: { error: "invalid_contract", errors: validation.errors },
+          };
+        }
+
+        const contract = params.contract as import("./types.js").ValidationContract;
+
+        // Reject duplicate assertion IDs
+        const ids = new Set<string>();
+        for (const a of contract.assertions) {
+          if (ids.has(a.id)) {
+            return {
+              content: [{ type: "text" as const, text: `ERROR: Duplicate assertion ID "${a.id}"` }],
+              details: { error: "duplicate_assertion_id", id: a.id },
+            };
+          }
+          ids.add(a.id);
+        }
+
+        // Index all feature files and verify references
+        const featureFiles = await listFeatureFiles(scope);
+        if (featureFiles.length === 0) {
+          return {
+            content: [{ type: "text" as const, text: `ERROR: No .feature files found. Write at least one feature file before submitting the contract.` }],
+            details: { error: "no_feature_files" },
+          };
+        }
+
+        const scenarioMap = new Map<string, Set<string>>(); // filename -> scenario names
+        for (const f of featureFiles) {
+          const content = await readFeatureFile(scope, f);
+          if (!content) continue;
+          try {
+            const index = indexGherkinFeature(f, content);
+            const set = new Set(index.scenarios.map((s) => s.name));
+            scenarioMap.set(f, set);
+          } catch (err) {
+            return {
+              content: [{ type: "text" as const, text: `ERROR: Failed to index ${f}: ${err instanceof Error ? err.message : String(err)}` }],
+              details: { error: "index_failed", filename: f },
+            };
+          }
+        }
+
+        for (const a of contract.assertions) {
+          const scenarios = scenarioMap.get(a.featureFile);
+          if (!scenarios) {
+            return {
+              content: [{ type: "text" as const, text: `ERROR: Assertion "${a.id}" references missing feature file "${a.featureFile}"` }],
+              details: { error: "missing_feature_file", assertionId: a.id, featureFile: a.featureFile },
+            };
+          }
+          if (!scenarios.has(a.scenario)) {
+            return {
+              content: [{ type: "text" as const, text: `ERROR: Assertion "${a.id}" references missing scenario "${a.scenario}" in "${a.featureFile}"` }],
+              details: { error: "missing_scenario", assertionId: a.id, featureFile: a.featureFile, scenario: a.scenario },
+            };
+          }
+        }
+
+        await writeValidationContract(scope, contract);
+        logger?.artifactWrite("validation-contract.json", "overwrite", Buffer.byteLength(JSON.stringify(contract), "utf-8"));
+        return {
+          content: [{ type: "text" as const, text: `Submitted validation contract v${contract.version} with ${contract.assertions.length} assertions.` }],
+          details: { version: contract.version, assertionCount: contract.assertions.length },
+        };
       },
     },
   ];
@@ -254,7 +326,7 @@ export async function spawnContractAgent(
   ]);
   const contractSkills = isolateSkills(allSkills, contractSkillNames);
 
-  const prompt = `## Requirements\n${requirements}\n\n---\n\n## Constraints\n${constraints}\n\n---\n\n## Research Notes\n${researchNotes}\n\n---\n\n## Decision Log\n${decisionLog || "(No decisions recorded yet.)"}\n\n---\n\n## Working Directory\nYou are operating in: ${scope.projectRoot}\n\nWrite a validation contract in the exact format specified in your system prompt.\n\nBEFORE writing:\n1. Explore the codebase (read, grep, find, ls) to understand existing test patterns and conventions.\n2. Use /skill:parallel-web-search to research domain-specific validation patterns if needed.\n3. Ensure every requirement has at least one assertion. Flag any gaps explicitly.\n\nWHEN writing the contract artifacts, use these tools:\n- Use \x60write_feature_file\x60 for each .feature file (e.g., write_feature_file({filename: 'auth.feature', content: '...'})). The filename MUST end with .feature.\n- Use \x60write_mission_artifact\x60 for the validation-contract.md summary (artifact: 'validation-contract.md').\n\nWrite ALL feature files and the validation-contract.md summary before finishing. The verification tool checks for their existence, so partial output will be rejected.\n\nRemember: you do NOT know the feature plan. Write assertions based purely on requirements, constraints, research, and decisions.`;
+  const prompt = `## Requirements\n${requirements}\n\n---\n\n## Constraints\n${constraints}\n\n---\n\n## Research Notes\n${researchNotes}\n\n---\n\n## Decision Log\n${decisionLog || "(No decisions recorded yet.)"}\n\n---\n\n## Working Directory\nYou are operating in: ${scope.projectRoot}\n\nWrite a validation contract in the exact format specified in your system prompt.\n\nBEFORE writing:\n1. Explore the codebase (read, grep, find, ls) to understand existing test patterns and conventions.\n2. Use /skill:parallel-web-search to research domain-specific validation patterns if needed.\n3. Ensure every requirement has at least one assertion. Flag any gaps explicitly.\n\nWHEN writing the contract artifacts, use these tools in this exact sequence:\n1. Use \`write_feature_file\` for each .feature file (e.g., write_feature_file({filename: 'auth.feature', content: '...'})). The filename MUST end with .feature.\n2. After ALL feature files are written, call \`submit_validation_contract\` with the structured contract object. The tool validates, indexes feature files, and writes both validation-contract.json and validation-contract.md atomically.\n\nDo NOT call \`write_mission_artifact\` for validation-contract.md. The submission tool writes it deterministically. Write ALL feature files first, then submit. Partial output will be rejected.\n\nRemember: you do NOT know the feature plan. Write assertions based purely on requirements, constraints, research, and decisions.`;
 
   return runSessionWithFailover({
     context,
@@ -273,7 +345,7 @@ export async function spawnContractAgent(
         agentType: "contract_writer",
         model: model.modelString,
         skills: contractSkills.map((s) => s.name),
-        tools: ["read", "grep", "find", "ls", "bash", "write_mission_artifact", "write_feature_file"],
+        tools: ["read", "grep", "find", "ls", "bash", "write_feature_file", "submit_validation_contract"],
       });
 
       const unobserve = observeAgentSession(session, {

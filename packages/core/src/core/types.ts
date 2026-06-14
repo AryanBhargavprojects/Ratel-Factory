@@ -31,7 +31,10 @@ export interface ValidationAssertion {
   id: string;
   title: string;
   description: string;
+  featureFile: string;
+  scenario: string;
   evidenceType: "screenshot" | "test" | "log" | "manual";
+  requirementRefs: string[];
   preconditions?: string[];
   successCriteria: string;
 }
@@ -40,6 +43,8 @@ export interface ValidationContract {
   version: number;
   createdAt: string;
   assertions: ValidationAssertion[];
+  gaps: string[];
+  crossCuttingAssertions: string[];
 }
 
 export interface Feature {
