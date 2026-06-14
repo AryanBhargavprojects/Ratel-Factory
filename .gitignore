@@ -2,6 +2,9 @@
 node_modules/
 package-lock.json
 
+# macOS system files
+.DS_Store
+
 # Build output
 dist/
 
