@@ -12,7 +12,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/plugin.ts"
+    "dev": "tsx src/plugin.ts",
+    "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
     "@opencode-ai/plugin": "^1.1.10",

@@ -15,7 +15,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/extension.ts"
+    "dev": "tsx src/extension.ts",
+    "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
     "@ratel/core": "workspace:*"

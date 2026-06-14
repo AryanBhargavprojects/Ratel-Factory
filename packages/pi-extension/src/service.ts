@@ -4,8 +4,10 @@
  * Same HTTP client as the OpenCode plugin. Talks to the Ratel service.
  */
 
-export interface MissionStartResponse {
+export interface EnqueuedJobResponse {
   missionId: string;
+  jobId: string;
+  status: "queued";
 }
 
 export interface MissionStatusResponse {
@@ -13,16 +15,11 @@ export interface MissionStatusResponse {
   state: unknown;
 }
 
-export interface WorkerResponse {
+export interface JobStatusResponse {
+  jobId: string;
   missionId: string;
-  featureId: string;
   status: string;
-}
-
-export interface ValidationResponse {
-  missionId: string;
-  milestoneId: string;
-  status: string;
+  result?: unknown;
 }
 
 export interface ObservatoryStatusResponse {
@@ -33,8 +30,16 @@ export interface ObservatoryStatusResponse {
 export class RatelServiceClient {
   constructor(private baseUrl: string) {}
 
+  private resolve(path: string): string {
+    // Health is unversioned; everything else is under /api/v1
+    if (path === "/health") {
+      return `${this.baseUrl}${path}`;
+    }
+    return `${this.baseUrl}/api/v1${path}`;
+  }
+
   private async post<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await fetch(this.resolve(path), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -47,9 +52,9 @@ export class RatelServiceClient {
   }
 
   private async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await fetch(this.resolve(path), {
       method: "GET",
-      headers: { "Accept": "application/json" },
+      headers: { Accept: "application/json" },
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "Unknown error");
@@ -62,23 +67,39 @@ export class RatelServiceClient {
     return this.get("/health");
   }
 
-  async startMission(goal: string): Promise<MissionStartResponse> {
+  async startMission(goal: string): Promise<EnqueuedJobResponse> {
     return this.post("/mission/start", { goal });
   }
 
-  async getStatus(missionId: string): Promise<MissionStatusResponse> {
+  async getMissionStatus(missionId: string): Promise<MissionStatusResponse> {
     return this.get(`/mission/status?missionId=${encodeURIComponent(missionId)}`);
   }
 
-  async runWorker(missionId: string, featureId: string): Promise<WorkerResponse> {
+  async getJobStatus(jobId: string): Promise<JobStatusResponse> {
+    return this.get(`/job/status?jobId=${encodeURIComponent(jobId)}`);
+  }
+
+  async cancelJob(jobId: string): Promise<{ jobId: string; status: string }> {
+    return this.post("/job/cancel", { jobId });
+  }
+
+  async approveMission(missionId: string): Promise<EnqueuedJobResponse> {
+    return this.post("/mission/approve", { missionId });
+  }
+
+  async runWorker(missionId: string, featureId: string): Promise<EnqueuedJobResponse> {
     return this.post("/mission/worker", { missionId, featureId });
   }
 
-  async runValidation(missionId: string, milestoneId: string): Promise<ValidationResponse> {
+  async runValidation(missionId: string, milestoneId: string): Promise<EnqueuedJobResponse> {
     return this.post("/mission/validate", { missionId, milestoneId });
   }
 
   async getObservatoryUrl(): Promise<ObservatoryStatusResponse> {
     return this.get("/observatory/status");
+  }
+
+  getMissionEventsUrl(missionId: string): string {
+    return `${this.baseUrl}/api/v1/mission/${encodeURIComponent(missionId)}/events`;
   }
 }
