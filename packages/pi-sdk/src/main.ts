@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Ratel entry point — launches Pi's InteractiveMode TUI configured as the
  * Ratel Orchestrator session.
@@ -26,20 +27,22 @@ import {
   InteractiveMode,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { ORCHESTRATOR_PROMPT } from "../../core/prompts.js";
-import { ORCHESTRATOR_TOOLS, setToolCwd } from "../../core/tools.js";
-import { ensureMissionInitialized } from "../../core/artifacts.js";
-import { startObservatory, type ObservatoryHandle } from "../../observatory/service.js";
 import {
+  ORCHESTRATOR_PROMPT,
+  ORCHESTRATOR_TOOLS,
+  setToolCwd,
+  ensureMissionInitialized,
+  startObservatory,
+  type ObservatoryHandle,
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
-} from "../../core/utils/skills.js";
-import { getModelConfig, getObservabilityConfig, resolveModel } from "../../core/config.js";
-import {
+  getModelConfig,
+  getObservabilityConfig,
+  resolveModel,
   EventLogger,
   setGlobalLogger,
   clearGlobalLogger,
-} from "../../core/observability/event-logger.js";
+} from "@ratel/core";
 
 /**
  * Names of the 14 orchestrator skills that get loaded into the main session.
@@ -64,8 +67,8 @@ const ORCHESTRATOR_SKILL_NAMES = new Set([
 ]);
 
 /**
- * Built-in tool allowlist + the 13 custom Ratel orchestrator tools.
- * Mirrors the toolNames array used in src/orchestrator.ts.
+ * Built-in tool allowlist + the custom Ratel orchestrator tools.
+ * Mirrors the toolNames array used in the orchestrator.
  */
 const ORCHESTRATOR_TOOL_NAMES = [
   "read",
@@ -214,11 +217,10 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown().then(() => process.exit(143)));
   process.on("beforeExit", () => void shutdown());
   // Uncaught exceptions: log and attempt graceful shutdown, but do NOT
-  // unconditionally exit. The EventLogger is fail-soft by design (see
-  // src/core/observability/event-logger.ts), so most logging-related errors
-  // are already swallowed. Any exception that reaches here is likely a
-  // real bug — log it loudly so the user can see, but keep the TUI
-  // running so they can recover state and decide what to do.
+  // unconditionally exit. The EventLogger is fail-soft by design, so most
+  // logging-related errors are already swallowed. Any exception that reaches
+  // here is likely a real bug — log it loudly so the user can see, but keep
+  // the TUI running so they can recover state and decide what to do.
   process.on("uncaughtException", (err) => {
     console.error("[FATAL] uncaughtException:", err);
     // Attempt graceful shutdown of the logger, but do not force-exit.

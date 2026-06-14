@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { request } from "node:http";
 
-import { startDashboardServerOnAvailablePort } from "../src/observatory/server.ts";
+import { startDashboardServerOnAvailablePort } from "../packages/core/src/observatory/server.ts";
 
 function httpGet(url: string): Promise<{ status: number; headers: Record<string, string | string[]>; body: string }> {
   return new Promise((resolve, reject) => {
@@ -242,7 +242,7 @@ test("GET /api/mission returns mission state, requirements, and features", async
   }
 });
 
-const DASHBOARD_PATH = join(process.cwd(), "src", "observatory", "dashboard.html");
+const DASHBOARD_PATH = join(process.cwd(), "packages", "core", "src", "observatory", "dashboard.html");
 
 function getDashboardHtml(): string {
   return readFileSync(DASHBOARD_PATH, "utf-8");
@@ -363,7 +363,7 @@ test("no modal element exists", () => {
 
 
 test("dist/observatory/dashboard.html exists and matches src", () => {
-  const srcPath = join(process.cwd(), "src", "observatory", "dashboard.html");
+  const srcPath = join(process.cwd(), "packages", "core", "src", "observatory", "dashboard.html");
   const distPath = join(process.cwd(), "dist", "observatory", "dashboard.html");
 
   assert.strictEqual(existsSync(distPath), true, "dist/observatory/dashboard.html should exist after build");
@@ -374,7 +374,7 @@ test("dist/observatory/dashboard.html exists and matches src", () => {
   assert.strictEqual(distContent, srcContent, "copied file must be byte-for-byte identical to source");
 });
 
-import { registerApprovalResolver, resolvePendingApproval } from "../src/observatory/server.ts";
+import { registerApprovalResolver, resolvePendingApproval } from "../packages/core/src/observatory/server.ts";
 
 test("Approval resolver registration and resolution", async () => {
   let resolvedValue: any = null;
@@ -523,7 +523,7 @@ test("GET /api/mission returns mission state, requirements, and features, and ra
   }
 });
 
-import { waitForUserApprovalTool } from "../src/core/tools.ts";
+import { waitForUserApprovalTool } from "../packages/core/src/core/tools.ts";
 
 test("wait_for_user_approval tool blocks and resolves on approval", async () => {
   let toolPromiseResolved = false;

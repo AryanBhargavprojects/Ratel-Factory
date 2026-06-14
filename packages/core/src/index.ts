@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Ratel Core Service — Entry Point
  *
@@ -18,8 +19,12 @@ export * from "./core/config.js";
 export * from "./core/types.js";
 export * from "./core/tools.js";
 export * from "./core/prompts.js";
-export { startObservatory } from "./observatory/service.js";
+export { spawnResearchAgent, spawnSmartFriendAgent, spawnContractAgent } from "./core/agents.js";
+export { EventLogger, setGlobalLogger, clearGlobalLogger, getGlobalLogger } from "./core/observability/event-logger.js";
+export { DEFAULT_ORCHESTRATOR_SKILLS_DIR, loadSkillsFromDir } from "./core/utils/skills.js";
+export { startObservatory, type ObservatoryHandle } from "./observatory/service.js";
 export { startDashboardServer, startDashboardServerOnAvailablePort, getCurrentDashboardUrl } from "./observatory/server.js";
+export { default as registerObservatoryDashboard } from "./observatory/dashboard.js";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);

@@ -98,7 +98,9 @@ Call draft_validation_contract() BEFORE any feature decomposition. The contract 
 Map features to validation assertions and milestones. Write features.json and milestones.json. ALSO write agents.md and worker-skills.json.
 
 ### Phase 6: User Approval (ALWAYS run)
-Present the validation contract + milestone plan. Do NOT proceed without explicit user approval.
+Write \x60state.json\x60 to transition the phase to 'user_approval'. Then print a message to the user informing them to review the plan on the Observatory dashboard (at http://localhost:8765/ or the current dashboard port) and CALL the \x60wait_for_user_approval()\x60 tool to block execution and wait for the user's decision.
+- If \x60wait_for_user_approval()\x60 returns \x60approved=true\x60: transition to execution phase.
+- If \x60wait_for_user_approval()\x60 returns \x60approved=false\x60: print the user's feedback/edits, and transition back to \x60feature_decomposition\x60 or clarification to address the feedback. Do NOT proceed to execution.
 
 ### Phase 7: Execution (ALWAYS run)
 After user approval, run workers serially for each feature in the current milestone. After all features complete:

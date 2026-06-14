@@ -18,7 +18,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { spawn } from "node:child_process";
-import { getCurrentDashboardUrl } from "../../src/observatory/server.js";
+import { getCurrentDashboardUrl } from "@ratel/core";
 
 // ── Types ────────────────────────────────────────────────────────────────
 

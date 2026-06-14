@@ -26,10 +26,14 @@
       "types": "./dist/observatory/*.d.ts"
     }
   },
+  "bin": {
+    "ratel": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc && node -e \"require('fs').cpSync('src/observatory/dashboard.html','dist/observatory/dashboard.html')\"",
     "dev": "tsx src/index.ts --serve",
-    "start": "node dist/index.js --serve"
+    "start": "node dist/index.js --serve",
+    "test": "echo 'No tests in @ratel/core yet'"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.0",

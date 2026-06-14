@@ -67,6 +67,7 @@ import {
 } from "./mission/feature-completion.js";
 import { createReportReceiver, persistSubmittedReport, persistWorkerReceipt } from "./report-submission.js";
 import { runUserTestingCoordinator } from "./mission/user-testing-coordinator.js";
+import { registerApprovalResolver, getCurrentDashboardUrl } from "../observatory/server.js";
 
 /** Shared cwd reference — set by OrchestratorAgent at init time. */
 let _cwd: string = process.cwd();
@@ -1749,6 +1750,48 @@ export const getFeatureComplexityTool = defineTool({
   },
 });
 
+/**
+ * Blocks orchestrator execution and waits for the user to approve the plan or submit feedback/edits via the Observatory dashboard.
+ * Prints the dashboard link for the user.
+ */
+export const waitForUserApprovalTool = defineTool({
+  name: "wait_for_user_approval",
+  label: "Wait for User Approval",
+  description:
+    "Blocks orchestrator execution and waits for the user to approve the plan or submit feedback/edits via the Observatory dashboard. " +
+    "Prints the dashboard link for the user.",
+  parameters: Type.Object({}),
+  execute: async (_toolCallId, _params): Promise<{
+    content: { type: "text"; text: string }[];
+    details: { approved: boolean; feedback?: string };
+  }> => {
+    const port = 8765;
+    const url = getCurrentDashboardUrl(_cwd) || `http://localhost:${port}`;
+
+    console.log(`\n🛰️  Waiting for user plan approval on the dashboard...`);
+    console.log(`   Please open: ${url}\n`);
+
+    return new Promise((resolve) => {
+      registerApprovalResolver((decision) => {
+        resolve({
+          content: [
+            {
+              type: "text",
+              text: decision.approved
+                ? "Plan approved by user via the Observatory dashboard."
+                : `Plan rejected by user via the Observatory dashboard. Feedback/Edits: ${decision.feedback || "None"}`
+            }
+          ],
+          details: {
+            approved: decision.approved,
+            feedback: decision.feedback
+          }
+        });
+      });
+    });
+  }
+});
+
 /** All orchestrator custom tools. */
 export const ORCHESTRATOR_TOOLS = [
   runResearchTool,
@@ -1767,4 +1810,5 @@ export const ORCHESTRATOR_TOOLS = [
   pingAgentsTool,
   ensureSkillsInstalledTool,
   getFeatureComplexityTool,
+  waitForUserApprovalTool,
 ];

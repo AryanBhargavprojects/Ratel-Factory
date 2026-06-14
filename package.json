@@ -7,12 +7,13 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').cpSync('src/observatory/dashboard.html','dist/observatory/dashboard.html')\"",
-    "build:all": "npm run build && npm run build --workspace=packages/core && npm run build --workspace=packages/opencode-plugin && npm run build --workspace=packages/pi-extension",
-    "dev": "tsx src/adapters/pi-sdk/main.ts",
-    "start": "node dist/adapters/pi-sdk/main.js",
+    "build": "npm run build --workspace=packages/core && node -e \"require('fs').cpSync('packages/core/src/observatory/dashboard.html','dist/observatory/dashboard.html')\"",
+    "build:all": "npm run build --workspace=packages/core && npm run build --workspace=packages/opencode-plugin && npm run build --workspace=packages/pi-extension && npm run build --workspace=packages/pi-sdk",
+    "check:canonical-core": "node scripts/check-canonical-core.mjs",
+    "dev": "npm run dev --workspace=packages/pi-sdk",
+    "start": "npm run start --workspace=packages/pi-sdk",
     "test": "tsx --test test/**/*.test.ts",
-    "test:all": "npm test && npm test --workspace=packages/core && npm test --workspace=packages/opencode-plugin && npm test --workspace=packages/pi-extension"
+    "test:all": "npm test && npm test --workspace=packages/core && npm test --workspace=packages/opencode-plugin && npm test --workspace=packages/pi-extension && npm test --workspace=packages/pi-sdk"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.0",

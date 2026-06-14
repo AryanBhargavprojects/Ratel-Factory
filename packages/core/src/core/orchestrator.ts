@@ -118,7 +118,6 @@ export class OrchestratorAgent {
       ? SessionManager.inMemory(this.cwd)
       : SessionManager.create(this.cwd);
 
-    // Orchestrator tool set: built-ins + custom mission tools
     const toolNames = [
       "read",
       "grep",
@@ -140,6 +139,7 @@ export class OrchestratorAgent {
       "list_models",
       "ping_agents",
       "ensure_skills_installed",
+      "wait_for_user_approval",
     ];
 
     // Resolve orchestrator model from config, CLI option, or SDK default

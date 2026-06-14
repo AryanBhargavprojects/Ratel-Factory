@@ -10,11 +10,17 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { readFile, access } from "node:fs/promises";
+import { readFile, access, writeFile, mkdir } from "node:fs/promises";
+import { ARTIFACT_NAMES } from "../core/types.js";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
+import { resolveCanonicalWorkspace } from "../core/mission/workspace-resolution.js";
+
+const execFile = promisify(execFileCb);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -24,6 +30,27 @@ const DASHBOARD_HTML_PATH = join(__dirname, "dashboard.html");
 // Shared mutable state so the TUI footer and Pi commands can discover the
 // actual URL even when the port falls back dynamically.
 let currentDashboardUrl: string | undefined;
+
+export interface ApprovalDecision {
+  approved: boolean;
+  feedback?: string;
+}
+
+let pendingApprovalResolver: ((decision: ApprovalDecision) => void) | undefined;
+
+export function registerApprovalResolver(resolve: (decision: ApprovalDecision) => void): void {
+  pendingApprovalResolver = resolve;
+}
+
+export function resolvePendingApproval(decision: ApprovalDecision): boolean {
+  if (pendingApprovalResolver) {
+    pendingApprovalResolver(decision);
+    pendingApprovalResolver = undefined;
+    return true;
+  }
+  return false;
+}
+
 
 function getDashboardUrlFilePath(cwd: string): string {
   return join(cwd, ".missions", "current", "observatory-url.txt");
@@ -95,7 +122,7 @@ function createDashboardServer(cwd: string): Server {
 
     // CORS headers — allow the dashboard to be opened from anywhere.
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
     if (req.method === "OPTIONS") {
@@ -117,6 +144,143 @@ function createDashboardServer(cwd: string): Server {
         // The dashboard will simply render an empty timeline.
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end("[]");
+      }
+      return;
+    }
+
+    // API: Return git diff and status for the canonical workspace.
+    if (url === "/api/diff" || url.startsWith("/api/diff")) {
+      try {
+        const workspace = await resolveCanonicalWorkspace(cwd);
+        if (!workspace) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ diff: "", status: "Not a git repository" }));
+          return;
+        }
+
+        let diff = "";
+        let status = "";
+
+        try {
+          const diffResult = await execFile("git", ["diff"], { cwd: workspace });
+          diff = diffResult.stdout;
+        } catch {
+          diff = "";
+        }
+
+        try {
+          const statusResult = await execFile("git", ["status", "--short"], { cwd: workspace });
+          status = statusResult.stdout;
+        } catch {
+          status = "Error reading git status";
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ diff, status }));
+      } catch {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ diff: "", status: "Error resolving workspace" }));
+      }
+      return;
+    }
+
+    // API: Return mission state, requirements, and features.
+    if (url === "/api/mission" || url === "/api/mission/") {
+      try {
+        const statePath = join(cwd, ".missions", "current", "state.json");
+        const reqPath = join(cwd, ".missions", "current", "requirements.json");
+        const featPath = join(cwd, ".missions", "current", "features.json");
+        const contractPath = join(cwd, ".missions", "current", "validation-contract.md");
+
+        let state = {};
+        let requirements = {};
+        let features = {};
+        let validationContractMd = "";
+
+        try {
+          state = JSON.parse(await readFile(statePath, "utf-8"));
+        } catch {}
+        try {
+          requirements = JSON.parse(await readFile(reqPath, "utf-8"));
+        } catch {}
+        try {
+          features = JSON.parse(await readFile(featPath, "utf-8"));
+        } catch {}
+        try {
+          validationContractMd = await readFile(contractPath, "utf-8");
+        } catch {}
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ state, requirements, features, validationContractMd }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      }
+      return;
+    }
+
+    // API: Approve plan
+    if (url === "/api/approve" && req.method === "POST") {
+      try {
+        let rawBody = "";
+        for await (const chunk of req) {
+          rawBody += chunk;
+        }
+        const body = rawBody ? JSON.parse(rawBody) : {};
+
+        if (body.files) {
+          for (const [filename, content] of Object.entries(body.files)) {
+            const isValidArtifact = ARTIFACT_NAMES.includes(filename as any) ||
+              (filename.startsWith("features/") && filename.endsWith(".feature") && !filename.includes(".."));
+            
+            if (isValidArtifact) {
+              const filePath = join(cwd, ".missions", "current", filename);
+              await mkdir(dirname(filePath), { recursive: true });
+              await writeFile(filePath, content as string, "utf-8");
+            }
+          }
+        }
+
+        resolvePendingApproval({ approved: true, feedback: body.feedback });
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      }
+      return;
+    }
+
+    // API: Reject plan / Request changes
+    if (url === "/api/reject" && req.method === "POST") {
+      try {
+        let rawBody = "";
+        for await (const chunk of req) {
+          rawBody += chunk;
+        }
+        const body = rawBody ? JSON.parse(rawBody) : {};
+
+        if (body.files) {
+          for (const [filename, content] of Object.entries(body.files)) {
+            const isValidArtifact = ARTIFACT_NAMES.includes(filename as any) ||
+              (filename.startsWith("features/") && filename.endsWith(".feature") && !filename.includes(".."));
+            
+            if (isValidArtifact) {
+              const filePath = join(cwd, ".missions", "current", filename);
+              await mkdir(dirname(filePath), { recursive: true });
+              await writeFile(filePath, content as string, "utf-8");
+            }
+          }
+        }
+
+        resolvePendingApproval({ approved: false, feedback: body.feedback });
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
       }
       return;
     }

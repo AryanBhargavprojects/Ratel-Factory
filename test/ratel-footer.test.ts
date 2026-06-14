@@ -11,7 +11,7 @@ import {
   RatelTopWidget,
   RatelBottomWidget,
 } from "../.pi/extensions/ratel-model.ts";
-import { setCurrentDashboardUrl } from "../src/observatory/server.ts";
+import { setCurrentDashboardUrl } from "../packages/core/src/observatory/server.ts";
 
 test("cleanModelName helper", () => {
   assert.strictEqual(cleanModelName("anthropic/claude-3-5-sonnet"), "claude-3-5-sonnet");
