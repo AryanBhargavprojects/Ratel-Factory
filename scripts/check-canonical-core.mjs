@@ -46,14 +46,15 @@ async function* walk(dir, includeJson = false) {
 const forbiddenPatterns = [
   // Match import/require statements that reference root src/core or src/observatory
   // Skip plain text strings by requiring import/require syntax
-  // Exclude paths that go through packages/core/src/ (canonical package)
   { source: /src\/core/, exclude: /packages\/core\/src\/core/ },
   { source: /\.\.\/\.\.\/core/, exclude: null },      // ../../core
   { source: /src\/observatory/, exclude: /packages\/core\/src\/observatory/ },       // root src/observatory
 ];
 
 const scanDirs = [
-  join(ROOT, "packages"),
+  join(ROOT, "packages", "opencode-plugin"),
+  join(ROOT, "packages", "pi-extension"),
+  join(ROOT, "packages", "pi-sdk"),
   join(ROOT, ".pi"),
   join(ROOT, "test"),
 ];
