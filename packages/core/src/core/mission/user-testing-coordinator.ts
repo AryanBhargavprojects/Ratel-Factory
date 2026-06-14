@@ -7,7 +7,7 @@
  * Shard agents own browser testing, judgment, and severity.
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   UserTestingShard,
@@ -20,9 +20,11 @@ import type {
 import { createReportReceiver, persistSubmittedReport } from "../report-submission.js";
 import { extractLastJsonLine, writeRawOutput } from "../utils/jsonl.js";
 import { getUserTestingConfig } from "../config.js";
-import { getGlobalLogger } from "../observability/event-logger.js";
+import type { EventLogger } from "../observability/event-logger.js";
 import { listFeatureFiles, readFeatureFile } from "../artifacts.js";
 import { spawnUserTestingShardAgent } from "../workers/validators.js";
+import type { MissionScope } from "../mission/scope.js";
+import { getMissionDir } from "../mission/scope.js";
 
 /**
  * Parse assertion references into file + optional scenario selectors.
@@ -42,16 +44,16 @@ export function parseAssertionRef(ref: string): { file: string; selector?: strin
  * One shard per unique .feature file.
  */
 export async function buildShards(
-  cwd: string,
+  scope: MissionScope,
   milestoneId: string,
   features: Feature[],
   basePort: number,
   shardTimeoutMs: number,
 ): Promise<{ shards: UserTestingShard[]; unresolvedRefs: string[]; coverageStatus: "complete" | "incomplete" }> {
-  // Collect all assertion references from completed features in this milestone
+  // Collect all assertion references from integrated or validated features in this milestone
   const allRefs: string[] = [];
   for (const feature of features) {
-    if (feature.milestoneId === milestoneId && feature.status === "completed") {
+    if (feature.milestoneId === milestoneId && (feature.status === "integrated" || feature.status === "validated")) {
       allRefs.push(...feature.assertions);
     }
   }
@@ -79,7 +81,7 @@ export async function buildShards(
 
   // Map features to files for featureIds
   for (const feature of features) {
-    if (feature.milestoneId === milestoneId && feature.status === "completed") {
+    if (feature.milestoneId === milestoneId && (feature.status === "integrated" || feature.status === "validated")) {
       for (const ref of feature.assertions) {
         const { file } = parseAssertionRef(ref);
         const entry = byFile.get(file);
@@ -91,7 +93,7 @@ export async function buildShards(
   }
 
   // Check which files actually exist
-  const availableFeatureFiles = await listFeatureFiles(cwd);
+  const availableFeatureFiles = await listFeatureFiles(scope);
   const availableSet = new Set(availableFeatureFiles);
   const unresolvedRefs: string[] = [];
   const resolvedFiles = new Map<string, { selectors: Set<string>; featureIds: Set<string> }>();
@@ -120,7 +122,7 @@ export async function buildShards(
       featureFile: file,
       scenarioSelectors: Array.from(data.selectors),
       featureIds: Array.from(data.featureIds),
-      screenshotDir: `.missions/current/validation-reports/screenshots/${milestoneId}/${file.replace(/\.feature$/, "")}`,
+      screenshotDir: join(getMissionDir(scope), "validation-reports", "screenshots", milestoneId, file.replace(/\.feature$/, "")),
       assignedPort: port++,
       timeoutMs: shardTimeoutMs,
     });
@@ -148,12 +150,13 @@ function isValidShardReport(obj: unknown): obj is UserTestingShardReport {
  * Run a single shard agent with timeout and structured submission.
  */
 export async function runShard(
-  cwd: string,
+  scope: MissionScope,
   shard: UserTestingShard,
   model: string | undefined,
   runId: string,
+  logger?: EventLogger,
+  budgetManager?: import("../budget/budget-manager.js").BudgetManager,
 ): Promise<UserTestingShardRunResult> {
-  const logger = getGlobalLogger();
   const startTime = Date.now();
   const rawFilename = `user-testing-shards/${runId}/${shard.shardId}.raw.txt`;
 
@@ -169,7 +172,7 @@ export async function runShard(
   let shardReceiver: ReturnType<typeof import("../workers/validators.js").createSubmitUserTestingShardReportTool>["receiver"] | undefined;
 
   try {
-    const shardResult = await spawnUserTestingShardAgent(shard, cwd, model, parentSpanId);
+    const shardResult = await spawnUserTestingShardAgent(shard, scope.projectRoot, model, logger, parentSpanId, budgetManager);
     responseText = shardResult.response;
     shardReceiver = shardResult.receiver;
   } catch (err) {
@@ -178,7 +181,7 @@ export async function runShard(
   }
 
   // Persist raw output
-  await writeRawOutput(cwd, "validation-reports", rawFilename, responseText || error || "");
+  await writeRawOutput(scope, "validation-reports", rawFilename, responseText || error || "");
 
   // Try to parse JSONL fallback if no tool submission
   let report: UserTestingShardReport | null = null;
@@ -189,7 +192,7 @@ export async function runShard(
     report = submissionResult.report;
     reportSource = "tool_submission";
     const artifactPath = `validation-reports/user-testing-shards/${runId}/${shard.shardId}.json`;
-    await persistSubmittedReport(cwd, artifactPath, report);
+    await persistSubmittedReport(scope, artifactPath, report);
   } else {
     const parseResult = extractLastJsonLine<UserTestingShardReport>(responseText, isValidShardReport);
     if (parseResult.parseStatus === "ok" && parseResult.data) {
@@ -225,17 +228,18 @@ export async function runShard(
  * Run all shards with bounded concurrency.
  */
 export async function runShards(
-  cwd: string,
+  scope: MissionScope,
   shards: UserTestingShard[],
   model: string | undefined,
   maxConcurrency: number,
+  logger?: EventLogger,
 ): Promise<UserTestingShardRunResult[]> {
   const runId = `${Date.now()}`;
   const results: UserTestingShardRunResult[] = [];
 
   if (maxConcurrency <= 1) {
     for (const shard of shards) {
-      results.push(await runShard(cwd, shard, model, runId));
+      results.push(await runShard(scope, shard, model, runId, logger));
     }
   } else {
     // Bounded concurrency: start up to maxConcurrency at once, then
@@ -244,7 +248,7 @@ export async function runShards(
     const running = new Map<string, Promise<void>>();
 
     async function runOne(shard: UserTestingShard): Promise<void> {
-      results.push(await runShard(cwd, shard, model, runId));
+      results.push(await runShard(scope, shard, model, runId, logger));
     }
 
     // Seed initial batch
@@ -344,20 +348,22 @@ export function aggregateShardResults(
  * Main entry point: deterministic coordinator for user testing.
  */
 export async function runUserTestingCoordinator(
-  cwd: string,
+  scope: MissionScope,
   milestoneId: string,
   features: Feature[],
   model: string | undefined,
+  logger?: EventLogger,
+  budgetManager?: import("../budget/budget-manager.js").BudgetManager,
 ): Promise<{
   parseStatus: "ok" | "failed";
   coordinatorStatus: "complete" | "incomplete";
   report: UserTestingReport;
   shards: UserTestingShardRunResult[];
 }> {
-  const config = await getUserTestingConfig(cwd);
+  const config = await getUserTestingConfig(scope.projectRoot);
 
   const { shards, unresolvedRefs, coverageStatus: buildCoverage } = await buildShards(
-    cwd,
+    scope,
     milestoneId,
     features,
     config.basePort,
@@ -374,7 +380,7 @@ export async function runUserTestingCoordinator(
     };
   }
 
-  const shardResults = await runShards(cwd, shards, model, config.maxConcurrency);
+  const shardResults = await runShards(scope, shards, model, config.maxConcurrency, logger);
   const report = aggregateShardResults(milestoneId, shardResults, unresolvedRefs);
 
   const anyParseFailed = shardResults.some((s) => s.parseStatus === "failed");

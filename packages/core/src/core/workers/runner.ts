@@ -32,10 +32,13 @@ import { getModelConfig } from "../config.js";
 import { spawnWorkerAgent } from "./worker.js";
 import { writeWorkerRawOutput } from "./worker-output.js";
 import { persistWorkerReceipt } from "../report-submission.js";
+import type { MissionScope } from "../mission/scope.js";
+import type { EventLogger } from "../observability/event-logger.js";
 
 export interface RunWorkerOptions {
   feature: Feature;
-  cwd: string;
+  scope: MissionScope;
+  logger?: EventLogger;
   timeoutMinutes?: number;
 }
 
@@ -62,18 +65,19 @@ export class WorkerRunBlockedError extends Error {
 export async function runWorkerFeature(
   options: RunWorkerOptions
 ): Promise<RunWorkerExecution> {
-  const { feature, cwd, timeoutMinutes } = options;
+  const { feature, scope, logger, timeoutMinutes } = options;
 
-  const resolvedAssertions = await resolveFeatureAssertions(cwd, feature);
+  const resolvedAssertions = await resolveFeatureAssertions(scope, feature);
   const acceptanceCriteria = formatFeatureAssertionsForPrompt(resolvedAssertions);
 
-  const workspace = await prepareSerialWorkerBranch(cwd, feature.id);
+  const workspace = await prepareSerialWorkerBranch(scope, feature.id);
 
   let copiedFeatureFiles: string[] = [];
   if (workspace.status !== "blocked" && workspace.repoPath) {
     copiedFeatureFiles = await copyFeatureFilesToWorkspace(
       workspace.repoPath,
-      resolvedAssertions.documents
+      resolvedAssertions.documents,
+      logger,
     );
   }
 
@@ -82,21 +86,21 @@ export async function runWorkerFeature(
   }
 
   let procedures = "";
-  const missionProcedures = await readArtifact(cwd, "agents.md");
+  const missionProcedures = await readArtifact(scope, "agents.md");
   if (missionProcedures) {
     procedures = missionProcedures;
   } else {
     const { readFile } = await import("node:fs/promises");
     const { join: pathJoin } = await import("node:path");
     try {
-      procedures = await readFile(pathJoin(cwd, "AGENTS.md"), "utf-8");
+      procedures = await readFile(pathJoin(scope.projectRoot, "AGENTS.md"), "utf-8");
     } catch {
       procedures = "";
     }
   }
 
   const allAvailableSkills = await loadSkillsFromDir(
-    cwd,
+    scope.projectRoot,
     DEFAULT_ORCHESTRATOR_SKILLS_DIR
   );
 
@@ -112,7 +116,7 @@ export async function runWorkerFeature(
     "verification-before-completion",
   ]);
 
-  const skillsConfig = await readWorkerSkillsConfig(cwd);
+  const skillsConfig = await readWorkerSkillsConfig(scope);
   const missionSkillNames = skillsConfig?.additionalSkills ?? [];
   const mergedSkillNames = new Set([
     ...defaultWorkerSkillNames,
@@ -130,12 +134,13 @@ export async function runWorkerFeature(
     MAX_TIMEOUT_MINUTES
   );
 
-  const workerModelConfig = await getModelConfig(cwd);
+  const workerModelConfig = await getModelConfig(scope.projectRoot);
   const result = await spawnWorkerAgent(
     feature,
     acceptanceCriteria,
     procedures,
-    cwd,
+    scope,
+    logger,
     workerSkills,
     workerModelConfig.worker ?? undefined,
     workspace,
@@ -143,11 +148,11 @@ export async function runWorkerFeature(
   );
 
   const rawFilename = await writeWorkerRawOutput(
-    cwd,
+    scope,
     result.featureId,
     result.rawResponse
   );
-  await writeHandoff(cwd, result.handoff);
+  await writeHandoff(scope, result.handoff);
 
   const highIssueCount = result.handoff.issuesDiscovered.filter(
     (i) => i.severity === "high"
@@ -159,7 +164,7 @@ export async function runWorkerFeature(
     highIssueCount === 0;
   const workspaceFinalization = shouldFinalizeWorkspace
     ? await finalizeSerialWorkerBranch(
-        cwd,
+        scope.projectRoot,
         result.featureId,
         workspace.integrationBranch,
         workspace.repoPath
@@ -175,12 +180,12 @@ export async function runWorkerFeature(
         }
       : workspace;
 
-  await persistWorkerReceipt(cwd, {
+  await persistWorkerReceipt(scope, {
     featureId: result.featureId,
     recordedAt: new Date().toISOString(),
     parseStatus: result.parseStatus,
     reportSource: result.reportSource ?? "jsonl_fallback",
-    handoffPath: `.missions/current/handoffs/${result.featureId}.json`,
+    handoffPath: `${getMissionRelativeDir(scope)}/handoffs/${result.featureId}.json`,
     rawFilename,
     handoff: result.handoff,
     workspace,
@@ -195,4 +200,8 @@ export async function runWorkerFeature(
     resolvedAssertions,
     copiedFeatureFiles,
   };
+}
+
+function getMissionRelativeDir(scope: MissionScope): string {
+  return `.ratel/missions/${scope.missionId}`;
 }

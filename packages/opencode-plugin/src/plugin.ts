@@ -22,7 +22,11 @@ function getServicePort(): number {
 
 const RatelPlugin: Plugin = async (ctx: any) => {
   const servicePort = getServicePort();
-  const service = new RatelServiceClient(`http://localhost:${servicePort}/api`);
+  const service = new RatelServiceClient(`http://127.0.0.1:${servicePort}`);
+
+  // Convenience cache for UI continuity; always refresh from service
+  let cachedMissionId: string | undefined;
+  let cachedJobId: string | undefined;
 
   const plugin: any = {
     config: async (opencodeConfig: any) => {
@@ -58,6 +62,8 @@ const RatelPlugin: Plugin = async (ctx: any) => {
         rawArgs: input.arguments ?? "",
         cwd: ctx.directory,
         service,
+        cachedMissionId,
+        cachedJobId,
       });
     },
 
@@ -73,7 +79,9 @@ const RatelPlugin: Plugin = async (ctx: any) => {
         },
         async execute(args: any) {
           const result = await service.startMission(args.goal ?? "");
-          return `Mission started: ${result.missionId}`;
+          cachedMissionId = result.missionId;
+          cachedJobId = result.jobId;
+          return `Mission queued: ${result.missionId} (job ${result.jobId})`;
         },
       },
       ratel_get_status: {
@@ -85,7 +93,7 @@ const RatelPlugin: Plugin = async (ctx: any) => {
           },
         },
         async execute(args: any) {
-          const result = await service.getStatus(args.missionId ?? "");
+          const result = await service.getMissionStatus(args.missionId ?? "");
           return JSON.stringify(result, null, 2);
         },
       },
@@ -103,7 +111,9 @@ const RatelPlugin: Plugin = async (ctx: any) => {
         },
         async execute(args: any) {
           const result = await service.runWorker(args.missionId ?? "", args.featureId ?? "");
-          return `Worker started: ${result.status}`;
+          cachedMissionId = result.missionId;
+          cachedJobId = result.jobId;
+          return `Worker queued: ${result.jobId} for mission ${result.missionId}`;
         },
       },
       ratel_run_validation: {
@@ -120,7 +130,9 @@ const RatelPlugin: Plugin = async (ctx: any) => {
         },
         async execute(args: any) {
           const result = await service.runValidation(args.missionId ?? "", args.milestoneId ?? "");
-          return `Validation started: ${result.status}`;
+          cachedMissionId = result.missionId;
+          cachedJobId = result.jobId;
+          return `Validation queued: ${result.jobId} for mission ${result.missionId}`;
         },
       },
     },

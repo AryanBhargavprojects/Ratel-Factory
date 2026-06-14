@@ -1,16 +1,17 @@
 /**
  * Mission artifact read/write utilities.
- * All canonical truth lives in .missions/current/
+ * All canonical truth lives in .ratel/missions/<missionId>/
  */
 
-import { mkdir, readFile, writeFile, access, readdir } from "node:fs/promises";
+import { mkdir, readFile, access, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getGlobalLogger } from "./observability/event-logger.js";
+import type { EventLogger } from "./observability/event-logger.js";
 import type {
   MissionState,
   MissionStateFile,
   MissionRequirements,
   ValidationContract,
+  ValidationAssertion,
   Feature,
   Milestone,
   Decision,
@@ -26,20 +27,13 @@ import {
   normalizeStateDocument,
   selectCompletedFeaturesForMilestone,
 } from "./schema/mission-schema.js";
+import { getMissionDir } from "./mission/scope.js";
+import { atomicWriteJson, atomicWriteFile, readJsonFile } from "./mission/atomic-file.js";
+import { indexGherkinFeature } from "./mission/gherkin-index.js";
 
-export const MISSION_DIR = ".missions/current";
-
-export function getMissionDir(cwd: string): string {
-  return join(cwd, MISSION_DIR);
-}
-
-async function ensureMissionDir(cwd: string): Promise<void> {
-  await mkdir(getMissionDir(cwd), { recursive: true });
-}
-
-export async function artifactExists(cwd: string, name: ArtifactName): Promise<boolean> {
+export async function artifactExists(scope: import("./mission/scope.js").MissionScope, name: ArtifactName): Promise<boolean> {
   try {
-    await access(join(getMissionDir(cwd), name));
+    await access(join(getMissionDir(scope), name));
     return true;
   } catch {
     return false;
@@ -47,13 +41,14 @@ export async function artifactExists(cwd: string, name: ArtifactName): Promise<b
 }
 
 export async function writeArtifact(
-  cwd: string,
+  scope: import("./mission/scope.js").MissionScope,
   name: ArtifactName,
   content: string,
   mode: "overwrite" | "append" = "overwrite",
+  logger?: EventLogger,
 ): Promise<void> {
-  await ensureMissionDir(cwd);
-  const path = join(getMissionDir(cwd), name);
+  await mkdir(getMissionDir(scope), { recursive: true });
+  const path = join(getMissionDir(scope), name);
   if (mode === "append") {
     try {
       const existing = await readFile(path, "utf-8");
@@ -61,48 +56,47 @@ export async function writeArtifact(
     } catch {
       // file does not exist yet
     }
+    await writeFile(path, content, "utf-8");
+  } else {
+    await atomicWriteFile(path, content);
   }
-  await writeFile(path, content, "utf-8");
 
   const byteCount = Buffer.byteLength(content, "utf-8");
-  getGlobalLogger()?.artifactWrite(name, mode, byteCount);
+  logger?.artifactWrite(name, mode, byteCount);
 }
 
-export async function readArtifact(cwd: string, name: ArtifactName): Promise<string | undefined> {
+export async function readArtifact(scope: import("./mission/scope.js").MissionScope, name: ArtifactName): Promise<string | undefined> {
   try {
-    return await readFile(join(getMissionDir(cwd), name), "utf-8");
+    return await readFile(join(getMissionDir(scope), name), "utf-8");
   } catch {
     return undefined;
   }
 }
 
-export async function writeState(cwd: string, state: MissionStateFile): Promise<void> {
-  await writeArtifact(cwd, "state.json", JSON.stringify(state, null, 2));
+export async function writeState(scope: import("./mission/scope.js").MissionScope, state: MissionStateFile): Promise<void> {
+  await atomicWriteJson(join(getMissionDir(scope), "state.json"), state);
 }
 
-export async function readState(cwd: string): Promise<MissionStateFile | undefined> {
-  const raw = await readArtifact(cwd, "state.json");
-  if (!raw) return undefined;
-  try {
-    return normalizeStateDocument(JSON.parse(raw));
-  } catch {
-    return undefined;
-  }
+export async function readState(scope: import("./mission/scope.js").MissionScope): Promise<MissionStateFile | undefined> {
+  return readJsonFile<MissionStateFile>(join(getMissionDir(scope), "state.json"));
 }
 
-export async function bumpVersion(cwd: string): Promise<number> {
-  const state = (await readState(cwd)) ?? { phase: "intake", version: 0, updatedAt: "" };
+export async function bumpVersion(scope: import("./mission/scope.js").MissionScope): Promise<number> {
+  const state = (await readState(scope)) ?? { phase: "intake", version: 0, updatedAt: "" };
   state.version += 1;
   state.updatedAt = new Date().toISOString();
-  await writeState(cwd, state);
+  await writeState(scope, state);
   return state.version;
 }
 
-export async function ensureMissionInitialized(cwd: string): Promise<MissionStateFile> {
-  await ensureMissionDir(cwd);
-  const existing = await readState(cwd);
+export async function ensureMissionInitialized(
+  scope: import("./mission/scope.js").MissionScope,
+  logger?: EventLogger,
+): Promise<MissionStateFile> {
+  await mkdir(getMissionDir(scope), { recursive: true });
+  const existing = await readState(scope);
   if (existing) {
-    getGlobalLogger()?.missionInitialized();
+    logger?.missionInitialized();
     return existing;
   }
 
@@ -111,115 +105,331 @@ export async function ensureMissionInitialized(cwd: string): Promise<MissionStat
     version: 1,
     updatedAt: new Date().toISOString(),
   };
-  await writeState(cwd, initial);
+  await writeState(scope, initial);
 
   // Seed empty decision log
-  await writeArtifact(cwd, "decision-log.md", "# Decision Log\n\n", "overwrite");
+  await writeArtifact(scope, "decision-log.md", "# Decision Log\n\n", "overwrite", logger);
 
-  getGlobalLogger()?.missionInitialized();
+  logger?.missionInitialized();
 
   return initial;
 }
 
-export async function writeRequirements(cwd: string, req: MissionRequirements): Promise<void> {
-  await writeArtifact(cwd, "requirements.json", JSON.stringify(req, null, 2));
+export async function writeRequirements(scope: import("./mission/scope.js").MissionScope, req: MissionRequirements): Promise<void> {
+  await atomicWriteJson(join(getMissionDir(scope), "requirements.json"), req);
 }
 
-export async function readRequirements(cwd: string): Promise<MissionRequirements | undefined> {
-  const raw = await readArtifact(cwd, "requirements.json");
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw) as MissionRequirements;
-  } catch {
-    return undefined;
+export async function readRequirements(scope: import("./mission/scope.js").MissionScope): Promise<MissionRequirements | undefined> {
+  return readJsonFile<MissionRequirements>(join(getMissionDir(scope), "requirements.json"));
+}
+
+export async function writeValidationContract(scope: import("./mission/scope.js").MissionScope, contract: ValidationContract): Promise<void> {
+  const missionDir = getMissionDir(scope);
+
+  // 1. Canonical JSON
+  await atomicWriteJson(join(missionDir, "validation-contract.json"), contract);
+
+  // 2. Human-readable markdown projection
+  const lines: string[] = [`# Validation Contract v${contract.version}`, `**Created:** ${contract.createdAt}`];
+  if (contract.gaps.length > 0) {
+    lines.push(`## Gaps`);
+    for (const g of contract.gaps) lines.push(`- ${g}`);
   }
-}
-
-export async function writeValidationContract(cwd: string, contract: ValidationContract): Promise<void> {
-  // Serialize to markdown for human readability + JSON for structure
-  const lines: string[] = [`# Validation Contract v${contract.version}\n`, `**Created:** ${contract.createdAt}\n`];
+  if (contract.crossCuttingAssertions.length > 0) {
+    lines.push(`## Cross-cutting Assertions`);
+    for (const c of contract.crossCuttingAssertions) lines.push(`- ${c}`);
+  }
+  lines.push(`## Assertions`);
   for (const a of contract.assertions) {
-    lines.push(`## ${a.id}: ${a.title}`);
+    lines.push(`### ${a.id}: ${a.title}`);
+    lines.push(`**Feature:** ${a.featureFile}`);
+    lines.push(`**Scenario:** ${a.scenario}`);
     lines.push(`**Description:** ${a.description}`);
     lines.push(`**Evidence Type:** ${a.evidenceType}`);
+    if (a.requirementRefs.length) lines.push(`**Requirement Refs:** ${a.requirementRefs.join(", ")}`);
     if (a.preconditions?.length) lines.push(`**Preconditions:** ${a.preconditions.join("; ")}`);
-    lines.push(`**Success Criteria:** ${a.successCriteria}\n`);
+    lines.push(`**Success Criteria:** ${a.successCriteria}`);
   }
-  await writeArtifact(cwd, "validation-contract.md", lines.join("\n"));
+  await atomicWriteFile(join(missionDir, "validation-contract.md"), lines.join("\n\n") + "\n");
 }
 
-export async function readValidationContract(cwd: string): Promise<ValidationContract | undefined> {
-  // For now, read the markdown. In a fuller implementation we could parse it.
-  const raw = await readArtifact(cwd, "validation-contract.md");
-  if (!raw) return undefined;
-  // Simple heuristic: if it starts with # Validation Contract, we treat it as present.
-  // Full parsing would extract assertions with regex.
-  return undefined; // placeholder
+/**
+ * Compute a simple deterministic hash for legacy assertion IDs.
+ * Uses djb2 over the input string.
+ */
+function djb2Hash(input: string): string {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash) + input.charCodeAt(i); // hash * 33 + c
+    hash = hash & 0xffffffff; // keep 32-bit
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-export async function writeFeatures(cwd: string, features: Feature[]): Promise<void> {
+function createLegacyAssertionId(featureFile: string, scenario: string): string {
+  return `LEGACY-${djb2Hash(`${featureFile}:${scenario}`)}`;
+}
+
+export async function readValidationContract(scope: import("./mission/scope.js").MissionScope): Promise<ValidationContract | undefined> {
+  const missionDir = getMissionDir(scope);
+
+  // 1. Prefer canonical JSON
+  const jsonPath = join(missionDir, "validation-contract.json");
+  const jsonRaw = await readJsonFile<ValidationContract>(jsonPath);
+  if (jsonRaw) {
+    // Structural validation
+    if (
+      typeof jsonRaw.version === "number" &&
+      typeof jsonRaw.createdAt === "string" &&
+      Array.isArray(jsonRaw.assertions) &&
+      jsonRaw.assertions.every(
+        (a) =>
+          typeof a.id === "string" &&
+          typeof a.title === "string" &&
+          typeof a.description === "string" &&
+          typeof a.featureFile === "string" &&
+          typeof a.scenario === "string" &&
+          ["screenshot", "test", "log", "manual"].includes(a.evidenceType) &&
+          Array.isArray(a.requirementRefs) &&
+          typeof a.successCriteria === "string"
+      ) &&
+      Array.isArray(jsonRaw.gaps) &&
+      Array.isArray(jsonRaw.crossCuttingAssertions)
+    ) {
+      return jsonRaw;
+    }
+    // Invalid JSON schema — fall through to legacy parsing if available
+  }
+
+  // 2. Legacy fallback: markdown + feature files
+  const mdRaw = await readArtifact(scope, "validation-contract.md");
+  if (!mdRaw) return undefined;
+
+  const versionMatch = mdRaw.match(/#\s*Validation Contract v?(\d+)/i);
+  const createdMatch = mdRaw.match(/\*\*Created:\*\*\s*(.+)/i);
+
+  const featureFiles = await listFeatureFiles(scope);
+  if (featureFiles.length === 0) return undefined;
+
+  const assertions: ValidationAssertion[] = [];
+  for (const filename of featureFiles) {
+    const content = await readFeatureFile(scope, filename);
+    if (!content) continue;
+    try {
+      const index = indexGherkinFeature(filename, content);
+      for (const sc of index.scenarios) {
+        assertions.push({
+          id: createLegacyAssertionId(filename, sc.name),
+          title: sc.name,
+          description: `Scenario from ${filename}`,
+          featureFile: filename,
+          scenario: sc.name,
+          evidenceType: "manual",
+          requirementRefs: [],
+          successCriteria: "Pass this scenario",
+        });
+      }
+    } catch {
+      // Duplicate scenario names or parse errors → reject contract
+      return undefined;
+    }
+  }
+
+  if (assertions.length === 0) return undefined;
+
+  const gaps: string[] = [];
+  const crossCutting: string[] = [];
+
+  // Extract gaps from markdown if present
+  const gapsSection = mdRaw.match(/##\s*Gaps[\s\S]*?(?=##|$)/i);
+  if (gapsSection) {
+    for (const line of gapsSection[0].split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("- ")) gaps.push(trimmed.slice(2).trim());
+    }
+  }
+
+  // Extract cross-cutting assertions from markdown if present
+  const crossSection = mdRaw.match(/##\s*Cross-cutting[\s\S]*?(?=##|$)/i);
+  if (crossSection) {
+    for (const line of crossSection[0].split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("- ")) crossCutting.push(trimmed.slice(2).trim());
+    }
+  }
+
+  return {
+    version: versionMatch ? parseInt(versionMatch[1], 10) : 1,
+    createdAt: createdMatch ? createdMatch[1].trim() : new Date().toISOString(),
+    assertions,
+    gaps,
+    crossCuttingAssertions: crossCutting,
+  };
+}
+
+export async function writeFeatures(scope: import("./mission/scope.js").MissionScope, features: Feature[]): Promise<void> {
   const normalized = normalizeFeaturesDocument({ features });
-  await writeArtifact(cwd, "features.json", JSON.stringify(normalized, null, 2));
+  await atomicWriteJson(join(getMissionDir(scope), "features.json"), normalized);
 }
 
-export async function readFeatures(cwd: string): Promise<Feature[] | undefined> {
-  const raw = await readArtifact(cwd, "features.json");
+export async function readFeatures(scope: import("./mission/scope.js").MissionScope): Promise<Feature[] | undefined> {
+  const raw = await readJsonFile<{ features: Feature[] }>(join(getMissionDir(scope), "features.json"));
   if (!raw) return undefined;
   try {
-    return normalizeFeaturesDocument(JSON.parse(raw)).features;
+    return normalizeFeaturesDocument(raw).features;
   } catch {
     return undefined;
   }
 }
 
-export async function getCompletedFeaturesForMilestone(cwd: string, milestoneId: string): Promise<Feature[]> {
-  const features = await readFeatures(cwd);
+export async function getIntegratedFeaturesForMilestone(scope: import("./mission/scope.js").MissionScope, milestoneId: string): Promise<Feature[]> {
+  const features = await readFeatures(scope);
   return features ? selectCompletedFeaturesForMilestone(features, milestoneId) : [];
 }
 
-export async function writeMilestones(cwd: string, milestones: Milestone[]): Promise<void> {
+export async function writeMilestones(scope: import("./mission/scope.js").MissionScope, milestones: Milestone[]): Promise<void> {
   const normalized = normalizeMilestonesDocument({ milestones });
-  await writeArtifact(cwd, "milestones.json", JSON.stringify(normalized, null, 2));
+  await atomicWriteJson(join(getMissionDir(scope), "milestones.json"), normalized);
 }
 
-export async function readMilestones(cwd: string): Promise<Milestone[] | undefined> {
-  const raw = await readArtifact(cwd, "milestones.json");
+export async function readMilestones(scope: import("./mission/scope.js").MissionScope): Promise<Milestone[] | undefined> {
+  const raw = await readJsonFile<{ milestones: Milestone[] }>(join(getMissionDir(scope), "milestones.json"));
   if (!raw) return undefined;
   try {
-    return normalizeMilestonesDocument(JSON.parse(raw)).milestones;
+    return normalizeMilestonesDocument(raw).milestones;
   } catch {
     return undefined;
   }
 }
 
-export async function appendDecision(cwd: string, decision: Decision): Promise<void> {
-  const entry = `## ${decision.id}
-**Timestamp:** ${decision.timestamp}
-**Context:** ${decision.context}
-**Decision:** ${decision.decision}
-**Rationale:** ${decision.rationale}\n`;
-  await writeArtifact(cwd, "decision-log.md", entry, "append");
+export async function appendDecision(scope: import("./mission/scope.js").MissionScope, decision: Decision, logger?: EventLogger): Promise<void> {
+  const missionDir = getMissionDir(scope);
+
+  // 1. Append canonical JSONL first
+  const jsonlPath = join(missionDir, "decisions.jsonl");
+  let jsonlContent = "";
+  try {
+    jsonlContent = await readFile(jsonlPath, "utf-8");
+  } catch {
+    // file may not exist yet
+  }
+  const line = JSON.stringify(decision);
+  jsonlContent = jsonlContent.trimEnd() + "\n" + line + "\n";
+  await atomicWriteFile(jsonlPath, jsonlContent);
+
+  // 2. Render markdown projection
+  try {
+    const entry = `## ${decision.id}\n**Timestamp:** ${decision.timestamp}\n**Context:** ${decision.context}\n**Decision:** ${decision.decision}\n**Rationale:** ${decision.rationale}\n`;
+    await writeArtifact(scope, "decision-log.md", entry, "append", logger);
+  } catch (err) {
+    // Markdown projection failure must not roll back canonical JSONL
+    console.error(`[appendDecision] markdown projection failed for ${decision.id}:`, err instanceof Error ? err.message : String(err));
+  }
 }
 
-export async function readDecisionLog(cwd: string): Promise<Decision[] | undefined> {
-  const raw = await readArtifact(cwd, "decision-log.md");
-  if (!raw) return undefined;
-  // TODO: parse markdown into Decision[] if needed
-  return undefined;
+export async function readDecisionLog(scope: import("./mission/scope.js").MissionScope): Promise<Decision[] | undefined> {
+  const missionDir = getMissionDir(scope);
+
+  // 1. Prefer canonical JSONL
+  try {
+    const jsonlRaw = await readFile(join(missionDir, "decisions.jsonl"), "utf-8");
+    const lines = jsonlRaw.trimEnd().split("\n").filter((l) => l.trim().length > 0);
+    const decisions: Decision[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      try {
+        const parsed = JSON.parse(lines[i]) as Decision;
+        if (
+          typeof parsed.id === "string" &&
+          typeof parsed.timestamp === "string" &&
+          typeof parsed.context === "string" &&
+          typeof parsed.decision === "string" &&
+          typeof parsed.rationale === "string"
+        ) {
+          decisions.push(parsed);
+        }
+      } catch {
+        // tolerate truncated final line only
+        if (i === lines.length - 1) {
+          // ignore malformed last line
+        }
+        // malformed non-final lines are silently skipped
+      }
+    }
+    if (decisions.length > 0) return decisions;
+    // empty JSONL — fall through to markdown fallback
+  } catch {
+    // decisions.jsonl missing — fall through
+  }
+
+  // 2. Legacy markdown fallback
+  const mdRaw = await readArtifact(scope, "decision-log.md");
+  if (!mdRaw) return undefined;
+
+  return parseLegacyDecisionLog(mdRaw);
+}
+
+/**
+ * Parse the exact legacy markdown decision log format.
+ * Multiline values continue until the next bold field or decision heading.
+ */
+function parseLegacyDecisionLog(mdRaw: string): Decision[] | undefined {
+  const decisions: Decision[] = [];
+  const headingRegex = /^##\s*(DEC-[A-Za-z0-9_-]+)\s*$/gm;
+  let match: RegExpExecArray | null;
+  const sections: Array<{ id: string; body: string }> = [];
+
+  while ((match = headingRegex.exec(mdRaw)) !== null) {
+    const start = match.index + match[0].length;
+    const nextMatch = headingRegex.exec(mdRaw);
+    const end = nextMatch ? nextMatch.index : mdRaw.length;
+    sections.push({ id: match[1], body: mdRaw.slice(start, end) });
+    if (!nextMatch) break;
+    headingRegex.lastIndex = nextMatch.index;
+  }
+
+  for (const section of sections) {
+    const fieldPattern = /\*\*(\w+):\*\*\s*/g;
+    const fields: Record<string, string> = {};
+    let fm: RegExpExecArray | null;
+    const fieldStarts: Array<{ key: string; contentStart: number; headerStart: number }> = [];
+
+    while ((fm = fieldPattern.exec(section.body)) !== null) {
+      fieldStarts.push({ key: fm[1], contentStart: fm.index + fm[0].length, headerStart: fm.index });
+    }
+
+    for (let i = 0; i < fieldStarts.length; i++) {
+      const { key, contentStart } = fieldStarts[i];
+      const end = i + 1 < fieldStarts.length ? fieldStarts[i + 1].headerStart : section.body.length;
+      fields[key] = section.body.slice(contentStart, end).trim();
+    }
+
+    if (fields.Timestamp && fields.Context && fields.Decision && fields.Rationale) {
+      decisions.push({
+        id: section.id,
+        timestamp: fields.Timestamp,
+        context: fields.Context,
+        decision: fields.Decision,
+        rationale: fields.Rationale,
+      });
+    }
+  }
+
+  return decisions.length > 0 ? decisions : undefined;
 }
 
 /**
  * Load the full mission state from all artifacts.
  * Returns a structured object suitable for injection into orchestrator context.
  */
-export async function loadMissionState(cwd: string): Promise<MissionState> {
-  const stateFile = await readState(cwd);
-  const requirements = await readRequirements(cwd);
-  const constraints = await readArtifact(cwd, "constraints.md") ?? undefined;
-  const researchNotes = await readArtifact(cwd, "research-notes.md") ?? undefined;
-  const validationContract = await readValidationContract(cwd);
-  const features = await readFeatures(cwd);
-  const milestones = await readMilestones(cwd);
+export async function loadMissionState(scope: import("./mission/scope.js").MissionScope): Promise<MissionState> {
+  const stateFile = await readState(scope);
+  const requirements = await readRequirements(scope);
+  const constraints = await readArtifact(scope, "constraints.md") ?? undefined;
+  const researchNotes = await readArtifact(scope, "research-notes.md") ?? undefined;
+  const validationContract = await readValidationContract(scope);
+  const features = await readFeatures(scope);
+  const milestones = await readMilestones(scope);
+  const decisions = (await readDecisionLog(scope)) ?? [];
 
   return {
     phase: stateFile?.phase ?? "intake",
@@ -231,7 +441,7 @@ export async function loadMissionState(cwd: string): Promise<MissionState> {
     validationContract,
     features,
     milestones,
-    decisions: [], // TODO: parse decision-log.md
+    decisions,
   };
 }
 
@@ -265,7 +475,14 @@ export function summarizeMissionState(state: MissionState): string {
 
   if (state.validationContract) {
     lines.push(`\n### Validation Contract`);
+    lines.push(`Version: ${state.validationContract.version}`);
     lines.push(`${state.validationContract.assertions.length} assertions defined.`);
+    if (state.validationContract.gaps.length > 0) {
+      lines.push(`Gaps:`);
+      for (const g of state.validationContract.gaps.slice(0, 5)) {
+        lines.push(`- ${g}`);
+      }
+    }
   }
 
   if (state.features) {
@@ -273,42 +490,51 @@ export function summarizeMissionState(state: MissionState): string {
     lines.push(`${state.features.length} features across ${state.milestones?.length ?? 0} milestones.`);
   }
 
+  if (state.decisions.length > 0) {
+    lines.push(`\n### Recent Decisions`);
+    const recent = state.decisions.slice(-5).reverse();
+    for (const d of recent) {
+      const text = `${d.id}: ${d.decision}`.slice(0, 120);
+      lines.push(`- ${text}`);
+    }
+  }
+
   return lines.join("\n");
 }
 
-export async function writeHandoff(cwd: string, handoff: WorkerHandoff): Promise<void> {
-  const handoffDir = join(getMissionDir(cwd), "handoffs");
+export async function writeHandoff(scope: import("./mission/scope.js").MissionScope, handoff: WorkerHandoff): Promise<void> {
+  const handoffDir = join(getMissionDir(scope), "handoffs");
   await mkdir(handoffDir, { recursive: true });
   const path = join(handoffDir, `${handoff.featureId}.json`);
-  await writeFile(path, JSON.stringify(handoff, null, 2), "utf-8");
+  await atomicWriteJson(path, handoff);
 }
 
-export async function readHandoff(cwd: string, featureId: string): Promise<WorkerHandoff | undefined> {
+export async function readHandoff(scope: import("./mission/scope.js").MissionScope, featureId: string): Promise<WorkerHandoff | undefined> {
   try {
-    const raw = await readFile(join(getMissionDir(cwd), "handoffs", `${featureId}.json`), "utf-8");
+    const raw = await readFile(join(getMissionDir(scope), "handoffs", `${featureId}.json`), "utf-8");
     return JSON.parse(raw) as WorkerHandoff;
   } catch {
     return undefined;
   }
 }
 
-export async function writeFeatureFile(cwd: string, filename: string, content: string): Promise<void> {
-  const featuresDir = join(getMissionDir(cwd), "features");
+export async function writeFeatureFile(scope: import("./mission/scope.js").MissionScope, filename: string, content: string): Promise<void> {
+  const featuresDir = join(getMissionDir(scope), "features");
   await mkdir(featuresDir, { recursive: true });
   const path = join(featuresDir, filename);
-  await writeFile(path, content, "utf-8");
+  await atomicWriteFile(path, content);
 }
 
-export async function readFeatureFile(cwd: string, filename: string): Promise<string | undefined> {
+export async function readFeatureFile(scope: import("./mission/scope.js").MissionScope, filename: string): Promise<string | undefined> {
   try {
-    return await readFile(join(getMissionDir(cwd), "features", filename), "utf-8");
+    return await readFile(join(getMissionDir(scope), "features", filename), "utf-8");
   } catch {
     return undefined;
   }
 }
 
-export async function listFeatureFiles(cwd: string): Promise<string[]> {
-  const featuresDir = join(getMissionDir(cwd), "features");
+export async function listFeatureFiles(scope: import("./mission/scope.js").MissionScope): Promise<string[]> {
+  const featuresDir = join(getMissionDir(scope), "features");
   try {
     const entries = await readdir(featuresDir, { withFileTypes: true });
     return entries.filter((e) => e.isFile() && e.name.endsWith(".feature")).map((e) => e.name);
@@ -317,16 +543,17 @@ export async function listFeatureFiles(cwd: string): Promise<string[]> {
   }
 }
 
-export async function writeValidationReport(cwd: string, report: ScrutinyReport): Promise<void> {
-  const reportsDir = join(getMissionDir(cwd), "validation-reports");
+export async function writeValidationReport(scope: import("./mission/scope.js").MissionScope, report: ScrutinyReport): Promise<string> {
+  const reportsDir = join(getMissionDir(scope), "validation-reports");
   await mkdir(reportsDir, { recursive: true });
   const filename = `${report.validatorType}-${report.milestoneId}-${Date.now()}.json`;
   const path = join(reportsDir, filename);
-  await writeFile(path, JSON.stringify(report, null, 2), "utf-8");
+  await atomicWriteJson(path, report);
+  return filename;
 }
 
-export async function listValidationReports(cwd: string, milestoneId?: string): Promise<string[]> {
-  const reportsDir = join(getMissionDir(cwd), "validation-reports");
+export async function listValidationReports(scope: import("./mission/scope.js").MissionScope, milestoneId?: string): Promise<string[]> {
+  const reportsDir = join(getMissionDir(scope), "validation-reports");
   try {
     const entries = await readdir(reportsDir, { withFileTypes: true });
     const reports = entries
@@ -341,10 +568,10 @@ export async function listValidationReports(cwd: string, milestoneId?: string): 
   }
 }
 
-export async function readValidationReport(cwd: string, filename: string): Promise<ScrutinyReport | undefined> {
+export async function readValidationReport(scope: import("./mission/scope.js").MissionScope, filename: string): Promise<ScrutinyReport | undefined> {
   try {
     const raw = await readFile(
-      join(getMissionDir(cwd), "validation-reports", filename),
+      join(getMissionDir(scope), "validation-reports", filename),
       "utf-8",
     );
     return JSON.parse(raw) as ScrutinyReport;
@@ -353,8 +580,8 @@ export async function readValidationReport(cwd: string, filename: string): Promi
   }
 }
 
-export async function readWorkerSkillsConfig(cwd: string): Promise<WorkerSkillsConfig | undefined> {
-  const raw = await readArtifact(cwd, "worker-skills.json");
+export async function readWorkerSkillsConfig(scope: import("./mission/scope.js").MissionScope): Promise<WorkerSkillsConfig | undefined> {
+  const raw = await readArtifact(scope, "worker-skills.json");
   if (!raw) return undefined;
   try {
     return JSON.parse(raw) as WorkerSkillsConfig;
@@ -363,16 +590,17 @@ export async function readWorkerSkillsConfig(cwd: string): Promise<WorkerSkillsC
   }
 }
 
-export async function writeUserTestingReport(cwd: string, report: UserTestingReport): Promise<void> {
-  const reportsDir = join(getMissionDir(cwd), "validation-reports");
+export async function writeUserTestingReport(scope: import("./mission/scope.js").MissionScope, report: UserTestingReport): Promise<string> {
+  const reportsDir = join(getMissionDir(scope), "validation-reports");
   await mkdir(reportsDir, { recursive: true });
   const filename = `user-testing-${report.milestoneId}-${Date.now()}.json`;
   const path = join(reportsDir, filename);
-  await writeFile(path, JSON.stringify(report, null, 2), "utf-8");
+  await atomicWriteJson(path, report);
+  return filename;
 }
 
-export async function listUserTestingReports(cwd: string, milestoneId?: string): Promise<string[]> {
-  const reportsDir = join(getMissionDir(cwd), "validation-reports");
+export async function listUserTestingReports(scope: import("./mission/scope.js").MissionScope, milestoneId?: string): Promise<string[]> {
+  const reportsDir = join(getMissionDir(scope), "validation-reports");
   try {
     const entries = await readdir(reportsDir, { withFileTypes: true });
     const reports = entries
@@ -387,10 +615,10 @@ export async function listUserTestingReports(cwd: string, milestoneId?: string):
   }
 }
 
-export async function readUserTestingReport(cwd: string, filename: string): Promise<UserTestingReport | undefined> {
+export async function readUserTestingReport(scope: import("./mission/scope.js").MissionScope, filename: string): Promise<UserTestingReport | undefined> {
   try {
     const raw = await readFile(
-      join(getMissionDir(cwd), "validation-reports", filename),
+      join(getMissionDir(scope), "validation-reports", filename),
       "utf-8",
     );
     return JSON.parse(raw) as UserTestingReport;

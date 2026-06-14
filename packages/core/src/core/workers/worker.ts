@@ -19,11 +19,12 @@ import {
 } from "../utils/skills.js";
 import { resolveModel } from "../config.js";
 import { extractLastJsonLine, type ParseResult } from "../utils/jsonl.js";
-import { getGlobalLogger } from "../observability/event-logger.js";
+import type { EventLogger } from "../observability/event-logger.js";
 import { observeAgentSession } from "../observability/session-events.js";
 import { createWorkerSessionSettings } from "./worker-settings.js";
 import type { WorkerWorkspaceResult } from "../mission/worker-workspace.js";
 import { createReportReceiver, persistSubmittedReport } from "../report-submission.js";
+import type { MissionScope } from "../mission/scope.js";
 
 /**
  * Collect the full text response from a session after prompting.
@@ -115,7 +116,7 @@ function parseHandoff(featureId: string, response: string): ParseResult<WorkerHa
 /**
  * Factory that creates a submit_worker_handoff tool bound to a specific feature.
  */
-export function createSubmitWorkerHandoffTool(featureId: string) {
+export function createSubmitWorkerHandoffTool(featureId: string, scope: MissionScope) {
   const receiver = createReportReceiver<WorkerHandoff>({
     role: "worker",
     assignment: { featureId },
@@ -134,7 +135,7 @@ export function createSubmitWorkerHandoffTool(featureId: string) {
     execute: async (_toolCallId, params) => {
       const result = receiver.submit(params.handoff);
       if (result.accepted) {
-        await persistSubmittedReport(process.cwd(), `handoffs/${featureId}.json`, params.handoff);
+        await persistSubmittedReport(scope, `handoffs/${featureId}.json`, params.handoff);
         return {
           content: [{ type: "text", text: "Handoff accepted." }],
           details: { accepted: true, error: undefined as string | undefined },
@@ -159,11 +160,13 @@ export async function spawnWorkerAgent(
   feature: Feature,
   acceptanceCriteria: string,
   sharedProcedures: string,
-  cwd: string = process.cwd(),
+  scope: MissionScope,
+  logger: EventLogger | undefined,
   skillsOverride?: Skill[],
   model?: string,
   workspace?: WorkerWorkspaceResult,
   timeoutMinutes?: number,
+  budgetManager?: import("../budget/budget-manager.js").BudgetManager,
 ): Promise<WorkerResult> {
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
@@ -174,7 +177,7 @@ export async function spawnWorkerAgent(
   if (skillsOverride && skillsOverride.length > 0) {
     workerSkills = skillsOverride;
   } else {
-    const allSkills = await loadSkillsFromDir(cwd, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
+    const allSkills = await loadSkillsFromDir(scope.projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
     const defaultSkillNames = new Set([
       "test-driven-development",
       "systematic-debugging",
@@ -192,7 +195,6 @@ export async function spawnWorkerAgent(
   // Observability: start the worker span
   const startTime = Date.now();
   const resolvedModel = resolveModel(model);
-  const logger = getGlobalLogger();
   const agentSpanId = logger?.agentSpanStart("worker", {
     agentType: "worker",
     model: model ?? "sdk-default",
@@ -202,10 +204,10 @@ export async function spawnWorkerAgent(
   });
 
   // Create report receiver and submission tool for this worker session
-  const { tool: submitHandoffTool, receiver: handoffReceiver } = createSubmitWorkerHandoffTool(feature.id);
+  const { tool: submitHandoffTool, receiver: handoffReceiver } = createSubmitWorkerHandoffTool(feature.id, scope);
 
   const resourceLoader = new DefaultResourceLoader({
-    cwd,
+    cwd: scope.projectRoot,
     agentDir: getAgentDir(),
     settingsManager,
     systemPromptOverride: () => WORKER_PROMPT,
@@ -214,12 +216,12 @@ export async function spawnWorkerAgent(
   await resourceLoader.reload();
 
   const { session } = await createAgentSession({
-    cwd,
+    cwd: scope.projectRoot,
     authStorage,
     modelRegistry,
     settingsManager,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: SessionManager.inMemory(scope.projectRoot),
     tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
     customTools: [submitHandoffTool],
     model: resolvedModel,
@@ -256,6 +258,7 @@ Implement this feature using public-interface TDD. Keep scope to the acceptance 
     logger,
     agentLevel: "worker",
     parentSpanId: agentSpanId,
+    budgetManager,
   });
 
   // Worker safety cap: default 30 minutes, configurable by the orchestrator

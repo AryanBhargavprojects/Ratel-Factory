@@ -15,9 +15,7 @@
     "sourceMap": true,
     "paths": {
       "@ratel/core": ["./packages/core/src/index.ts"],
-      "@ratel/core/*": ["./packages/core/src/*"],
-      "@ratel/observatory/*": ["./src/observatory/*"],
-      "@ratel/adapters/*": ["./src/adapters/*"]
+      "@ratel/core/*": ["./packages/core/src/*"]
     }
   },
   "include": ["src/**/*"],

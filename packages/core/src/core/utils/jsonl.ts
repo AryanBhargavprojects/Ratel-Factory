@@ -13,6 +13,11 @@
  * last non-empty, non-fence line must be a valid JSON object.
  */
 
+import type { MissionScope } from "../mission/scope.js";
+import { getMissionDir } from "../mission/scope.js";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
 export interface ParseResult<T> {
   /** "ok" if a valid JSON object matching the expected shape was found. */
   parseStatus: "ok" | "failed";
@@ -113,19 +118,17 @@ export function extractLastJsonLine<T>(
 }
 
 /**
- * Persist raw model output to .missions/current/{dir}/{filename} for audit.
+ * Persist raw model output to mission-scoped storage for audit.
  * Always write — even if parsing failed. The raw text is the ground truth
  * the orchestrator falls back to when parseStatus is "failed".
  */
 export async function writeRawOutput(
-  cwd: string,
+  scope: MissionScope,
   dir: string,
   filename: string,
   content: string,
 ): Promise<void> {
-  const { mkdir, writeFile } = await import("node:fs/promises");
-  const { join } = await import("node:path");
-  const outDir = join(cwd, ".missions/current", dir);
+  const outDir = join(getMissionDir(scope), dir);
   await mkdir(outDir, { recursive: true });
   await writeFile(join(outDir, filename), content, "utf-8");
 }

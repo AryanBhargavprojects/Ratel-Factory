@@ -121,6 +121,17 @@ bash install/install-opencode.sh --dev --port 9999
 
 Ratel separates client-side platform hooks (Adapters) from factory scheduling and orchestration logic (Core), running either as a standalone service or in direct in-process mode.
 
+### Canonical Core Package
+
+There is **one canonical core**: `@ratel/core`. All factory logic lives in `packages/core/src/`.
+
+- **Core Service** (`@ratel/core`) — runs as a standalone HTTP service. All state lives here.
+- **Adapters** are thin HTTP clients that register tools/commands with the agent's extension API.
+- **Direct mode** — `src/adapters/pi-sdk/main.ts` runs the core in-process without the HTTP layer (for development).
+- **Legacy source** (`src/core/`, `src/observatory/`) is a deprecated path that has been ported into `packages/core/src/`. The architecture guard (`npm run check:canonical-core`) blocks any resurrection.
+
+**Key rule:** The service is authoritative. Adapters may cache UI state for display purposes, but all durable mission and job state lives in the service.
+
 ```mermaid
 graph TD
     User([User CLI / UI]) -->|1. Goal| Hook[Adapter Layer: OpenCode / Pi SDK]
@@ -158,7 +169,7 @@ Orchestrator (mission planning, user interaction, phase transitions)
   ├─→ Worker Agent (implements one feature)
   │     └─→ Prepared serial git branch (integration → feat/Fx)
   ├─→ Scrutiny Validator (automated checks + code review)
-  └─→ User-Testing Validator (browser-based scenario execution)
+  └─→ User-Testing Coordinator (browser-based scenario execution)
             └─→ Sharded per .feature file
 ```
 
@@ -170,7 +181,7 @@ Ratel uses a **service-first** architecture:
 - **Adapters** are thin HTTP clients that register tools/commands with the agent's extension API.
 - **Direct mode** — `src/adapters/pi-sdk/main.ts` runs the core in-process without the HTTP layer (for development).
 
-**Key rule:** Adapters hold no state. All state lives in the service.
+**Key rule:** The service is authoritative. Adapters may cache UI state for display purposes, but all durable mission and job state lives in the service.
 
 ### Key Components
 
@@ -206,6 +217,15 @@ Ratel enforces rigorous Git safety gates to prevent agent-owned modifications fr
 *   The orchestrator auto-discovers or sets up a clean `integration` branch.
 *   Worker agents spawn a separate feature branch (`feat/F1`, `feat/F2`, etc.) for each milestone.
 *   A feature is only merged back to `integration` upon passing all security and execution checks.
+
+### Feature Lifecycle: `integrated` vs `validated`
+
+The factory uses two distinct states for features to separate "code is merged" from "code is verified":
+
+*   **`integrated`** — the worker handoff was clean, workspace finalization succeeded, and the commit is reachable from the `integration` branch. The orchestrator may **not** mark a feature `integrated` directly; only the deterministic `mark_feature_integrated` gate (or equivalent tool) can write this status.
+*   **`validated`** — milestone validation (scrutiny + user testing) passed with zero blocking issues and all automated checks green. Only the validation finalization logic may transition `integrated` → `validated`.
+
+Legacy aliases (`complete`, `completed`) are normalized to `integrated` on read.
 
 ### Feature Completion Gate
 
@@ -245,9 +265,43 @@ Ratel is configured via a global `ratel.json` file in the root directory:
   "validators": {
     "model": "openai/gpt-4o",
     "defaultTools": ["read", "bash", "grep"]
+  },
+  "budget": {
+    "maxCostUsd": 50,
+    "maxTotalTokens": 5000000,
+    "maxWallClockMinutes": 480,
+    "maxAgentRuns": 200
+  },
+  "fallbackModels": {
+    "orchestrator": {
+      "model": "openai/gpt-4o",
+      "fallbackModels": ["anthropic/claude-3-5-sonnet"]
+    },
+    "worker": {
+      "model": "anthropic/claude-3-5-sonnet",
+      "fallbackModels": []
+    },
+    "validator": {
+      "model": "openai/gpt-4o",
+      "fallbackModels": []
+    }
   }
 }
 ```
+
+**Budget configuration** (`budget`):
+- `maxCostUsd` — maximum total cost per mission (default: 50).
+- `maxTotalTokens` — maximum total tokens per mission (default: 5,000,000).
+- `maxWallClockMinutes` — wall-clock budget in minutes (default: 480).
+- `maxAgentRuns` — maximum agent sessions per mission (default: 200).
+- Budgets are enforced at the start of every agent turn and recorded in `usage.jsonl`.
+- If any budget limit is exceeded, the mission halts with a non-retryable error.
+
+**Fallback model configuration** (`fallbackModels`):
+- `orchestrator`, `worker`, `validator` each have a primary `model` and an ordered list of `fallbackModels`.
+- When a retryable provider error occurs (429, 503, timeout, network reset), the orchestrator transparently retries with the next fallback model.
+- Non-retryable errors (401, 403, context overflow, content policy, budget exceeded) do **not** trigger fallback.
+- Model health is tracked via a circuit breaker (open after `failureThreshold` consecutive retryable failures, half-open after `cooldownMs`).
 
 > [!TIP]
 > Model configurations map to the Pi SDK registry. You can override active models per-session using the CLI `set_model` tool.
@@ -268,7 +322,8 @@ npm run build        # Build root package
 npm run build:all    # Build all packages
 
 # Testing
-npm test             # Run all tests (10 tests)
+npm test             # Run all tests (root test/)
+npm test --workspace=@ratel/core   # Run core tests
 npm test:all         # Test all packages
 
 # Running
@@ -287,16 +342,19 @@ ratel/
 ├── packages/
 │   ├── core/                     # @ratel/core — Factory service
 │   │   ├── src/
-│   │   │   ├── api.ts            # HTTP API server
+│   │   │   ├── api.ts            # HTTP API server (v1 + deprecated)
 │   │   │   ├── index.ts          # Service entry point
+│   │   │   ├── control-plane/    # Mission store, job store, job runner
 │   │   │   ├── core/             # Factory core logic
 │   │   │   │   ├── orchestrator.ts
 │   │   │   │   ├── tools.ts
 │   │   │   │   ├── workers/
 │   │   │   │   ├── mission/
+│   │   │   │   ├── budget/
+│   │   │   │   ├── models/
 │   │   │   │   └── ...
 │   │   │   └── observatory/      # Dashboard service
-│   │   └── package.json
+│   │   └── test/                 # Core package tests (20+)
 │   │
 │   ├── opencode-plugin/          # @ratel/opencode — OpenCode plugin
 │   │   ├── src/
@@ -305,35 +363,34 @@ ratel/
 │   │   │   ├── commands.ts       # Command handlers
 │   │   │   └── prompts.ts        # Prompts
 │   │   ├── commands/             # Slash command stubs
-│   │   │   ├── ratel.md
-│   │   │   ├── ratel-mission.md
-│   │   │   └── ratel-observatory.md
 │   │   └── package.json
 │   │
-│   └── pi-extension/             # @ratel/pi-extension — Pi extension
+│   ├── pi-extension/             # @ratel/pi-extension — Pi extension
+│   │   ├── src/
+│   │   │   ├── extension.ts      # Extension entry
+│   │   │   ├── service.ts        # HTTP client
+│   │   │   ├── tool-scope.ts     # Phase management
+│   │   │   ├── commands.ts       # Command handlers
+│   │   │   └── prompts.ts        # Prompts
+│   │   └── package.json
+│   │
+│   └── pi-sdk/                   # Pi SDK direct mode (native/headless)
 │       ├── src/
-│       │   ├── extension.ts      # Extension entry
-│       │   ├── service.ts        # HTTP client
-│       │   ├── tool-scope.ts     # Phase management
-│       │   ├── commands.ts       # Command handlers
-│       │   └── prompts.ts        # Prompts
+│       │   ├── main.ts           # Direct/headless entry
+│       │   └── agents.ts         # Pi-specific helpers
 │       └── package.json
 │
-├── src/                    # Factory source code (backward compat / direct mode)
-│   ├── core/              # Original core logic
-│   ├── observatory/       # Original observatory
-│   └── adapters/          # Pi SDK direct mode
+├── src/                    # Legacy source (deprecated; ported to packages/core)
+│   └── adapters/           # Pi SDK direct mode only
 │       └── pi-sdk/
-│           ├── main.ts    # Direct/headless entry
-│           └── agents.ts  # Pi-specific helpers
+│           ├── main.ts
+│           └── agents.ts
 │
-├── test/                   # Factory tests (10 tests)
+├── scripts/               # CI/architecture scripts
+│   └── check-canonical-core.mjs
+│
+├── test/                  # Root-level tests
 ├── install/               # Installer scripts
-│   ├── install-opencode.sh
-│   └── install-pi.sh
-│
-├── .pi/skills/            # Pi SDK skills
-├── skills/                # Custom skills
 ├── ratel.json             # Factory configuration
 ├── tsconfig.json          # TypeScript configuration
 └── package.json           # Workspace root
@@ -395,17 +452,54 @@ When the factory starts, it launches a read-only observatory dashboard:
 
 ### Service API
 
+All requests return immediately with a job ID. Clients poll `GET /api/v1/missions/:missionId/jobs/:jobId` or consume the SSE stream (`GET /api/v1/missions/:missionId/events/stream`) for real-time updates.
+
+**v1 API:**
+
 ```bash
-GET  /health                    → { status: "ok" }
-POST /api/mission/start         → { goal: string } → { missionId }
-GET  /api/mission/status        → { missionId } → { state }
-POST /api/mission/worker        → { missionId, featureId } → { status }
-POST /api/mission/validate      → { missionId, milestoneId } → { status }
-GET  /api/mission/artifacts     → { missionId } → { artifacts }
-POST /api/mission/complete      → { missionId, featureId } → { status }
-GET  /api/observatory/events    → { events }
-GET  /api/observatory/status    → { enabled, url }
+GET  /health                              → { status: "ok" }
+POST /api/v1/missions                     → { goal: string } → 202 { missionId, jobId }
+GET  /api/v1/missions/:missionId          → { missionId, goal, status, ... }
+GET  /api/v1/missions/:missionId/jobs     → { jobs: [...] }
+GET  /api/v1/missions/:missionId/jobs/:jobId → { jobId, status, attempt, ... }
+POST /api/v1/missions/:missionId/jobs/:jobId/cancel → { status: "cancelled" }
+POST /api/v1/missions/:missionId/workers  → { featureId } → 202 { jobId, status: "queued" }
+POST /api/v1/missions/:missionId/validations → { milestoneId } → 202 { jobId, status: "queued" }
+POST /api/v1/missions/:missionId/user-testing → { milestoneId } → 202 { jobId, status: "queued" }
+POST /api/v1/missions/:missionId/approval → { approved: bool, feedback?, files? } → 202 { jobId, status: "queued" }
+GET  /api/v1/missions/:missionId/events   → { events: [...] }
+GET  /api/v1/missions/:missionId/events/stream → SSE stream
+GET  /api/observatory/status              → { enabled, url }
 ```
+
+**Deprecated routes** (still supported with `Deprecation: true` header):
+```bash
+POST /api/mission/start   → 200 { missionId, jobId }
+GET  /api/mission/status  → 200 { missionId, status, jobs }
+POST /api/mission/worker  → 200 { missionId, featureId, jobId, status }
+POST /api/mission/validate → 200 { missionId, milestoneId, jobId, status }
+GET  /api/mission/artifacts → 200 { artifacts }
+```
+
+### Durable State
+
+- **Mission state** is isolated under `.ratel/missions/<missionId>/`.
+- Each mission directory contains: `mission.json`, `state.json`, `features.json`, `milestones.json`, `decision-log.md`, `budget.json`, `usage.jsonl`, `events.jsonl`, `approval.json`, `handoffs/`, `worker-runs/`, `validation-reports/`, `validation-receipts/`.
+- **Jobs** are stored per-mission under `.ratel/missions/<missionId>/jobs/<jobId>.json`.
+- Jobs survive process restart because they are file-backed, not in-memory. The control plane recovers expired leases on startup.
+- **Budget and usage** are persisted atomically in `budget.json` and append-only in `usage.jsonl`.
+- **Approval** is stored as `approval.json` and the orchestrator resumes from the next `continue_orchestrator` job after restart.
+- **Token/cost records** are deduplicated by `recordId`; replaying the same record after restart is idempotent.
+
+### Legacy Migration
+
+If `.missions/current` exists (the legacy layout) and `.ratel/migration-v1.json` does not, the control plane performs a one-time migration on startup:
+1. Reads legacy `state.json` to extract the mission/trace ID.
+2. Copies `.missions/current` contents into `.ratel/missions/<missionId>/`.
+3. Writes `.ratel/migration-v1.json` and `.ratel/current-mission.json`.
+4. The legacy directory is **never deleted**.
+
+The migration is idempotent: if `migration-v1.json` exists, nothing happens.
 
 ---
 

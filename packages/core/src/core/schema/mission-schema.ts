@@ -26,7 +26,8 @@ const STRUCTURED_ARTIFACTS = new Set<ArtifactName>([
 const VALID_FEATURE_STATUSES = new Set<Feature["status"]>([
   "pending",
   "in_progress",
-  "completed",
+  "integrated",
+  "validated",
   "blocked",
 ]);
 
@@ -70,12 +71,29 @@ function asStringArray(value: unknown, context: string): string[] {
   return value;
 }
 
-function normalizeStatus(value: unknown, context: string): Feature["status"] {
+const VALID_MILESTONE_STATUSES = new Set<Milestone["status"]>([
+  "pending",
+  "in_progress",
+  "completed",
+  "blocked",
+]);
+
+function normalizeMilestoneStatus(value: unknown, context: string): Milestone["status"] {
   const raw = typeof value === "string" ? value : "pending";
-  const normalized = raw === "complete" ? "completed" : raw;
+  if (!VALID_MILESTONE_STATUSES.has(raw as Milestone["status"])) {
+    throw new MissionArtifactSchemaError(
+      `${context} has invalid status "${raw}"; expected pending, in_progress, completed, blocked`,
+    );
+  }
+  return raw as Milestone["status"];
+}
+
+function normalizeFeatureStatus(value: unknown, context: string): Feature["status"] {
+  const raw = typeof value === "string" ? value : "pending";
+  const normalized = raw === "complete" || raw === "completed" ? "integrated" : raw;
   if (!VALID_FEATURE_STATUSES.has(normalized as Feature["status"])) {
     throw new MissionArtifactSchemaError(
-      `${context} has invalid status "${raw}"; expected pending, in_progress, completed, blocked, or legacy complete`,
+      `${context} has invalid status "${raw}"; expected pending, in_progress, integrated, validated, blocked, or legacy complete/completed`,
     );
   }
   return normalized as Feature["status"];
@@ -114,7 +132,7 @@ export function normalizeFeature(input: unknown, index = 0): Feature {
   const description = asOptionalString(record.description, title);
   const assertions = asStringArray(record.assertions ?? record.covers, `features[${index}].assertions`);
   const milestoneId = asString(record.milestoneId ?? record.milestone, `features[${index}].milestoneId`);
-  const status = normalizeStatus(record.status, `features[${index}]`);
+  const status = normalizeFeatureStatus(record.status, `features[${index}]`);
 
   const canonical: Record<string, unknown> = {
     ...record,
@@ -149,7 +167,7 @@ export function normalizeMilestone(input: unknown, index = 0): Milestone {
   const title = asOptionalString(record.title, asOptionalString(record.name, id));
   const description = asOptionalString(record.description, title);
   const featureIds = asStringArray(record.featureIds ?? record.features, `milestones[${index}].featureIds`);
-  const status = normalizeStatus(record.status, `milestones[${index}]`);
+  const status = normalizeMilestoneStatus(record.status, `milestones[${index}]`);
 
   const canonical: Record<string, unknown> = {
     ...record,
@@ -243,11 +261,25 @@ export function getFeatureMilestoneId(feature: Feature): string {
 }
 
 export function isFeatureCompleted(feature: Feature): boolean {
-  return feature.status === "completed";
+  return feature.status === "integrated" || feature.status === "validated";
+}
+
+export function isFeatureIntegrated(feature: Feature): boolean {
+  return feature.status === "integrated";
+}
+
+export function isFeatureValidated(feature: Feature): boolean {
+  return feature.status === "validated";
 }
 
 export function selectCompletedFeaturesForMilestone(features: Feature[], milestoneId: string): Feature[] {
   return features.filter(
     (feature) => getFeatureMilestoneId(feature) === milestoneId && isFeatureCompleted(feature),
+  );
+}
+
+export function selectIntegratedFeaturesForMilestone(features: Feature[], milestoneId: string): Feature[] {
+  return features.filter(
+    (feature) => getFeatureMilestoneId(feature) === milestoneId && isFeatureIntegrated(feature),
   );
 }

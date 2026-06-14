@@ -2,14 +2,20 @@
 node_modules/
 package-lock.json
 
+# macOS system files
+.DS_Store
+
 # Build output
 dist/
+*.tsbuildinfo
 
 # Mission artifacts (ephemeral per run)
 .missions/
+.ratel/
 
 # Test suite (not shipped)
 test/
+!packages/core/test/
 
 # Generated app directories
 test-directory/

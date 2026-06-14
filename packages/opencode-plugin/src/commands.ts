@@ -1,7 +1,7 @@
 /**
  * Ratel OpenCode Command Handlers
  *
- * Stub implementations for /ratel, /ratel-mission, /ratel-observatory.
+ * Real implementations for /ratel, /ratel-mission, /ratel-observatory.
  * These are intercepted by the plugin and handled here.
  */
 
@@ -14,59 +14,56 @@ export interface CommandContext {
   rawArgs: string;
   cwd: string;
   service: RatelServiceClient;
+  cachedMissionId?: string;
+  cachedJobId?: string;
 }
 
 export async function handleCommand(ctx: CommandContext): Promise<void> {
-  const { command, client, service } = ctx;
+  const { command, client, service, cachedMissionId, cachedJobId } = ctx;
+
+  async function log(level: "info" | "warning" | "error", message: string): Promise<void> {
+    try {
+      await client.app.log({ level, message });
+    } catch {
+      // Best-effort logging
+    }
+  }
 
   try {
     switch (command) {
       case "ratel": {
         console.log("[Ratel] /ratel command received — toggling factory mode");
         const health = await service.health();
-        try {
-          await client.app.log({
-            level: "info",
-            message: `[Ratel] Service is ${health.status}. Use /ratel-mission for status, /ratel-observatory for dashboard.`,
-          });
-        } catch {
-          // Best-effort logging
-        }
+        await log("info", `[Ratel] Service is ${health.status}. Use /ratel-mission for status, /ratel-observatory for dashboard.`);
         break;
       }
       case "ratel-mission": {
         console.log("[Ratel] /ratel-mission command received — showing mission status");
-        try {
-          await client.app.log({
-            level: "info",
-            message: "[Ratel] Mission status: active mission context not yet implemented in plugin.",
-          });
-        } catch {
-          // Best-effort logging
+        if (!cachedMissionId) {
+          await log("info", "[Ratel] No active mission. Start one with the ratel_start_mission tool.");
+          return;
         }
+        const [mission, job] = await Promise.all([
+          service.getMissionStatus(cachedMissionId).catch((e: Error) => ({ missionId: cachedMissionId, state: { error: e.message } })),
+          cachedJobId ? service.getJobStatus(cachedMissionId, cachedJobId).catch((e: Error) => ({ jobId: cachedJobId, status: `error: ${e.message}` })) : undefined,
+        ]);
+        const lines = [
+          `Mission: ${mission.missionId}`,
+          `State: ${JSON.stringify(mission.state, null, 2)}`,
+        ];
+        if (job) {
+          lines.push(`Job: ${(job as any).jobId ?? cachedJobId} — status: ${(job as any).status ?? "unknown"}`);
+        }
+        await log("info", `[Ratel] ${lines.join("\n")}`);
         break;
       }
       case "ratel-observatory": {
         console.log("[Ratel] /ratel-observatory command received — opening dashboard");
         const status = await service.getObservatoryUrl();
         if (status.url) {
-          try {
-            await client.app.log({
-              level: "info",
-              message: `[Ratel] Observatory: ${status.url}`,
-            });
-          } catch {
-            // Best-effort logging
-          }
+          await log("info", `[Ratel] Observatory: ${status.url}`);
         } else {
-          try {
-            await client.app.log({
-              level: "warning",
-              message: "[Ratel] Observatory is not running. Start the service with `ratel --serve`.",
-            });
-          } catch {
-            // Best-effort logging
-          }
+          await log("warning", "[Ratel] Observatory is not running. Start the service with `ratel --serve`.");
         }
         break;
       }
@@ -76,13 +73,6 @@ export async function handleCommand(ctx: CommandContext): Promise<void> {
     }
   } catch (err) {
     console.error(`[Ratel] Command error (${command}):`, err);
-    try {
-      await client.app.log({
-        level: "error",
-        message: `[Ratel] Command failed: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    } catch {
-      // Best-effort logging
-    }
+    await log("error", `[Ratel] Command failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

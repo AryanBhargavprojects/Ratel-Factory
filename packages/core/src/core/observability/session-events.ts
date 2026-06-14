@@ -1,5 +1,7 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { AgentLevel, EventLogger } from "./event-logger.js";
+import { computeRecordId } from "../budget/types.js";
+import type { UsageRecord } from "../budget/types.js";
 
 export interface ForwardAgentSessionEventOptions {
   logger: EventLogger;
@@ -7,12 +9,14 @@ export interface ForwardAgentSessionEventOptions {
   parentSpanId: string;
   event: unknown;
   toolStartTimes?: Map<string, number>;
+  budgetManager?: import("../budget/budget-manager.js").BudgetManager;
 }
 
 export interface ObserveAgentSessionOptions {
   logger: EventLogger | undefined;
   agentLevel: AgentLevel;
   parentSpanId: string | undefined;
+  budgetManager?: import("../budget/budget-manager.js").BudgetManager;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -88,12 +92,65 @@ export function forwardAgentSessionEvent(options: ForwardAgentSessionEventOption
   }
 }
 
+/**
+ * Extract a UsageRecord from a Pi SDK turn_end event.
+ * Only records when message.role === "assistant" and usage is present.
+ * Returns null for non-assistant turns or missing usage.
+ */
+export function extractUsageFromTurnEnd(
+  event: unknown,
+  role: AgentLevel,
+  missionId: string,
+): UsageRecord | null {
+  const record = asRecord(event);
+  if (!record) return null;
+  if (eventType(record) !== "turn_end") return null;
+
+  const message = asRecord(record.message);
+  if (!message) return null;
+  if (message.role !== "assistant") return null;
+
+  const usage = asRecord(message.usage);
+  if (!usage) return null;
+
+  const provider = typeof record.provider === "string" ? record.provider : "";
+  const model = typeof record.model === "string" ? record.model : "";
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId : "";
+  const timestamp = typeof record.timestamp === "string" ? record.timestamp : new Date().toISOString();
+  const stopReason = typeof usage.stopReason === "string" ? usage.stopReason : "end_turn";
+
+  const totalTokens =
+    typeof usage.totalTokens === "number"
+      ? usage.totalTokens
+      : (typeof usage.inputTokens === "number" ? usage.inputTokens : 0) +
+        (typeof usage.outputTokens === "number" ? usage.outputTokens : 0);
+
+  const rec: UsageRecord = {
+    recordId: computeRecordId(sessionId, timestamp, provider, model),
+    missionId,
+    sessionId,
+    role,
+    provider,
+    model,
+    timestamp,
+    input: typeof usage.inputTokens === "number" ? usage.inputTokens : 0,
+    output: typeof usage.outputTokens === "number" ? usage.outputTokens : 0,
+    cacheRead: typeof usage.cacheReadTokens === "number" ? usage.cacheReadTokens : 0,
+    cacheWrite: typeof usage.cacheWriteTokens === "number" ? usage.cacheWriteTokens : 0,
+    totalTokens,
+    costUsd: typeof usage.costUsd === "number" ? usage.costUsd : 0,
+    stopReason,
+  };
+
+  return rec;
+}
+
 /** Subscribe to a child AgentSession and forward nested tool/lifecycle events. */
 export function observeAgentSession(
   session: AgentSession,
   options: ObserveAgentSessionOptions,
 ): () => void {
-  const { logger, agentLevel, parentSpanId } = options;
+  const { logger, agentLevel, parentSpanId, budgetManager } = options;
   if (!logger || !parentSpanId) return () => undefined;
 
   const toolStartTimes = new Map<string, number>();
@@ -104,6 +161,21 @@ export function observeAgentSession(
       parentSpanId,
       event,
       toolStartTimes,
+      budgetManager,
     });
+
+    // Record usage on turn_end for assistant messages only
+    if (budgetManager) {
+      try {
+        const usageRecord = extractUsageFromTurnEnd(event, agentLevel, budgetManager["scope"].missionId);
+        if (usageRecord) {
+          budgetManager.recordUsage(usageRecord).catch(() => {
+            // Fail-soft: usage recording errors should not crash the agent session
+          });
+        }
+      } catch {
+        // ignore extraction errors
+      }
+    }
   });
 }

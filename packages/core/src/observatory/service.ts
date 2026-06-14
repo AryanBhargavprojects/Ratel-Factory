@@ -5,6 +5,7 @@ import type { ResolvedObservabilityConfig } from "../core/config.js";
 export interface StartObservatoryOptions {
   cwd: string;
   config: ResolvedObservabilityConfig;
+  controlPlane?: import("../control-plane/mission-control-plane.js").MissionControlPlane;
 }
 
 export interface ObservatoryHandle {

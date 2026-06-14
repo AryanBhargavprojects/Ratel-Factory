@@ -4,7 +4,7 @@ import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { resolveCanonicalWorkspace } from "./workspace-resolution.js";
-import { getGlobalLogger } from "../observability/event-logger.js";
+import type { EventLogger } from "../observability/event-logger.js";
 import type { FeatureAssertionDocument } from "./feature-assertions.js";
 
 const execFile = promisify(execFileCb);
@@ -45,20 +45,20 @@ async function isGitRepoOnBranch(dir: string, branch: string): Promise<boolean> 
   }
 }
 
-async function findRepoOnBranch(cwd: string, branch: string): Promise<string | undefined> {
-  if (await isGitRepoOnBranch(cwd, branch)) return cwd;
+async function findRepoOnBranch(projectRoot: string, branch: string): Promise<string | undefined> {
+  if (await isGitRepoOnBranch(projectRoot, branch)) return projectRoot;
 
   let entries: Dirent[];
   try {
-    entries = await readdir(cwd, { withFileTypes: true });
+    entries = await readdir(projectRoot, { withFileTypes: true });
   } catch {
     return undefined;
   }
 
-  const ignored = new Set(["node_modules", "dist", ".missions", ".pi", ".agents", ".claude"]);
+  const ignored = new Set(["node_modules", "dist", ".missions", ".pi", ".agents", ".claude", ".ratel"]);
   for (const entry of entries) {
     if (!entry.isDirectory() || ignored.has(entry.name)) continue;
-    const candidate = join(cwd, entry.name);
+    const candidate = join(projectRoot, entry.name);
     if (await isGitRepoOnBranch(candidate, branch)) return candidate;
   }
   return undefined;
@@ -84,6 +84,7 @@ async function ensureClean(repoPath: string): Promise<string | undefined> {
  */
 async function prepareCleanWorkspace(
   repoPath: string,
+  logger?: EventLogger,
 ): Promise<{ cleaned: boolean; reason?: string; blocked?: boolean }> {
   const status = await workingTreeStatus(repoPath);
   if (!status.length) return { cleaned: false };
@@ -117,7 +118,6 @@ async function prepareCleanWorkspace(
   }
 
   if (!allIgnored) {
-    const logger = getGlobalLogger();
     logger?.decisionLogged(
       "dirty-workspace-blocked",
       `prepareCleanWorkspace in ${repoPath}`,
@@ -137,7 +137,6 @@ async function prepareCleanWorkspace(
   await git(repoPath, ["reset", "--hard", "HEAD"]);
   await git(repoPath, ["clean", "-fdX"]);
 
-  const logger = getGlobalLogger();
   logger?.decisionLogged(
     "dirty-workspace-auto-cleaned",
     `prepareCleanWorkspace in ${repoPath}`,
@@ -162,11 +161,11 @@ async function aheadCount(repoPath: string, base: string, branch: string): Promi
 }
 
 export async function prepareSerialWorkerBranch(
-  cwd: string,
+  scope: import("./scope.js").MissionScope,
   featureId: string,
   integrationBranch = "integration",
 ): Promise<WorkerWorkspaceResult> {
-  const repoPath = await resolveCanonicalWorkspace(cwd, integrationBranch);
+  const repoPath = await resolveCanonicalWorkspace(scope, integrationBranch);
   const featureBranch = featureBranchName(featureId);
 
   if (!repoPath) {
@@ -174,7 +173,7 @@ export async function prepareSerialWorkerBranch(
       status: "skipped",
       integrationBranch,
       featureBranch,
-      reason: `No git repository with branch ${integrationBranch} was found under ${cwd}.`,
+      reason: `No git repository with branch ${integrationBranch} was found under ${scope.projectRoot}.`,
     };
   }
 
@@ -240,6 +239,7 @@ export async function prepareSerialWorkerBranch(
 export async function copyFeatureFilesToWorkspace(
   repoPath: string,
   documents: FeatureAssertionDocument[],
+  logger?: EventLogger,
 ): Promise<string[]> {
   const featuresDir = join(repoPath, "features");
   const copied: string[] = [];
@@ -247,7 +247,6 @@ export async function copyFeatureFilesToWorkspace(
   try {
     await mkdir(featuresDir, { recursive: true });
   } catch {
-    const logger = getGlobalLogger();
     logger?.decisionLogged(
       "feature-copy-mkdir-failed",
       `copyFeatureFilesToWorkspace: cannot create ${featuresDir}`,
@@ -264,7 +263,6 @@ export async function copyFeatureFilesToWorkspace(
       copied.push(destPath);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const logger = getGlobalLogger();
       logger?.decisionLogged(
         "feature-copy-write-failed",
         `copyFeatureFilesToWorkspace: ${doc.filename}`,
@@ -278,7 +276,7 @@ export async function copyFeatureFilesToWorkspace(
 }
 
 export async function finalizeSerialWorkerBranch(
-  cwd: string,
+  projectRoot: string,
   featureId: string,
   integrationBranch = "integration",
   /** If provided, use this exact repo path instead of re-discovering. Prevents sibling-directory misselection. */
@@ -286,15 +284,15 @@ export async function finalizeSerialWorkerBranch(
 ): Promise<WorkerWorkspaceResult> {
   const featureBranch = featureBranchName(featureId);
   const repoPath = knownRepoPath
-    ?? await findRepoOnBranch(cwd, featureBranch)
-    ?? await resolveCanonicalWorkspace(cwd, integrationBranch);
+    ?? await findRepoOnBranch(projectRoot, featureBranch)
+    ?? await findRepoOnBranch(projectRoot, integrationBranch);
 
   if (!repoPath) {
     return {
       status: "skipped",
       integrationBranch,
       featureBranch,
-      reason: `No git repository with branch ${integrationBranch} was found under ${cwd}.`,
+      reason: `No git repository with branch ${integrationBranch} was found under ${projectRoot}.`,
     };
   }
 

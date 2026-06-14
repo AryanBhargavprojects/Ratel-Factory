@@ -9,13 +9,18 @@ import {
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { ORCHESTRATOR_PROMPT } from "./prompts.js";
-import { ORCHESTRATOR_TOOLS, setToolCwd } from "./tools.js";
+import { createOrchestratorTools } from "./tools.js";
 import { loadMissionState, summarizeMissionState, ensureMissionInitialized } from "./artifacts.js";
 import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
 } from "./utils/skills.js";
-import { getModelConfig, resolveModel } from "./config.js";
+import { getModelConfig, resolveModel, getFallbackModelConfig } from "./config.js";
+import { EventLogger } from "./observability/event-logger.js";
+import { createMissionScope } from "./mission/scope.js";
+import type { MissionExecutionContext } from "./mission/execution-context.js";
+import { BudgetManager } from "./budget/budget-manager.js";
+import { ModelRouter } from "./models/model-router.js";
 
 /**
  * OrchestratorAgent — Mission-State Governor
@@ -31,6 +36,8 @@ import { getModelConfig, resolveModel } from "./config.js";
 export interface OrchestratorOptions {
   /** Working directory (defaults to process.cwd()) */
   cwd?: string;
+  /** Mission ID (defaults to generating one from state or a new UUID) */
+  missionId?: string;
   /** In-memory sessions only (default: true) */
   inMemory?: boolean;
   /** Override the default orchestrator system prompt */
@@ -39,12 +46,17 @@ export interface OrchestratorOptions {
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   /** Model pattern (e.g. "claude-sonnet-4", "openai/gpt-4o") — uses first available if omitted */
   model?: string;
+  /** Job control for durable approval flow */
+  jobControl?: MissionExecutionContext["jobControl"];
+  /** Budget manager for mission-level budget enforcement */
+  budget?: BudgetManager;
 }
 
 export class OrchestratorAgent {
   private session: AgentSession | undefined;
   private unsubscribe: (() => void) | undefined;
   private cwd: string = process.cwd();
+  private context: MissionExecutionContext | undefined;
 
   /**
    * Initialise the orchestrator agent session with its custom tool suite.
@@ -52,13 +64,37 @@ export class OrchestratorAgent {
   async init(options: OrchestratorOptions = {}): Promise<void> {
     this.cwd = options.cwd ?? process.cwd();
 
+    // Create or resolve mission scope
+    const missionId = options.missionId ?? "mis_00000001";
+    const scope = createMissionScope(this.cwd, missionId);
+
     // Initialize mission state before anything else
-    await ensureMissionInitialized(this.cwd);
+    const logger = await EventLogger.forMission(scope);
+    await ensureMissionInitialized(scope, logger);
+
+    // Initialize model router with fallback chain support
+    const fallbackConfig = await getFallbackModelConfig(this.cwd);
+    const models = new ModelRouter({
+      projectRoot: this.cwd,
+      orchestrator: {
+        model: fallbackConfig.orchestrator.model ?? "sdk-default",
+        fallbackModels: fallbackConfig.orchestrator.fallbackModels ?? [],
+      },
+      worker: {
+        model: fallbackConfig.worker.model ?? "sdk-default",
+        fallbackModels: fallbackConfig.worker.fallbackModels ?? [],
+      },
+      validator: {
+        model: fallbackConfig.validator.model ?? "sdk-default",
+        fallbackModels: fallbackConfig.validator.fallbackModels ?? [],
+      },
+      modelRouting: fallbackConfig.modelRouting,
+    });
+    await models.init();
+
+    this.context = { scope, logger, budget: options.budget!, models, jobControl: options.jobControl };
 
     const inMemory = options.inMemory ?? true;
-
-    // Make cwd available to custom tools
-    setToolCwd(this.cwd);
 
     const authStorage = AuthStorage.create();
     const modelRegistry = ModelRegistry.create(authStorage);
@@ -118,7 +154,6 @@ export class OrchestratorAgent {
       ? SessionManager.inMemory(this.cwd)
       : SessionManager.create(this.cwd);
 
-    // Orchestrator tool set: built-ins + custom mission tools
     const toolNames = [
       "read",
       "grep",
@@ -140,6 +175,7 @@ export class OrchestratorAgent {
       "list_models",
       "ping_agents",
       "ensure_skills_installed",
+      "wait_for_user_approval",
     ];
 
     // Resolve orchestrator model from config, CLI option, or SDK default
@@ -156,7 +192,7 @@ export class OrchestratorAgent {
       model: orchestratorModel,
       thinkingLevel: options.thinkingLevel ?? "medium",
       tools: toolNames,
-      customTools: ORCHESTRATOR_TOOLS,
+      customTools: createOrchestratorTools(this.context!),
     });
 
     this.session = session;
@@ -200,22 +236,43 @@ export class OrchestratorAgent {
    * Send a prompt to the orchestrator and wait for it to finish.
    * If a mission state exists, it is automatically injected as context.
    */
-  async prompt(text: string): Promise<void> {
+  async prompt(text: string, signal?: AbortSignal): Promise<void> {
     if (!this.session) {
       throw new Error("OrchestratorAgent not initialised. Call init() first.");
+    }
+    if (!this.context) {
+      throw new Error("OrchestratorAgent context not initialized.");
     }
 
     // Inject current mission state into the prompt
     let augmented = text;
     try {
-      const state = await loadMissionState(this.cwd);
+      const state = await loadMissionState(this.context.scope);
       const summary = summarizeMissionState(state);
       augmented = `${summary}\n\n---\n\n${text}`;
     } catch {
       // If no mission state exists yet, proceed with raw prompt
     }
 
-    await this.session.prompt(augmented);
+    // Wire abort signal to session abort
+    let abortHandler: (() => void) | undefined;
+    if (signal) {
+      if (signal.aborted) {
+        throw new Error("Prompt aborted before execution");
+      }
+      abortHandler = () => {
+        this.session?.abort();
+      };
+      signal.addEventListener("abort", abortHandler);
+    }
+
+    try {
+      await this.session.prompt(augmented);
+    } finally {
+      if (abortHandler && signal) {
+        signal.removeEventListener("abort", abortHandler);
+      }
+    }
   }
 
   /**
