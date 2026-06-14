@@ -1,21 +1,29 @@
 <p align="center">
-  <img src="ratel-logo2.png" alt="Ratel Logo" width="160">
-</p>
-
-<h1 align="center">Ratel</h1>
-
-<p align="center">
-  <strong>Thin deterministic orchestration + model-owned implementation for autonomous software missions</strong>
+  <img src="RatelLogo.png" alt="Ratel Logo" width="160">
 </p>
 
 <p align="center">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License">
+  </a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/Node.js-%3E%3D%2018-3c873a?style=flat-square&logo=node.js" alt="Node.js version"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.0+-3178c6?style=flat-square&logo=typescript" alt="TypeScript version"></a>
   <a href="https://github.com/earendil-works/pi-coding-agent"><img src="https://img.shields.io/badge/built%20with-Pi%20SDK-purple?style=flat-square" alt="Pi SDK badge"></a>
 </p>
 
+<div align="center">
+  <strong>
+    <h2>Your ultimate AI Software Factory 🤖</h2><br />
+    Ratel: An alternative to OpenHands, Aider, Plandex, and Sweep.dev<br /><br />
+  </strong>
+  Ratel offers everything you need to run autonomous AI coding agents,<br />
+  validate changes with automated tests, and monitor missions from a live dashboard.
+</div>
+
 <p align="center">
+  <br />
   ⭐ If you like this project, star it on GitHub!
+  <br />
 </p>
 
 <p align="center">
