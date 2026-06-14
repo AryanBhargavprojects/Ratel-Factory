@@ -32,6 +32,25 @@ export interface ModelConfig {
   validator: string | null;
 }
 
+export interface FallbackModelConfig {
+  /** Primary model string (e.g. "anthropic/claude-sonnet-4"). `null` means SDK default. */
+  model: string | null;
+  /** Ordered fallback chain. Duplicates and invalid strings are rejected. */
+  fallbackModels?: string[];
+}
+
+export interface ModelRoutingConfig {
+  /** Consecutive retryable failures before opening circuit. Default 2. */
+  failureThreshold: number;
+  /** Milliseconds to wait before allowing a half-open probe. Default 120000. */
+  cooldownMs: number;
+}
+
+export interface ResolvedModelRoutingConfig {
+  failureThreshold: number;
+  cooldownMs: number;
+}
+
 export interface ObservabilityConfig {
   /** Observatory is always on by default; set false to opt out. */
   enabled?: boolean;
@@ -64,6 +83,7 @@ export interface RatelConfig {
     systemPrompt?: string | null;
     thinkingLevel?: string;
     model?: string | null;
+    fallbackModels?: string[];
     tools?: string[];
     customTools?: string[];
     defaultSkills?: string[];
@@ -71,15 +91,19 @@ export interface RatelConfig {
   };
   workers?: {
     model?: string | null;
+    fallbackModels?: string[];
     defaultTools?: string[];
   };
   validators?: {
     model?: string | null;
+    fallbackModels?: string[];
     defaultTools?: string[];
   };
   validation?: {
     userTesting?: UserTestingConfig;
   };
+  /** Model failover and circuit breaker configuration. */
+  modelRouting?: Partial<ModelRoutingConfig>;
 }
 
 // ── Config I/O (async) ───────────────────────────────────────────────────
@@ -115,6 +139,67 @@ export async function getModelConfig(cwd: string): Promise<ModelConfig> {
     orchestrator: config.orchestrator?.model ?? null,
     worker: config.workers?.model ?? null,
     validator: config.validators?.model ?? null,
+  };
+}
+
+function validateModelString(model: string): boolean {
+  if (!model || typeof model !== "string") return false;
+  const slashIndex = model.indexOf("/");
+  return slashIndex > 0 && slashIndex < model.length - 1;
+}
+
+function deduplicateModels(models: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const m of models) {
+    const trimmed = m.trim();
+    if (!trimmed) continue;
+    if (!validateModelString(trimmed)) {
+      console.warn(`[config] Invalid model string in fallbackModels: "${trimmed}" — expected "provider/model-id"`);
+      continue;
+    }
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+/**
+ * Build fallback-aware model config for all three levels.
+ * Rejects duplicate and invalid model strings.
+ */
+export async function getFallbackModelConfig(cwd: string): Promise<{
+  orchestrator: FallbackModelConfig;
+  worker: FallbackModelConfig;
+  validator: FallbackModelConfig;
+  modelRouting: ResolvedModelRoutingConfig;
+}> {
+  const config = await readRatelConfig(cwd);
+
+  const primary = config.orchestrator?.model ?? null;
+  const orchestratorFallbacks = deduplicateModels(
+    config.orchestrator?.fallbackModels?.filter((m) => m !== primary) ?? []
+  );
+
+  const workerPrimary = config.workers?.model ?? null;
+  const workerFallbacks = deduplicateModels(
+    config.workers?.fallbackModels?.filter((m) => m !== workerPrimary) ?? []
+  );
+
+  const validatorPrimary = config.validators?.model ?? null;
+  const validatorFallbacks = deduplicateModels(
+    config.validators?.fallbackModels?.filter((m) => m !== validatorPrimary) ?? []
+  );
+
+  return {
+    orchestrator: { model: primary, fallbackModels: orchestratorFallbacks },
+    worker: { model: workerPrimary, fallbackModels: workerFallbacks },
+    validator: { model: validatorPrimary, fallbackModels: validatorFallbacks },
+    modelRouting: {
+      failureThreshold: config.modelRouting?.failureThreshold ?? 2,
+      cooldownMs: config.modelRouting?.cooldownMs ?? 120000,
+    },
   };
 }
 
@@ -174,8 +259,13 @@ export async function setModelConfig(
  *
  * Logs a warning when a non-empty string cannot be resolved, so config typos
  * are visible in startup output rather than discovered at runtime.
+ *
+ * @param agentDir - Optional Pi agent directory path. Uses default if omitted.
  */
-export function resolveModel(modelString?: string | null): ReturnType<ModelRegistry["find"]> {
+export function resolveModel(
+  modelString?: string | null,
+  agentDir?: string,
+): ReturnType<ModelRegistry["find"]> {
   if (!modelString) return undefined;
 
   // Model strings are "provider/model-id". Some providers (notably OpenRouter)
@@ -194,9 +284,10 @@ export function resolveModel(modelString?: string | null): ReturnType<ModelRegis
   // Use ModelRegistry which loads custom providers from ~/.pi/agent/models.json
   // in addition to the built-in provider catalog.
   const authStorage = AuthStorage.create();
+  const effectiveAgentDir = agentDir ?? getDefaultAgentDir();
   const modelRegistry = ModelRegistry.create(
     authStorage,
-    join(getAgentDir(process.cwd()), "models.json"),
+    join(effectiveAgentDir, "models.json"),
   );
   const model = modelRegistry.find(provider, id);
 
@@ -232,10 +323,14 @@ export async function getUserTestingConfig(cwd: string): Promise<{ maxConcurrenc
 /**
  * List all models available on this machine (from Pi's ModelRegistry).
  * Uses AuthStorage to check which providers have API keys configured.
+ *
+ * @param _cwd - Legacy project root (unused, kept for compatibility).
+ * @param agentDir - Optional explicit Pi agent directory.
  */
-export async function listAvailableModels(cwd: string): Promise<ModelInfo[]> {
+export async function listAvailableModels(_cwd: string, agentDir?: string): Promise<ModelInfo[]> {
   const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage, join(getAgentDir(cwd), "models.json"));
+  const effectiveAgentDir = agentDir ?? getDefaultAgentDir();
+  const modelRegistry = ModelRegistry.create(authStorage, join(effectiveAgentDir, "models.json"));
 
   const models = modelRegistry.getAvailable();
   return models.map((m) => ({
@@ -258,7 +353,7 @@ export async function getBudgetConfig(cwd: string, missionOverrides?: MissionBud
 /**
  * Get the default agent directory path. Tries to match Pi's default.
  */
-function getAgentDir(cwd: string): string {
+export function getDefaultAgentDir(): string {
   // Default agent dir — matches Pi's default
   return join(process.env.HOME ?? "~", ".pi", "agent");
 }

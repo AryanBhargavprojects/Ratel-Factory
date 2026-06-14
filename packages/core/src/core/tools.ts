@@ -118,8 +118,7 @@ export function runResearchTool(context: MissionExecutionContext) {
       const startTime = Date.now();
       context.logger.toolCall("run_research", { query: params.query });
 
-      const modelConfig = await getModelConfig(context.scope.projectRoot);
-      const findings = await spawnResearchAgent(params.query, params.scope, context.scope.projectRoot, context.logger, modelConfig.orchestrator ?? undefined);
+      const findings = await spawnResearchAgent(params.query, params.scope, context);
       const durationMs = Date.now() - startTime;
       context.logger.toolResult("run_research", { durationMs });
       return {
@@ -157,13 +156,10 @@ export function askSmartFriendTool(context: MissionExecutionContext) {
       const state = await loadMissionState(context.scope);
       const missionSummary = summarizeMissionState(state);
 
-      const modelConfig = await getModelConfig(context.scope.projectRoot);
       const critique = await spawnSmartFriendAgent(
         missionSummary,
         params.question,
-        context.scope.projectRoot,
-        context.logger,
-        modelConfig.orchestrator ?? undefined,
+        context,
       );
       const durationMs = Date.now() - startTime;
       context.logger.toolResult("ask_smart_friend", { durationMs });
@@ -215,9 +211,7 @@ export function draftValidationContractTool(context: MissionExecutionContext) {
         params.constraints,
         params.researchNotes,
         params.decisionLog,
-        context.scope,
-        context.logger,
-        contractModelConfig.orchestrator ?? undefined,
+        context,
       );
       const durationMs = Date.now() - startTime;
 

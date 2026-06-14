@@ -15,11 +15,12 @@ import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
 } from "./utils/skills.js";
-import { getModelConfig, resolveModel } from "./config.js";
+import { getModelConfig, resolveModel, getFallbackModelConfig } from "./config.js";
 import { EventLogger } from "./observability/event-logger.js";
 import { createMissionScope } from "./mission/scope.js";
 import type { MissionExecutionContext } from "./mission/execution-context.js";
 import { BudgetManager } from "./budget/budget-manager.js";
+import { ModelRouter } from "./models/model-router.js";
 
 /**
  * OrchestratorAgent — Mission-State Governor
@@ -71,7 +72,27 @@ export class OrchestratorAgent {
     const logger = await EventLogger.forMission(scope);
     await ensureMissionInitialized(scope, logger);
 
-    this.context = { scope, logger, budget: options.budget!, jobControl: options.jobControl };
+    // Initialize model router with fallback chain support
+    const fallbackConfig = await getFallbackModelConfig(this.cwd);
+    const models = new ModelRouter({
+      projectRoot: this.cwd,
+      orchestrator: {
+        model: fallbackConfig.orchestrator.model ?? "sdk-default",
+        fallbackModels: fallbackConfig.orchestrator.fallbackModels ?? [],
+      },
+      worker: {
+        model: fallbackConfig.worker.model ?? "sdk-default",
+        fallbackModels: fallbackConfig.worker.fallbackModels ?? [],
+      },
+      validator: {
+        model: fallbackConfig.validator.model ?? "sdk-default",
+        fallbackModels: fallbackConfig.validator.fallbackModels ?? [],
+      },
+      modelRouting: fallbackConfig.modelRouting,
+    });
+    await models.init();
+
+    this.context = { scope, logger, budget: options.budget!, models, jobControl: options.jobControl };
 
     const inMemory = options.inMemory ?? true;
 
@@ -171,7 +192,7 @@ export class OrchestratorAgent {
       model: orchestratorModel,
       thinkingLevel: options.thinkingLevel ?? "medium",
       tools: toolNames,
-      customTools: createOrchestratorTools(this.context),
+      customTools: createOrchestratorTools(this.context!),
     });
 
     this.session = session;

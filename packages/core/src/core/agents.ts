@@ -27,6 +27,9 @@ import type { EventLogger } from "./observability/event-logger.js";
 import { observeAgentSession } from "./observability/session-events.js";
 import { writeFeatureFile } from "./artifacts.js";
 import type { MissionScope } from "./mission/scope.js";
+import type { MissionExecutionContext } from "./mission/execution-context.js";
+import { runSessionWithFailover, collectResponse, createAgentSessionForModel } from "./models/session-runner.js";
+import type { AgentRole } from "./models/model-router.js";
 
 /** Common skill filter: replace auto-discovered skills with only the role-specific set. */
 function isolateSkills(
@@ -100,77 +103,16 @@ function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger 
 }
 
 /**
- * Collect the full text response from a session after prompting.
- */
-/**
- * Collect the full text response from a session after prompting.
- *
- * Logs a warning when the response is empty AND the session ended very quickly
- * (< 1 second) — this is a strong signal that the model never actually ran.
- * Common causes:
- *   - Model resolution failure (resolveModel returned undefined)
- *   - Provider not configured (e.g., Azure fallback when no Azure creds)
- *   - API error before any tokens were generated
- * Without this warning, the empty response is silently propagated to the
- * tool layer, which then reports "contract writer produced no artifacts"
- * without indicating the real cause.
- */
-async function collectResponse(session: AgentSession, prompt: string): Promise<string> {
-  let response = "";
-  const startTime = Date.now();
-  const unsubscribe = session.subscribe((event) => {
-    if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent.type === "text_delta"
-    ) {
-      response += event.assistantMessageEvent.delta;
-    }
-  });
-
-  try {
-    // AgentSession.prompt() waits for the full run to finish. Subscribe BEFORE
-    // calling it or we miss every text_delta and falsely report an empty response.
-    await session.prompt(prompt);
-  } finally {
-    unsubscribe();
-  }
-
-  const durationMs = Date.now() - startTime;
-
-  if (response.length === 0 && durationMs < 1000) {
-    console.warn(
-      `[collectResponse] Agent produced no output in ${durationMs}ms — ` +
-        `possible model resolution failure, missing API credentials, upstream API error, or non-text output. ` +
-        `Empty response will propagate to the calling tool.`,
-    );
-  } else if (response.length === 0) {
-    console.warn(
-      `[collectResponse] Agent produced no output in ${durationMs}ms. ` +
-        `Empty response will propagate to the calling tool.`,
-    );
-  }
-
-  return response;
-}
-
-/**
  * Spawn a fresh read-only Research Agent.
- * Returns structured findings, evidence, risks, unknowns, recommendations.
+ * Routes through runSessionWithFailover for automatic model failover.
  */
 export async function spawnResearchAgent(
   query: string,
   searchScope: string,
-  projectRoot: string,
-  logger: EventLogger | undefined,
-  model?: string,
+  context: MissionExecutionContext,
 ): Promise<string> {
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
-
-  const settingsManager = SettingsManager.inMemory({
-    compaction: { enabled: false },
-    retry: { enabled: true, maxRetries: 1 },
-  });
+  const projectRoot = context.scope.projectRoot;
+  const startTime = Date.now();
 
   const allSkills = await loadSkillsFromDir(projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const researchSkillNames = new Set([
@@ -180,81 +122,58 @@ export async function spawnResearchAgent(
   ]);
   const researchSkills = isolateSkills(allSkills, researchSkillNames);
 
-  // Observability: research span
-  const startTime = Date.now();
-  const resolvedModel = resolveModel(model);
-  const agentSpanId = logger?.agentSpanStart("research", {
-    agentType: "research",
-    model: model ?? "sdk-default",
-    skills: researchSkills.map((s) => s.name),
-    tools: ["read", "grep", "find", "ls", "bash"],
-  });
-
-  const resourceLoader = new DefaultResourceLoader({
-    cwd: projectRoot,
-    agentDir: getAgentDir(),
-    settingsManager,
-    systemPromptOverride: () => RESEARCH_AGENT_PROMPT,
-    skillsOverride: () => ({ skills: researchSkills, diagnostics: [] }),
-  });
-  await resourceLoader.reload();
-
-  const { session } = await createAgentSession({
-    cwd: projectRoot,
-    authStorage,
-    modelRegistry,
-    settingsManager,
-    resourceLoader,
-    sessionManager: SessionManager.inMemory(projectRoot),
-    tools: ["read", "grep", "find", "ls", "bash"], // bash for parallel-cli web search
-    model: resolvedModel,
-  });
-
   const prompt = `Research query: ${query}\nScope: ${searchScope}\nWorking directory: ${projectRoot}\n\nReturn structured findings in the exact format specified in your system prompt. Use /skill:parallel-web-search for web research when relevant.`;
 
-  const unobserve = observeAgentSession(session, {
-    logger,
-    agentLevel: "research",
-    parentSpanId: agentSpanId,
+  return runSessionWithFailover({
+    context,
+    role: "orchestrator",
+    attempt: async (model) => {
+      const { session, dispose } = await createAgentSessionForModel({
+        cwd: projectRoot,
+        modelString: model.modelString,
+        systemPrompt: RESEARCH_AGENT_PROMPT,
+        tools: ["read", "grep", "find", "ls", "bash"],
+        skills: researchSkills,
+      });
+
+      const agentSpanId = context.logger.agentSpanStart("research", {
+        agentType: "research",
+        model: model.modelString,
+        skills: researchSkills.map((s) => s.name),
+        tools: ["read", "grep", "find", "ls", "bash"],
+      });
+
+      const unobserve = observeAgentSession(session, {
+        logger: context.logger,
+        agentLevel: "research",
+        parentSpanId: agentSpanId,
+      });
+
+      try {
+        const response = await collectResponse(session, prompt);
+        const durationMs = Date.now() - startTime;
+        if (agentSpanId) context.logger.agentSpanEnd("research", agentSpanId, { durationMs });
+        return response;
+      } finally {
+        unobserve();
+        dispose();
+      }
+    },
   });
-
-  let response = "";
-  try {
-    response = await collectResponse(session, prompt);
-  } finally {
-    unobserve();
-    const durationMs = Date.now() - startTime;
-    if (agentSpanId) logger?.agentSpanEnd("research", agentSpanId, { durationMs });
-    session.dispose();
-  }
-
-  return response;
 }
 
 /**
  * Spawn a skeptical Smart Friend agent.
- * The Smart Friend receives the FULL mission state, not a curated summary.
- * It critiques the orchestrator's trajectory, not just the specific question.
- * It can explore the codebase independently using read, grep, find, ls.
+ * Routes through runSessionWithFailover for automatic model failover.
  */
 export async function spawnSmartFriendAgent(
   missionStateSummary: string,
   question: string,
-  projectRoot: string,
-  logger: EventLogger | undefined,
-  model?: string,
+  context: MissionExecutionContext,
 ): Promise<string> {
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
+  const projectRoot = context.scope.projectRoot;
+  const startTime = Date.now();
 
-  const settingsManager = SettingsManager.inMemory({
-    compaction: { enabled: false },
-    retry: { enabled: true, maxRetries: 1 },
-  });
-
-  // Skills are auto-discovered from .pi/skills/ (project-local) and ~/.pi/agent/skills/ (global)
-  // The Smart Friend has access to: software-design-philosophy, grill-with-docs, parallel-web-search,
-  // find-docs, architecture-blueprint-generator, web-design-guidelines, deep-research, ui-ux-pro-max
   const allSkills = await loadSkillsFromDir(projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const smartFriendSkillNames = new Set([
     "software-design-philosophy",
@@ -268,80 +187,59 @@ export async function spawnSmartFriendAgent(
   ]);
   const smartFriendSkills = isolateSkills(allSkills, smartFriendSkillNames);
 
-  // Observability: smart friend span
-  const startTime = Date.now();
-  const resolvedModel = resolveModel(model);
-  const agentSpanId = logger?.agentSpanStart("smart_friend", {
-    agentType: "smart_friend",
-    model: model ?? "sdk-default",
-    skills: smartFriendSkills.map((s) => s.name),
-    tools: ["read", "grep", "find", "ls"],
-  });
-
-  const resourceLoader = new DefaultResourceLoader({
-    cwd: projectRoot,
-    agentDir: getAgentDir(),
-    settingsManager,
-    systemPromptOverride: () => SMART_FRIEND_PROMPT,
-    skillsOverride: () => ({ skills: smartFriendSkills, diagnostics: [] }),
-  });
-  await resourceLoader.reload();
-
-  const { session } = await createAgentSession({
-    cwd: projectRoot,
-    authStorage,
-    modelRegistry,
-    settingsManager,
-    resourceLoader,
-    sessionManager: SessionManager.inMemory(projectRoot),
-    tools: ["read", "grep", "find", "ls"], // can explore codebase independently
-    model: resolvedModel,
-  });
-
   const prompt = `## Full Mission State\n${missionStateSummary}\n\n---\n\n## Specific Question from Orchestrator\n${question}\n\n---\n\n## Working Directory\nYou are operating in: ${projectRoot}\n\nRemember: you are an OVER-SCOPED reviewer. Look at the ENTIRE trajectory and mission state above. Do not just answer the question — critique what the orchestrator may have missed, overlooked, or failed to investigate. If you need to explore the codebase to verify an assumption, use read, grep, find, or ls.\n\nReturn structured critique in the exact format specified in your system prompt.`;
 
-  const unobserve = observeAgentSession(session, {
-    logger,
-    agentLevel: "smart_friend",
-    parentSpanId: agentSpanId,
+  return runSessionWithFailover({
+    context,
+    role: "orchestrator",
+    attempt: async (model) => {
+      const { session, dispose } = await createAgentSessionForModel({
+        cwd: projectRoot,
+        modelString: model.modelString,
+        systemPrompt: SMART_FRIEND_PROMPT,
+        tools: ["read", "grep", "find", "ls"],
+        skills: smartFriendSkills,
+      });
+
+      const agentSpanId = context.logger.agentSpanStart("smart_friend", {
+        agentType: "smart_friend",
+        model: model.modelString,
+        skills: smartFriendSkills.map((s) => s.name),
+        tools: ["read", "grep", "find", "ls"],
+      });
+
+      const unobserve = observeAgentSession(session, {
+        logger: context.logger,
+        agentLevel: "smart_friend",
+        parentSpanId: agentSpanId,
+      });
+
+      try {
+        const response = await collectResponse(session, prompt);
+        const durationMs = Date.now() - startTime;
+        if (agentSpanId) context.logger.agentSpanEnd("smart_friend", agentSpanId, { durationMs });
+        return response;
+      } finally {
+        unobserve();
+        dispose();
+      }
+    },
   });
-
-  let response = "";
-  try {
-    response = await collectResponse(session, prompt);
-  } finally {
-    unobserve();
-    const durationMs = Date.now() - startTime;
-    if (agentSpanId) logger?.agentSpanEnd("smart_friend", agentSpanId, { durationMs });
-    session.dispose();
-  }
-
-  return response;
 }
 
 /**
  * Spawn a Validation Contract Writer agent.
- * Receives requirements + constraints + research notes + decision log.
- * Does NOT receive the feature plan.
- * Returns testable assertions with IDs, evidence type, preconditions, success criteria.
- * Can explore codebase and research domain patterns independently.
+ * Routes through runSessionWithFailover for automatic model failover.
  */
 export async function spawnContractAgent(
   requirements: string,
   constraints: string,
   researchNotes: string,
   decisionLog: string,
-  scope: MissionScope,
-  logger: EventLogger | undefined,
-  model?: string,
+  context: MissionExecutionContext,
 ): Promise<string> {
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
-
-  const settingsManager = SettingsManager.inMemory({
-    compaction: { enabled: false },
-    retry: { enabled: true, maxRetries: 1 },
-  });
+  const scope = context.scope;
+  const startTime = Date.now();
 
   const allSkills = await loadSkillsFromDir(scope.projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const contractSkillNames = new Set([
@@ -356,54 +254,43 @@ export async function spawnContractAgent(
   ]);
   const contractSkills = isolateSkills(allSkills, contractSkillNames);
 
-  // Observability: contract writer span
-  const startTime = Date.now();
-  const resolvedModel = resolveModel(model);
-  const agentSpanId = logger?.agentSpanStart("contract_writer", {
-    agentType: "contract_writer",
-    model: model ?? "sdk-default",
-    skills: contractSkills.map((s) => s.name),
-    tools: ["read", "grep", "find", "ls", "bash", "write_mission_artifact", "write_feature_file"],
-  });
-
-  const resourceLoader = new DefaultResourceLoader({
-    cwd: scope.projectRoot,
-    agentDir: getAgentDir(),
-    settingsManager,
-    systemPromptOverride: () => CONTRACT_AGENT_PROMPT,
-    skillsOverride: () => ({ skills: contractSkills, diagnostics: [] }),
-  });
-  await resourceLoader.reload();
-
-  const { session } = await createAgentSession({
-    cwd: scope.projectRoot,
-    authStorage,
-    modelRegistry,
-    settingsManager,
-    resourceLoader,
-    sessionManager: SessionManager.inMemory(scope.projectRoot),
-    tools: ["read", "grep", "find", "ls", "bash"], // explore codebase + web research
-    customTools: buildContractAgentCustomTools(scope, logger), // write contract artifacts
-    model: resolvedModel,
-  });
-
   const prompt = `## Requirements\n${requirements}\n\n---\n\n## Constraints\n${constraints}\n\n---\n\n## Research Notes\n${researchNotes}\n\n---\n\n## Decision Log\n${decisionLog || "(No decisions recorded yet.)"}\n\n---\n\n## Working Directory\nYou are operating in: ${scope.projectRoot}\n\nWrite a validation contract in the exact format specified in your system prompt.\n\nBEFORE writing:\n1. Explore the codebase (read, grep, find, ls) to understand existing test patterns and conventions.\n2. Use /skill:parallel-web-search to research domain-specific validation patterns if needed.\n3. Ensure every requirement has at least one assertion. Flag any gaps explicitly.\n\nWHEN writing the contract artifacts, use these tools:\n- Use \x60write_feature_file\x60 for each .feature file (e.g., write_feature_file({filename: 'auth.feature', content: '...'})). The filename MUST end with .feature.\n- Use \x60write_mission_artifact\x60 for the validation-contract.md summary (artifact: 'validation-contract.md').\n\nWrite ALL feature files and the validation-contract.md summary before finishing. The verification tool checks for their existence, so partial output will be rejected.\n\nRemember: you do NOT know the feature plan. Write assertions based purely on requirements, constraints, research, and decisions.`;
 
-  const unobserve = observeAgentSession(session, {
-    logger,
-    agentLevel: "contract_writer",
-    parentSpanId: agentSpanId,
+  return runSessionWithFailover({
+    context,
+    role: "orchestrator",
+    attempt: async (model) => {
+      const { session, dispose } = await createAgentSessionForModel({
+        cwd: scope.projectRoot,
+        modelString: model.modelString,
+        systemPrompt: CONTRACT_AGENT_PROMPT,
+        tools: ["read", "grep", "find", "ls", "bash"],
+        customTools: buildContractAgentCustomTools(scope, context.logger),
+        skills: contractSkills,
+      });
+
+      const agentSpanId = context.logger.agentSpanStart("contract_writer", {
+        agentType: "contract_writer",
+        model: model.modelString,
+        skills: contractSkills.map((s) => s.name),
+        tools: ["read", "grep", "find", "ls", "bash", "write_mission_artifact", "write_feature_file"],
+      });
+
+      const unobserve = observeAgentSession(session, {
+        logger: context.logger,
+        agentLevel: "contract_writer",
+        parentSpanId: agentSpanId,
+      });
+
+      try {
+        const response = await collectResponse(session, prompt);
+        const durationMs = Date.now() - startTime;
+        if (agentSpanId) context.logger.agentSpanEnd("contract_writer", agentSpanId, { durationMs });
+        return response;
+      } finally {
+        unobserve();
+        dispose();
+      }
+    },
   });
-
-  let response = "";
-  try {
-    response = await collectResponse(session, prompt);
-  } finally {
-    unobserve();
-    const durationMs = Date.now() - startTime;
-    if (agentSpanId) logger?.agentSpanEnd("contract_writer", agentSpanId, { durationMs });
-    session.dispose();
-  }
-
-  return response;
 }
