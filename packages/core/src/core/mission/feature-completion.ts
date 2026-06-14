@@ -6,7 +6,8 @@
 
 import type { WorkerRunReceipt, Feature } from "../types.js";
 import { readWorkerReceipt } from "../report-submission.js";
-import { readFeatures, writeFeatures, getMissionDir } from "../artifacts.js";
+import { readFeatures, writeFeatures } from "../artifacts.js";
+import type { MissionScope } from "../mission/scope.js";
 import { join } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
@@ -53,13 +54,13 @@ async function isCommitReachable(
  * - for "skipped": no integration repo was available, and handoff contains a commit when project is a git repo
  */
 export async function evaluateCompletionGate(
-  cwd: string,
+  scope: MissionScope,
   featureId: string,
 ): Promise<CompletionGateResult> {
   const errors: string[] = [];
 
   // 1. Read features
-  const features = await readFeatures(cwd);
+  const features = await readFeatures(scope);
   if (!features) {
     return { success: false, featureId, errors: ["No features.json found."] };
   }
@@ -75,7 +76,7 @@ export async function evaluateCompletionGate(
   }
 
   // 2. Read receipt
-  const receipt = await readWorkerReceipt(cwd, featureId);
+  const receipt = await readWorkerReceipt(scope, featureId);
   if (!receipt) {
     return { success: false, featureId, errors: [`No worker receipt found for ${featureId}. Run run_worker first.`] };
   }
@@ -141,11 +142,11 @@ export async function evaluateCompletionGate(
  * This is the ONLY path that may write status="completed".
  */
 export async function applyFeatureCompletion(
-  cwd: string,
+  scope: MissionScope,
   featureId: string,
   commitSha?: string,
 ): Promise<void> {
-  const features = await readFeatures(cwd);
+  const features = await readFeatures(scope);
   if (!features) throw new Error("No features.json found");
 
   const updated = features.map((f) =>
@@ -154,7 +155,7 @@ export async function applyFeatureCompletion(
       : f,
   );
 
-  await writeFeatures(cwd, updated);
+  await writeFeatures(scope, updated);
 }
 
 /**

@@ -20,7 +20,7 @@ export * from "./core/types.js";
 export * from "./core/tools.js";
 export * from "./core/prompts.js";
 export { spawnResearchAgent, spawnSmartFriendAgent, spawnContractAgent } from "./core/agents.js";
-export { EventLogger, setGlobalLogger, clearGlobalLogger, getGlobalLogger } from "./core/observability/event-logger.js";
+export { EventLogger } from "./core/observability/event-logger.js";
 export { DEFAULT_ORCHESTRATOR_SKILLS_DIR, loadSkillsFromDir } from "./core/utils/skills.js";
 export { startObservatory, type ObservatoryHandle } from "./observatory/service.js";
 export { startDashboardServer, startDashboardServerOnAvailablePort, getCurrentDashboardUrl } from "./observatory/server.js";

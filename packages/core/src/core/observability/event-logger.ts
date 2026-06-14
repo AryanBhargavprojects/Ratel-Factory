@@ -6,7 +6,7 @@
  * artifact write, decision, halt) is logged as a structured event.
  *
  * Usage:
- *   const logger = EventLogger.forMission(cwd);
+ *   const logger = EventLogger.forMission(scope);
  *   logger.agentStart("worker", { featureId: "FEAT-001", model: "claude-sonnet-4" });
  *   logger.toolCall("run_worker", { featureId: "FEAT-001" });
  *   logger.toolResult("run_worker", { parseStatus: "ok", durationMs: 45000 });
@@ -14,9 +14,11 @@
  *   await logger.shutdown();
  */
 
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { getMissionDir } from "../mission/scope.js";
+import type { MissionScope } from "../mission/scope.js";
 
 export type AgentLevel =
   | "orchestrator"
@@ -87,14 +89,13 @@ export class EventLogger {
   }
 
   /** Create a logger for the current mission. Reads trace_id from state.json if present. */
-  static async forMission(cwd: string): Promise<EventLogger> {
-    const missionDir = join(cwd, ".missions", "current");
+  static async forMission(scope: MissionScope): Promise<EventLogger> {
+    const missionDir = getMissionDir(scope);
     await mkdir(missionDir, { recursive: true });
 
     // Try to read existing trace_id from state.json
     let traceId: string | undefined;
     try {
-      const { readFile } = await import("node:fs/promises");
       const stateRaw = await readFile(join(missionDir, "state.json"), "utf-8");
       const state = JSON.parse(stateRaw) as { traceId?: string };
       traceId = state.traceId;
@@ -107,7 +108,6 @@ export class EventLogger {
     // If we generated a new traceId, persist it to state.json
     if (!traceId) {
       try {
-        const { readFile, writeFile } = await import("node:fs/promises");
         const statePath = join(missionDir, "state.json");
         let state: Record<string, unknown> = {};
         try {
@@ -303,19 +303,4 @@ export class EventLogger {
     clearInterval(this.flushTimer);
     await this.flush();
   }
-}
-
-/** Global logger instance — set once per mission. */
-let _globalLogger: EventLogger | undefined;
-
-export function setGlobalLogger(logger: EventLogger): void {
-  _globalLogger = logger;
-}
-
-export function getGlobalLogger(): EventLogger | undefined {
-  return _globalLogger;
-}
-
-export function clearGlobalLogger(): void {
-  _globalLogger = undefined;
 }

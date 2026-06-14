@@ -2,6 +2,7 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import type { Feature } from "../types.js";
 import { resolveCanonicalWorkspace } from "./workspace-resolution.js";
+import type { MissionScope } from "./scope.js";
 
 const execFile = promisify(execFileCb);
 
@@ -29,6 +30,15 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+async function gitOk(cwd: string, args: string[]): Promise<boolean> {
+  try {
+    await git(cwd, args);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Find the canonical integration repository for a mission.
  *
@@ -37,8 +47,8 @@ async function git(cwd: string, args: string[]): Promise<string> {
  *    (initialize git there if needed). Do NOT scan sibling directories.
  * 2. Otherwise, fall back to auto-discovering a git repo on `branch`.
  */
-export async function findIntegrationRepo(cwd: string, branch = "integration"): Promise<string | undefined> {
-  return resolveCanonicalWorkspace(cwd, branch);
+export async function findIntegrationRepo(scope: MissionScope, branch = "integration"): Promise<string | undefined> {
+  return resolveCanonicalWorkspace(scope, branch);
 }
 
 async function commitExists(repoPath: string, commitSha: string): Promise<boolean> {
@@ -101,11 +111,11 @@ function buildRecoveryInstruction(branch: string, missing: MissingIntegrationFea
  * the same blocking issues repeat indefinitely.
  */
 export async function checkCompletedFeatureIntegration(
-  cwd: string,
+  scope: MissionScope,
   features: Feature[],
   branch = "integration",
 ): Promise<IntegrationPreflightResult> {
-  const repoPath = await findIntegrationRepo(cwd, branch);
+  const repoPath = await findIntegrationRepo(scope, branch);
   const completedWithCommits = features
     .filter((feature) => feature.status === "completed")
     .map((feature) => ({ feature, commitSha: featureCommitSha(feature) }))
@@ -117,7 +127,7 @@ export async function checkCompletedFeatureIntegration(
       branch,
       checkedFeatureCount: completedWithCommits.length,
       missing: [],
-      reason: `No git repository with branch ${branch} was found under ${cwd}; integration preflight skipped.`,
+      reason: `No git repository with branch ${branch} was found under ${scope.projectRoot}; integration preflight skipped.`,
       recoveryInstruction: `No git repository with branch ${branch} was found; validation can proceed only if this mission does not use an integration branch.`,
     };
   }

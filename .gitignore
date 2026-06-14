@@ -13,6 +13,7 @@ dist/
 
 # Test suite (not shipped)
 test/
+!packages/core/test/
 
 # Generated app directories
 test-directory/

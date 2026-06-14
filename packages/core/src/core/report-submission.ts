@@ -7,6 +7,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WorkerHandoff, ScrutinyReport, UserTestingShardReport, ReportSource } from "./types.js";
 import { WorkerHandoffSchema, ScrutinyReportSchema, UserTestingShardReportSchema, validateSchema } from "./schema/report-schemas.js";
+import { getMissionDir } from "./mission/scope.js";
+import type { MissionScope } from "./mission/scope.js";
 
 export interface ReportSubmissionResult<T> {
   source: ReportSource;
@@ -106,8 +108,8 @@ export function createReportReceiver<T extends { featureId?: string; milestoneId
 /**
  * Persist a submitted report to its canonical artifact path.
  */
-export async function persistSubmittedReport(cwd: string, relativePath: string, report: unknown): Promise<void> {
-  const fullPath = join(cwd, ".missions", "current", relativePath);
+export async function persistSubmittedReport(scope: MissionScope, relativePath: string, report: unknown): Promise<void> {
+  const fullPath = join(getMissionDir(scope), relativePath);
   await mkdir(join(fullPath, ".."), { recursive: true });
   await writeFile(fullPath, JSON.stringify(report, null, 2), "utf-8");
 }
@@ -123,11 +125,11 @@ export function workerReceiptPath(featureId: string): string {
  * Persist a worker run receipt.
  */
 export async function persistWorkerReceipt(
-  cwd: string,
+  scope: MissionScope,
   receipt: import("./types.js").WorkerRunReceipt,
 ): Promise<void> {
   const path = workerReceiptPath(receipt.featureId);
-  const fullPath = join(cwd, ".missions", "current", path);
+  const fullPath = join(getMissionDir(scope), path);
   await mkdir(join(fullPath, ".."), { recursive: true });
   await writeFile(fullPath, JSON.stringify(receipt, null, 2), "utf-8");
 }
@@ -136,12 +138,12 @@ export async function persistWorkerReceipt(
  * Read the latest worker receipt for a feature.
  */
 export async function readWorkerReceipt(
-  cwd: string,
+  scope: MissionScope,
   featureId: string,
 ): Promise<import("./types.js").WorkerRunReceipt | undefined> {
   try {
     const { readFile } = await import("node:fs/promises");
-    const fullPath = join(cwd, ".missions", "current", workerReceiptPath(featureId));
+    const fullPath = join(getMissionDir(scope), workerReceiptPath(featureId));
     const raw = await readFile(fullPath, "utf-8");
     return JSON.parse(raw) as import("./types.js").WorkerRunReceipt;
   } catch {

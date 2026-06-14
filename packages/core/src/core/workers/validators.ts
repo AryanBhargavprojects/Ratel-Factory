@@ -17,10 +17,11 @@ import {
   DEFAULT_ORCHESTRATOR_SKILLS_DIR,
   loadSkillsFromDir,
 } from "../utils/skills.js";
-import { getGlobalLogger } from "../observability/event-logger.js";
+import type { EventLogger } from "../observability/event-logger.js";
 import { observeAgentSession } from "../observability/session-events.js";
 import { createReportReceiver, persistSubmittedReport } from "../report-submission.js";
 import type { ScrutinyReport, UserTestingShardReport } from "../types.js";
+import type { MissionScope } from "../mission/scope.js";
 
 // resolveModel moved to src/config.ts
 
@@ -58,7 +59,8 @@ export async function spawnCodeReviewSubagent(
   featureSpec: string,
   gherkinScenarios: string,
   filePaths: string[],
-  cwd: string = process.cwd(),
+  projectRoot: string,
+  logger: EventLogger | undefined,
   model?: string,
 ): Promise<string> {
   const authStorage = AuthStorage.create();
@@ -69,7 +71,7 @@ export async function spawnCodeReviewSubagent(
     retry: { enabled: true, maxRetries: 1 },
   });
 
-  const allSkills = await loadSkillsFromDir(cwd, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
+  const allSkills = await loadSkillsFromDir(projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const reviewSkillNames = new Set([
     "test-driven-development",
     "software-design-philosophy",
@@ -82,7 +84,6 @@ export async function spawnCodeReviewSubagent(
   // Observability: code review span
   const startTime = Date.now();
   const resolvedModel = resolveModel(model);
-  const logger = getGlobalLogger();
   const agentSpanId = logger?.agentSpanStart("code_review", {
     agentType: "code_review",
     model: model ?? "sdk-default",
@@ -90,7 +91,7 @@ export async function spawnCodeReviewSubagent(
   });
 
   const resourceLoader = new DefaultResourceLoader({
-    cwd,
+    cwd: projectRoot,
     agentDir: getAgentDir(),
     settingsManager,
     systemPromptOverride: () => CODE_REVIEW_PROMPT,
@@ -99,12 +100,12 @@ export async function spawnCodeReviewSubagent(
   await resourceLoader.reload();
 
   const { session } = await createAgentSession({
-    cwd,
+    cwd: projectRoot,
     authStorage,
     modelRegistry,
     settingsManager,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: SessionManager.inMemory(projectRoot),
     tools: ["read", "grep", "find", "ls"],
     model: resolvedModel,
   });
@@ -149,10 +150,10 @@ Read the files above. Review them with fresh, adversarial eyes. Return ONLY the 
 }
 
 /**
- * Factory that creates a review_feature tool bound to a specific cwd.
+ * Factory that creates a review_feature tool bound to a specific projectRoot.
  * The scrutiny validator uses this tool to spawn parallel code-review subagents.
  */
-export function createReviewFeatureTool(cwd: string, model?: string) {
+export function createReviewFeatureTool(projectRoot: string, logger: EventLogger | undefined, model?: string) {
   return defineTool({
     name: "review_feature",
     label: "Review Feature",
@@ -176,7 +177,8 @@ export function createReviewFeatureTool(cwd: string, model?: string) {
         params.featureSpec,
         params.gherkinScenarios,
         params.filePaths,
-        cwd,
+        projectRoot,
+        logger,
         model,
       );
       return {
@@ -190,7 +192,7 @@ export function createReviewFeatureTool(cwd: string, model?: string) {
 /**
  * Factory that creates a submit_scrutiny_report tool bound to a milestone.
  */
-export function createSubmitScrutinyReportTool(milestoneId: string) {
+export function createSubmitScrutinyReportTool(milestoneId: string, scope: MissionScope) {
   const receiver = createReportReceiver<ScrutinyReport>({
     role: "scrutiny",
     assignment: { milestoneId },
@@ -209,7 +211,7 @@ export function createSubmitScrutinyReportTool(milestoneId: string) {
     execute: async (_toolCallId, params) => {
       const result = receiver.submit(params.report);
       if (result.accepted) {
-        await persistSubmittedReport(process.cwd(), `validation-reports/scrutiny-${milestoneId}-${Date.now()}.json`, params.report);
+        await persistSubmittedReport(scope, `validation-reports/scrutiny-${milestoneId}-${Date.now()}.json`, params.report);
         return {
           content: [{ type: "text", text: "Scrutiny report accepted." }],
           details: { accepted: true, error: undefined as string | undefined },
@@ -232,7 +234,9 @@ export function createSubmitScrutinyReportTool(milestoneId: string) {
 export async function spawnScrutinyValidator(
   milestoneId: string,
   featureIds: string[],
-  cwd: string = process.cwd(),
+  projectRoot: string,
+  logger: EventLogger | undefined,
+  scope: MissionScope,
   model?: string,
 ): Promise<string> {
   const authStorage = AuthStorage.create();
@@ -243,7 +247,7 @@ export async function spawnScrutinyValidator(
     retry: { enabled: true, maxRetries: 1 },
   });
 
-  const allSkills = await loadSkillsFromDir(cwd, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
+  const allSkills = await loadSkillsFromDir(projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const scrutinySkillNames = new Set([
     "test-driven-development",
     "software-design-philosophy",
@@ -258,7 +262,6 @@ export async function spawnScrutinyValidator(
   // Observability: scrutiny validator span
   const startTime = Date.now();
   const resolvedModel = resolveModel(model);
-  const logger = getGlobalLogger();
   const agentSpanId = logger?.agentSpanStart("scrutiny_validator", {
     agentType: "scrutiny_validator",
     model: model ?? "sdk-default",
@@ -268,7 +271,7 @@ export async function spawnScrutinyValidator(
   });
 
   const resourceLoader = new DefaultResourceLoader({
-    cwd,
+    cwd: projectRoot,
     agentDir: getAgentDir(),
     settingsManager,
     systemPromptOverride: () => SCRUTINY_VALIDATOR_PROMPT,
@@ -277,18 +280,18 @@ export async function spawnScrutinyValidator(
   await resourceLoader.reload();
 
   // Create report receiver and submission tool for this scrutiny session
-  const { tool: submitScrutinyTool, receiver: scrutinyReceiver } = createSubmitScrutinyReportTool(milestoneId);
+  const { tool: submitScrutinyTool, receiver: scrutinyReceiver } = createSubmitScrutinyReportTool(milestoneId, scope);
 
   // Note: review_feature tool is passed as a custom tool so the scrutiny validator can spawn parallel code-review subagents.
   const { session } = await createAgentSession({
-    cwd,
+    cwd: projectRoot,
     authStorage,
     modelRegistry,
     settingsManager,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: SessionManager.inMemory(projectRoot),
     tools: ["read", "grep", "find", "ls", "bash"],
-    customTools: [createReviewFeatureTool(cwd, model), submitScrutinyTool],
+    customTools: [createReviewFeatureTool(projectRoot, logger, model), submitScrutinyTool],
     model: resolvedModel,
   });
 
@@ -335,7 +338,8 @@ export async function spawnScrutinyValidator(
 export async function spawnUserTestingValidator(
   milestoneId: string,
   featureIds: string[],
-  cwd: string = process.cwd(),
+  projectRoot: string,
+  logger: EventLogger | undefined,
   model?: string,
 ): Promise<string> {
   const authStorage = AuthStorage.create();
@@ -346,7 +350,7 @@ export async function spawnUserTestingValidator(
     retry: { enabled: true, maxRetries: 1 },
   });
 
-  const allSkills = await loadSkillsFromDir(cwd, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
+  const allSkills = await loadSkillsFromDir(projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const userTestingSkillNames = new Set([
     "agent-browser",
     "find-docs",
@@ -356,7 +360,6 @@ export async function spawnUserTestingValidator(
   // Observability: user testing validator span
   const startTime = Date.now();
   const resolvedModel = resolveModel(model);
-  const logger = getGlobalLogger();
   const agentSpanId = logger?.agentSpanStart("user_testing_validator", {
     agentType: "user_testing_validator",
     model: model ?? "sdk-default",
@@ -366,7 +369,7 @@ export async function spawnUserTestingValidator(
   });
 
   const resourceLoader = new DefaultResourceLoader({
-    cwd,
+    cwd: projectRoot,
     agentDir: getAgentDir(),
     settingsManager,
     systemPromptOverride: () => USER_TESTING_VALIDATOR_PROMPT,
@@ -375,12 +378,12 @@ export async function spawnUserTestingValidator(
   await resourceLoader.reload();
 
   const { session } = await createAgentSession({
-    cwd,
+    cwd: projectRoot,
     authStorage,
     modelRegistry,
     settingsManager,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: SessionManager.inMemory(projectRoot),
     tools: ["read", "grep", "find", "ls", "bash"],
     model: resolvedModel,
   });
@@ -390,8 +393,8 @@ export async function spawnUserTestingValidator(
 **Completed Features:** ${featureIds.join(", ")}
 
 ## Instructions
-1. Create the screenshots directory: mkdir -p .missions/current/validation-reports/screenshots
-2. Read all .feature files from .missions/current/features/
+1. Create the screenshots directory: mkdir -p .ratel/missions/<missionId>/validation-reports/screenshots
+2. Read all .feature files from .ratel/missions/<missionId>/features/
 3. Discover and start the app dev server (track the PID)
 4. Wait for the server to be ready (poll with curl, timeout 60s)
 5. Open the app with agent-browser
@@ -427,7 +430,7 @@ export async function spawnUserTestingValidator(
 /**
  * Factory that creates a submit_user_testing_shard_report tool bound to a shard.
  */
-export function createSubmitUserTestingShardReportTool(milestoneId: string, shardId: string) {
+export function createSubmitUserTestingShardReportTool(milestoneId: string, shardId: string, scope: MissionScope) {
   const receiver = createReportReceiver<UserTestingShardReport>({
     role: "user-testing-shard",
     assignment: { milestoneId, shardId },
@@ -446,7 +449,7 @@ export function createSubmitUserTestingShardReportTool(milestoneId: string, shar
     execute: async (_toolCallId, params) => {
       const result = receiver.submit(params.report);
       if (result.accepted) {
-        await persistSubmittedReport(process.cwd(), `validation-reports/user-testing-shards/${milestoneId}/${shardId}.json`, params.report);
+        await persistSubmittedReport(scope, `validation-reports/user-testing-shards/${milestoneId}/${shardId}.json`, params.report);
         return {
           content: [{ type: "text", text: "Shard report accepted." }],
           details: { accepted: true, error: undefined as string | undefined },
@@ -468,8 +471,9 @@ export function createSubmitUserTestingShardReportTool(milestoneId: string, shar
  */
 export async function spawnUserTestingShardAgent(
   shard: UserTestingShard,
-  cwd: string = process.cwd(),
+  projectRoot: string,
   model?: string,
+  logger?: EventLogger,
   parentSpanId?: string | undefined,
 ): Promise<{ response: string; receiver: ReturnType<typeof createSubmitUserTestingShardReportTool>["receiver"] }> {
   const authStorage = AuthStorage.create();
@@ -480,7 +484,7 @@ export async function spawnUserTestingShardAgent(
     retry: { enabled: true, maxRetries: 1 },
   });
 
-  const allSkills = await loadSkillsFromDir(cwd, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
+  const allSkills = await loadSkillsFromDir(projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const userTestingSkillNames = new Set([
     "agent-browser",
     "find-docs",
@@ -489,7 +493,6 @@ export async function spawnUserTestingShardAgent(
 
   const startTime = Date.now();
   const resolvedModel = resolveModel(model);
-  const logger = getGlobalLogger();
   const agentSpanId = logger?.agentSpanStart("user_testing_shard", {
     agentType: "user_testing_shard",
     model: model ?? "sdk-default",
@@ -500,10 +503,11 @@ export async function spawnUserTestingShardAgent(
   }, parentSpanId);
 
   // Create report receiver and submission tool for this shard session
-  const { tool: submitShardTool, receiver: shardReceiver } = createSubmitUserTestingShardReportTool(shard.milestoneId, shard.shardId);
+  const scope: MissionScope = { projectRoot, missionId: "unknown" };
+  const { tool: submitShardTool, receiver: shardReceiver } = createSubmitUserTestingShardReportTool(shard.milestoneId, shard.shardId, scope);
 
   const resourceLoader = new DefaultResourceLoader({
-    cwd,
+    cwd: projectRoot,
     agentDir: getAgentDir(),
     settingsManager,
     systemPromptOverride: () => USER_TESTING_SHARD_PROMPT,
@@ -512,12 +516,12 @@ export async function spawnUserTestingShardAgent(
   await resourceLoader.reload();
 
   const { session } = await createAgentSession({
-    cwd,
+    cwd: projectRoot,
     authStorage,
     modelRegistry,
     settingsManager,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: SessionManager.inMemory(projectRoot),
     tools: ["read", "grep", "find", "ls", "bash"],
     customTools: [submitShardTool],
     model: resolvedModel,
@@ -534,7 +538,7 @@ export async function spawnUserTestingShardAgent(
 
 ## Instructions
 1. Create the screenshots directory: mkdir -p ${shard.screenshotDir}
-2. Read ONLY your assigned .feature file: .missions/current/features/${shard.featureFile}
+2. Read ONLY your assigned .feature file: .ratel/missions/<missionId>/features/${shard.featureFile}
 3. Start the app dev server on port ${shard.assignedPort} (use PORT=${shard.assignedPort})
 4. Wait for the server to be ready (poll with curl, timeout 60s)
 5. Open the app with agent-browser at http://localhost:${shard.assignedPort}

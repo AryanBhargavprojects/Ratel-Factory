@@ -1,4 +1,5 @@
 import { writeRawOutput } from "../utils/jsonl.js";
+import type { MissionScope } from "../mission/scope.js";
 
 /**
  * Persist the complete text returned by a worker agent before any parser or
@@ -7,13 +8,13 @@ import { writeRawOutput } from "../utils/jsonl.js";
  * to the user and observability timeline.
  */
 export async function writeWorkerRawOutput(
-  cwd: string,
+  scope: MissionScope,
   featureId: string,
   rawResponse: string,
   timestamp: number = Date.now(),
 ): Promise<string> {
   const safeFeatureId = featureId.replace(/[^a-zA-Z0-9._-]/g, "_");
   const filename = `${safeFeatureId}-${timestamp}.raw.txt`;
-  await writeRawOutput(cwd, "worker-raw-output", filename, rawResponse);
+  await writeRawOutput(scope, "worker-raw-output", filename, rawResponse);
   return `worker-raw-output/${filename}`;
 }

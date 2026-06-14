@@ -19,6 +19,8 @@ import type { AddressInfo } from "node:net";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { resolveCanonicalWorkspace } from "../core/mission/workspace-resolution.js";
+import { createMissionScope } from "../core/mission/scope.js";
+import { getMissionDir } from "../core/mission/scope.js";
 
 const execFile = promisify(execFileCb);
 
@@ -51,14 +53,13 @@ export function resolvePendingApproval(decision: ApprovalDecision): boolean {
   return false;
 }
 
-
 function getDashboardUrlFilePath(cwd: string): string {
-  return join(cwd, ".missions", "current", "observatory-url.txt");
+  return join(cwd, ".ratel", "observatory-url.txt");
 }
 
 function persistDashboardUrl(cwd: string, url: string): void {
   try {
-    const dir = join(cwd, ".missions", "current");
+    const dir = join(cwd, ".ratel");
     mkdirSync(dir, { recursive: true });
     writeFileSync(getDashboardUrlFilePath(cwd), url, "utf-8");
   } catch {
@@ -115,7 +116,8 @@ function parseEventsJsonl(raw: string): unknown[] {
 }
 
 function createDashboardServer(cwd: string): Server {
-  const eventsPath = join(cwd, ".missions", "current", "events.jsonl");
+  const defaultScope = createMissionScope(cwd, "mis_00000001");
+  const eventsPath = join(getMissionDir(defaultScope), "events.jsonl");
 
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = req.url ?? "/";
@@ -151,7 +153,7 @@ function createDashboardServer(cwd: string): Server {
     // API: Return git diff and status for the canonical workspace.
     if (url === "/api/diff" || url.startsWith("/api/diff")) {
       try {
-        const workspace = await resolveCanonicalWorkspace(cwd);
+        const workspace = await resolveCanonicalWorkspace(defaultScope);
         if (!workspace) {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ diff: "", status: "Not a git repository" }));
@@ -187,10 +189,10 @@ function createDashboardServer(cwd: string): Server {
     // API: Return mission state, requirements, and features.
     if (url === "/api/mission" || url === "/api/mission/") {
       try {
-        const statePath = join(cwd, ".missions", "current", "state.json");
-        const reqPath = join(cwd, ".missions", "current", "requirements.json");
-        const featPath = join(cwd, ".missions", "current", "features.json");
-        const contractPath = join(cwd, ".missions", "current", "validation-contract.md");
+        const statePath = join(getMissionDir(defaultScope), "state.json");
+        const reqPath = join(getMissionDir(defaultScope), "requirements.json");
+        const featPath = join(getMissionDir(defaultScope), "features.json");
+        const contractPath = join(getMissionDir(defaultScope), "validation-contract.md");
 
         let state = {};
         let requirements = {};
@@ -234,7 +236,7 @@ function createDashboardServer(cwd: string): Server {
               (filename.startsWith("features/") && filename.endsWith(".feature") && !filename.includes(".."));
             
             if (isValidArtifact) {
-              const filePath = join(cwd, ".missions", "current", filename);
+              const filePath = join(getMissionDir(defaultScope), filename);
               await mkdir(dirname(filePath), { recursive: true });
               await writeFile(filePath, content as string, "utf-8");
             }
@@ -267,7 +269,7 @@ function createDashboardServer(cwd: string): Server {
               (filename.startsWith("features/") && filename.endsWith(".feature") && !filename.includes(".."));
             
             if (isValidArtifact) {
-              const filePath = join(cwd, ".missions", "current", filename);
+              const filePath = join(getMissionDir(defaultScope), filename);
               await mkdir(dirname(filePath), { recursive: true });
               await writeFile(filePath, content as string, "utf-8");
             }

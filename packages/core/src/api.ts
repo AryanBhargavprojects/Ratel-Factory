@@ -15,7 +15,6 @@ import {
   loadMissionState,
   readState,
   readFeatures,
-  getMissionDir,
   listValidationReports,
   listUserTestingReports,
   listFeatureFiles,
@@ -24,6 +23,9 @@ import {
 import { getObservabilityConfig } from "./core/config.js";
 import { startObservatory, type ObservatoryHandle } from "./observatory/service.js";
 import { getCurrentDashboardUrl } from "./observatory/server.js";
+import { createMissionScope } from "./core/mission/scope.js";
+import { getMissionDir } from "./core/mission/scope.js";
+import { EventLogger } from "./core/observability/event-logger.js";
 
 export interface ApiOptions {
   cwd: string;
@@ -71,8 +73,13 @@ function setCors(res: ServerResponse): void {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
+function defaultScope(cwd: string) {
+  return createMissionScope(cwd, "mis_00000001");
+}
+
 export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
   const { cwd, port = 8765, host = "127.0.0.1" } = options;
+  const scope = defaultScope(cwd);
 
   // Start observatory on startup
   let observatory: ObservatoryHandle = { enabled: false, shutdown: async () => undefined };
@@ -111,8 +118,9 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
           sendError(res, 400, "Missing 'goal' field");
           return;
         }
-        await ensureMissionInitialized(cwd);
-        const state = await readState(cwd);
+        const logger = await EventLogger.forMission(scope);
+        await ensureMissionInitialized(scope, logger);
+        const state = await readState(scope);
         const missionId = state?.traceId ?? `mission-${Date.now()}`;
         const agent = new OrchestratorAgent();
         await agent.init({ cwd, inMemory: true });
@@ -129,7 +137,7 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
           sendError(res, 400, "Missing 'missionId' query parameter");
           return;
         }
-        const state = await loadMissionState(cwd);
+        const state = await loadMissionState(scope);
         sendJson(res, 200, { missionId, state });
         return;
       }
@@ -178,7 +186,7 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
         }
         const artifacts: Record<string, string[]> = {};
         try {
-          const reportsDir = join(getMissionDir(cwd), "validation-reports");
+          const reportsDir = join(getMissionDir(scope), "validation-reports");
           await access(reportsDir);
           const entries = await readdir(reportsDir, { withFileTypes: true });
           artifacts.validationReports = entries.filter(e => e.isFile() && e.name.endsWith(".json")).map(e => e.name);
@@ -186,7 +194,7 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
           artifacts.validationReports = [];
         }
         try {
-          const featuresDir = join(getMissionDir(cwd), "features");
+          const featuresDir = join(getMissionDir(scope), "features");
           await access(featuresDir);
           const entries = await readdir(featuresDir, { withFileTypes: true });
           artifacts.features = entries.filter(e => e.isFile() && e.name.endsWith(".feature")).map(e => e.name);
@@ -194,7 +202,7 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
           artifacts.features = [];
         }
         try {
-          const handoffsDir = join(getMissionDir(cwd), "handoffs");
+          const handoffsDir = join(getMissionDir(scope), "handoffs");
           await access(handoffsDir);
           const entries = await readdir(handoffsDir, { withFileTypes: true });
           artifacts.handoffs = entries.filter(e => e.isFile() && e.name.endsWith(".json")).map(e => e.name);
@@ -224,7 +232,7 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
 
       // GET /api/observatory/events
       if (url.pathname === "/api/observatory/events" && method === "GET") {
-        const eventsPath = join(cwd, ".missions", "current", "events.jsonl");
+        const eventsPath = join(getMissionDir(scope), "events.jsonl");
         try {
           await access(eventsPath);
           const raw = await readFile(eventsPath, "utf-8");

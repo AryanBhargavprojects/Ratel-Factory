@@ -1,5 +1,6 @@
 import type { Feature } from "../types.js";
 import { readFeatureFile } from "../artifacts.js";
+import type { MissionScope } from "../mission/scope.js";
 
 export interface FeatureAssertionSelection {
   kind: "full-file" | "scenario";
@@ -93,7 +94,7 @@ function extractScenario(featureText: string, selector: string): string | undefi
   ].filter(Boolean).join("\n\n");
 }
 
-export async function resolveFeatureAssertions(cwd: string, feature: Feature): Promise<ResolvedFeatureAssertions> {
+export async function resolveFeatureAssertions(scope: MissionScope, feature: Feature): Promise<ResolvedFeatureAssertions> {
   const documents: FeatureAssertionDocument[] = [];
   const missing: string[] = [];
 
@@ -104,7 +105,7 @@ export async function resolveFeatureAssertions(cwd: string, feature: Feature): P
       continue;
     }
 
-    const fileText = await readFeatureFile(cwd, parsed.filename);
+    const fileText = await readFeatureFile(scope, parsed.filename);
     if (!fileText) {
       missing.push(reference);
       continue;
@@ -145,10 +146,10 @@ export interface FeatureComplexity {
 }
 
 export async function computeFeatureComplexity(
-  cwd: string,
+  scope: MissionScope,
   feature: Feature,
 ): Promise<FeatureComplexity> {
-  const resolved = await resolveFeatureAssertions(cwd, feature);
+  const resolved = await resolveFeatureAssertions(scope, feature);
 
   const distinctFilenames = new Set<string>();
   let scenarioCount = 0;

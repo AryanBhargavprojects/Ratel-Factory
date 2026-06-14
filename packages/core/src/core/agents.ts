@@ -23,9 +23,10 @@ import {
   loadSkillsFromDir,
 } from "./utils/skills.js";
 import { resolveModel } from "./config.js";
-import { getGlobalLogger } from "./observability/event-logger.js";
+import type { EventLogger } from "./observability/event-logger.js";
 import { observeAgentSession } from "./observability/session-events.js";
 import { writeFeatureFile } from "./artifacts.js";
+import type { MissionScope } from "./mission/scope.js";
 
 /** Common skill filter: replace auto-discovered skills with only the role-specific set. */
 function isolateSkills(
@@ -42,13 +43,13 @@ function isolateSkills(
  * Both tools wrap the underlying writeArtifact / writeFeatureFile functions and
  * give the contract agent a way to persist its output.
  */
-function buildContractAgentCustomTools(cwd: string) {
+function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger | undefined) {
   return [
     {
       name: "write_mission_artifact",
       label: "Write Mission Artifact",
       description:
-        "Write or append a canonical mission artifact under .missions/current/. " +
+        "Write or append a canonical mission artifact under .ratel/missions/<missionId>/. " +
         "Use this to write 'validation-contract.md' as the contract summary. " +
         "Mode is 'overwrite' (default) or 'append'.",
       parameters: {
@@ -63,8 +64,8 @@ function buildContractAgentCustomTools(cwd: string) {
       execute: async (_id: string, params: { artifact: string; content: string; mode?: string }) => {
         const { writeArtifact } = await import("./artifacts.js");
         const mode = params.mode === "append" ? "append" : "overwrite";
-        await writeArtifact(cwd, params.artifact as any, params.content, mode);
-        getGlobalLogger()?.artifactWrite(params.artifact, mode, Buffer.byteLength(params.content, "utf-8"));
+        await writeArtifact(scope, params.artifact as any, params.content, mode, logger);
+        logger?.artifactWrite(params.artifact, mode, Buffer.byteLength(params.content, "utf-8"));
         return { content: [{ type: "text" as const, text: `Wrote ${params.artifact} (${mode}).` }], details: {} };
       },
     },
@@ -72,8 +73,8 @@ function buildContractAgentCustomTools(cwd: string) {
       name: "write_feature_file",
       label: "Write Feature File",
       description:
-        "Write a Gherkin .feature file under .missions/current/features/. " +
-        "Use this to write each feature file in the validation contract. " +
+        "Write a Gherkin .feature file under .ratel/missions/<missionId>/features/. " +
+        "Used by the Contract Agent to write validation contract scenarios. " +
         "The filename MUST end with .feature.",
       parameters: {
         type: "object" as const,
@@ -90,9 +91,9 @@ function buildContractAgentCustomTools(cwd: string) {
         if (!params.content || params.content.trim().length === 0) {
           return { content: [{ type: "text" as const, text: `ERROR: content is empty` }], details: { error: "empty_content" as string | undefined } };
         }
-        await writeFeatureFile(cwd, params.filename, params.content);
-        getGlobalLogger()?.artifactWrite(`features/${params.filename}`, "overwrite", Buffer.byteLength(params.content, "utf-8"));
-        return { content: [{ type: "text" as const, text: `Wrote .missions/current/features/${params.filename} (${Buffer.byteLength(params.content, "utf-8")} bytes).` }], details: {} };
+        await writeFeatureFile(scope, params.filename, params.content);
+        logger?.artifactWrite(`features/${params.filename}`, "overwrite", Buffer.byteLength(params.content, "utf-8"));
+        return { content: [{ type: "text" as const, text: `Wrote .ratel/missions/${scope.missionId}/features/${params.filename} (${Buffer.byteLength(params.content, "utf-8")} bytes).` }], details: {} };
       },
     },
   ];
@@ -158,8 +159,9 @@ async function collectResponse(session: AgentSession, prompt: string): Promise<s
  */
 export async function spawnResearchAgent(
   query: string,
-  scope: string,
-  cwd: string = process.cwd(),
+  searchScope: string,
+  projectRoot: string,
+  logger: EventLogger | undefined,
   model?: string,
 ): Promise<string> {
   const authStorage = AuthStorage.create();
@@ -170,7 +172,7 @@ export async function spawnResearchAgent(
     retry: { enabled: true, maxRetries: 1 },
   });
 
-  const allSkills = await loadSkillsFromDir(cwd, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
+  const allSkills = await loadSkillsFromDir(projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const researchSkillNames = new Set([
     "parallel-web-search",
     "parallel-deep-research",
@@ -181,7 +183,6 @@ export async function spawnResearchAgent(
   // Observability: research span
   const startTime = Date.now();
   const resolvedModel = resolveModel(model);
-  const logger = getGlobalLogger();
   const agentSpanId = logger?.agentSpanStart("research", {
     agentType: "research",
     model: model ?? "sdk-default",
@@ -190,7 +191,7 @@ export async function spawnResearchAgent(
   });
 
   const resourceLoader = new DefaultResourceLoader({
-    cwd,
+    cwd: projectRoot,
     agentDir: getAgentDir(),
     settingsManager,
     systemPromptOverride: () => RESEARCH_AGENT_PROMPT,
@@ -199,17 +200,17 @@ export async function spawnResearchAgent(
   await resourceLoader.reload();
 
   const { session } = await createAgentSession({
-    cwd,
+    cwd: projectRoot,
     authStorage,
     modelRegistry,
     settingsManager,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: SessionManager.inMemory(projectRoot),
     tools: ["read", "grep", "find", "ls", "bash"], // bash for parallel-cli web search
     model: resolvedModel,
   });
 
-  const prompt = `Research query: ${query}\nScope: ${scope}\nWorking directory: ${cwd}\n\nReturn structured findings in the exact format specified in your system prompt. Use /skill:parallel-web-search for web research when relevant.`;
+  const prompt = `Research query: ${query}\nScope: ${searchScope}\nWorking directory: ${projectRoot}\n\nReturn structured findings in the exact format specified in your system prompt. Use /skill:parallel-web-search for web research when relevant.`;
 
   const unobserve = observeAgentSession(session, {
     logger,
@@ -239,7 +240,8 @@ export async function spawnResearchAgent(
 export async function spawnSmartFriendAgent(
   missionStateSummary: string,
   question: string,
-  cwd: string = process.cwd(),
+  projectRoot: string,
+  logger: EventLogger | undefined,
   model?: string,
 ): Promise<string> {
   const authStorage = AuthStorage.create();
@@ -253,7 +255,7 @@ export async function spawnSmartFriendAgent(
   // Skills are auto-discovered from .pi/skills/ (project-local) and ~/.pi/agent/skills/ (global)
   // The Smart Friend has access to: software-design-philosophy, grill-with-docs, parallel-web-search,
   // find-docs, architecture-blueprint-generator, web-design-guidelines, deep-research, ui-ux-pro-max
-  const allSkills = await loadSkillsFromDir(cwd, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
+  const allSkills = await loadSkillsFromDir(projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const smartFriendSkillNames = new Set([
     "software-design-philosophy",
     "architecture-blueprint-generator",
@@ -269,7 +271,6 @@ export async function spawnSmartFriendAgent(
   // Observability: smart friend span
   const startTime = Date.now();
   const resolvedModel = resolveModel(model);
-  const logger = getGlobalLogger();
   const agentSpanId = logger?.agentSpanStart("smart_friend", {
     agentType: "smart_friend",
     model: model ?? "sdk-default",
@@ -278,7 +279,7 @@ export async function spawnSmartFriendAgent(
   });
 
   const resourceLoader = new DefaultResourceLoader({
-    cwd,
+    cwd: projectRoot,
     agentDir: getAgentDir(),
     settingsManager,
     systemPromptOverride: () => SMART_FRIEND_PROMPT,
@@ -287,17 +288,17 @@ export async function spawnSmartFriendAgent(
   await resourceLoader.reload();
 
   const { session } = await createAgentSession({
-    cwd,
+    cwd: projectRoot,
     authStorage,
     modelRegistry,
     settingsManager,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: SessionManager.inMemory(projectRoot),
     tools: ["read", "grep", "find", "ls"], // can explore codebase independently
     model: resolvedModel,
   });
 
-  const prompt = `## Full Mission State\n${missionStateSummary}\n\n---\n\n## Specific Question from Orchestrator\n${question}\n\n---\n\n## Working Directory\nYou are operating in: ${cwd}\n\nRemember: you are an OVER-SCOPED reviewer. Look at the ENTIRE trajectory and mission state above. Do not just answer the question — critique what the orchestrator may have missed, overlooked, or failed to investigate. If you need to explore the codebase to verify an assumption, use read, grep, find, or ls.\n\nReturn structured critique in the exact format specified in your system prompt.`;
+  const prompt = `## Full Mission State\n${missionStateSummary}\n\n---\n\n## Specific Question from Orchestrator\n${question}\n\n---\n\n## Working Directory\nYou are operating in: ${projectRoot}\n\nRemember: you are an OVER-SCOPED reviewer. Look at the ENTIRE trajectory and mission state above. Do not just answer the question — critique what the orchestrator may have missed, overlooked, or failed to investigate. If you need to explore the codebase to verify an assumption, use read, grep, find, or ls.\n\nReturn structured critique in the exact format specified in your system prompt.`;
 
   const unobserve = observeAgentSession(session, {
     logger,
@@ -330,7 +331,8 @@ export async function spawnContractAgent(
   constraints: string,
   researchNotes: string,
   decisionLog: string,
-  cwd: string = process.cwd(),
+  scope: MissionScope,
+  logger: EventLogger | undefined,
   model?: string,
 ): Promise<string> {
   const authStorage = AuthStorage.create();
@@ -341,7 +343,7 @@ export async function spawnContractAgent(
     retry: { enabled: true, maxRetries: 1 },
   });
 
-  const allSkills = await loadSkillsFromDir(cwd, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
+  const allSkills = await loadSkillsFromDir(scope.projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
   const contractSkillNames = new Set([
     "parallel-web-search",
     "find-docs",
@@ -357,7 +359,6 @@ export async function spawnContractAgent(
   // Observability: contract writer span
   const startTime = Date.now();
   const resolvedModel = resolveModel(model);
-  const logger = getGlobalLogger();
   const agentSpanId = logger?.agentSpanStart("contract_writer", {
     agentType: "contract_writer",
     model: model ?? "sdk-default",
@@ -366,7 +367,7 @@ export async function spawnContractAgent(
   });
 
   const resourceLoader = new DefaultResourceLoader({
-    cwd,
+    cwd: scope.projectRoot,
     agentDir: getAgentDir(),
     settingsManager,
     systemPromptOverride: () => CONTRACT_AGENT_PROMPT,
@@ -375,18 +376,18 @@ export async function spawnContractAgent(
   await resourceLoader.reload();
 
   const { session } = await createAgentSession({
-    cwd,
+    cwd: scope.projectRoot,
     authStorage,
     modelRegistry,
     settingsManager,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: SessionManager.inMemory(scope.projectRoot),
     tools: ["read", "grep", "find", "ls", "bash"], // explore codebase + web research
-    customTools: buildContractAgentCustomTools(cwd), // write contract artifacts
+    customTools: buildContractAgentCustomTools(scope, logger), // write contract artifacts
     model: resolvedModel,
   });
 
-  const prompt = `## Requirements\n${requirements}\n\n---\n\n## Constraints\n${constraints}\n\n---\n\n## Research Notes\n${researchNotes}\n\n---\n\n## Decision Log\n${decisionLog || "(No decisions recorded yet.)"}\n\n---\n\n## Working Directory\nYou are operating in: ${cwd}\n\nWrite a validation contract in the exact format specified in your system prompt.\n\nBEFORE writing:\n1. Explore the codebase (read, grep, find, ls) to understand existing test patterns and conventions.\n2. Use /skill:parallel-web-search to research domain-specific validation patterns if needed.\n3. Ensure every requirement has at least one assertion. Flag any gaps explicitly.\n\nWHEN writing the contract artifacts, use these tools:\n- Use \x60write_feature_file\x60 for each .feature file (e.g., write_feature_file({filename: 'auth.feature', content: '...'})). The filename MUST end with .feature.\n- Use \x60write_mission_artifact\x60 for the validation-contract.md summary (artifact: 'validation-contract.md').\n\nWrite ALL feature files and the validation-contract.md summary before finishing. The verification tool checks for their existence, so partial output will be rejected.\n\nRemember: you do NOT know the feature plan. Write assertions based purely on requirements, constraints, research, and decisions.`;
+  const prompt = `## Requirements\n${requirements}\n\n---\n\n## Constraints\n${constraints}\n\n---\n\n## Research Notes\n${researchNotes}\n\n---\n\n## Decision Log\n${decisionLog || "(No decisions recorded yet.)"}\n\n---\n\n## Working Directory\nYou are operating in: ${scope.projectRoot}\n\nWrite a validation contract in the exact format specified in your system prompt.\n\nBEFORE writing:\n1. Explore the codebase (read, grep, find, ls) to understand existing test patterns and conventions.\n2. Use /skill:parallel-web-search to research domain-specific validation patterns if needed.\n3. Ensure every requirement has at least one assertion. Flag any gaps explicitly.\n\nWHEN writing the contract artifacts, use these tools:\n- Use \x60write_feature_file\x60 for each .feature file (e.g., write_feature_file({filename: 'auth.feature', content: '...'})). The filename MUST end with .feature.\n- Use \x60write_mission_artifact\x60 for the validation-contract.md summary (artifact: 'validation-contract.md').\n\nWrite ALL feature files and the validation-contract.md summary before finishing. The verification tool checks for their existence, so partial output will be rejected.\n\nRemember: you do NOT know the feature plan. Write assertions based purely on requirements, constraints, research, and decisions.`;
 
   const unobserve = observeAgentSession(session, {
     logger,

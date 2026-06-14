@@ -14,6 +14,7 @@ import { join, isAbsolute } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { readRequirements } from "../artifacts.js";
+import type { MissionScope } from "../mission/scope.js";
 
 const execFile = promisify(execFileCb);
 
@@ -33,14 +34,14 @@ async function gitOk(cwd: string, args: string[]): Promise<boolean> {
 
 /**
  * Read requirements.json and return the explicit workspace directory.
- * The path is resolved relative to `cwd` unless it is already absolute.
+ * The path is resolved relative to `projectRoot` unless it is already absolute.
  */
-export async function getExplicitWorkspaceDirectory(cwd: string): Promise<string | undefined> {
-  const requirements = await readRequirements(cwd);
+export async function getExplicitWorkspaceDirectory(scope: MissionScope): Promise<string | undefined> {
+  const requirements = await readRequirements(scope);
   if (!requirements?.directory) return undefined;
   const dir = requirements.directory.trim();
   if (dir.length === 0) return undefined;
-  return isAbsolute(dir) ? dir : join(cwd, dir);
+  return isAbsolute(dir) ? dir : join(scope.projectRoot, dir);
 }
 
 /**
@@ -80,24 +81,24 @@ export async function ensureGitRepo(dir: string, branch = "integration"): Promis
 }
 
 /** Internal auto-discovery: scan sibling directories for a git repo on the expected branch. */
-async function findRepoOnBranchViaDiscovery(cwd: string, branch: string): Promise<string | undefined> {
-  // Check cwd itself
-  if (await isGitRepoOnBranch(cwd, branch)) return cwd;
+async function findRepoOnBranchViaDiscovery(projectRoot: string, branch: string): Promise<string | undefined> {
+  // Check projectRoot itself
+  if (await isGitRepoOnBranch(projectRoot, branch)) return projectRoot;
 
   // Scan immediate children
   const { readdir } = await import("node:fs/promises");
   const { Dirent } = await import("node:fs");
   let entries: import("node:fs").Dirent[];
   try {
-    entries = await readdir(cwd, { withFileTypes: true });
+    entries = await readdir(projectRoot, { withFileTypes: true });
   } catch {
     return undefined;
   }
 
-  const ignored = new Set(["node_modules", "dist", ".missions", ".pi", ".agents", ".claude"]);
+  const ignored = new Set(["node_modules", "dist", ".missions", ".pi", ".agents", ".claude", ".ratel"]);
   for (const entry of entries) {
     if (!entry.isDirectory() || ignored.has(entry.name)) continue;
-    const candidate = join(cwd, entry.name);
+    const candidate = join(projectRoot, entry.name);
     if (await isGitRepoOnBranch(candidate, branch)) return candidate;
   }
   return undefined;
@@ -117,17 +118,17 @@ async function isGitRepoOnBranch(dir: string, branch: string): Promise<boolean> 
  *
  * 1. If requirements.json has an explicit `directory`, use that directory.
  *    Initialize git there if needed. Do NOT scan sibling directories.
- * 2. Otherwise, fall back to auto-discovering a git repo on `branch` under `cwd`.
+ * 2. Otherwise, fall back to auto-discovering a git repo on `branch` under `projectRoot`.
  */
 export async function resolveCanonicalWorkspace(
-  cwd: string,
+  scope: MissionScope,
   branch = "integration",
 ): Promise<string | undefined> {
-  const explicitDir = await getExplicitWorkspaceDirectory(cwd);
+  const explicitDir = await getExplicitWorkspaceDirectory(scope);
   if (explicitDir) {
     await ensureGitRepo(explicitDir, branch);
     return explicitDir;
   }
 
-  return findRepoOnBranchViaDiscovery(cwd, branch);
+  return findRepoOnBranchViaDiscovery(scope.projectRoot, branch);
 }
