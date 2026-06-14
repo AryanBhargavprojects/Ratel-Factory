@@ -304,3 +304,18 @@ export class EventLogger {
     await this.flush();
   }
 }
+
+/** Global logger instance — set once per mission. */
+let _globalLogger: EventLogger | undefined;
+
+export function setGlobalLogger(logger: EventLogger): void {
+  _globalLogger = logger;
+}
+
+export function getGlobalLogger(): EventLogger | undefined {
+  return _globalLogger;
+}
+
+export function clearGlobalLogger(): void {
+  _globalLogger = undefined;
+}

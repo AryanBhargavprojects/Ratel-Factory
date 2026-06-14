@@ -42,6 +42,7 @@ import {
   EventLogger,
   setGlobalLogger,
   clearGlobalLogger,
+  createMissionScope,
 } from "@ratel/core";
 
 /**
@@ -108,7 +109,9 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   sessionStartEvent,
 }) => {
   // 1. Initialize mission state under .missions/current/ before anything else
-  await ensureMissionInitialized(cwd);
+  const scope = createMissionScope(cwd, "mis_00000001");
+  const logger = await EventLogger.forMission(scope);
+  await ensureMissionInitialized(scope, logger);
 
   // 2. Make cwd available to custom tools (run_worker, run_research, etc.)
   setToolCwd(cwd);
@@ -176,13 +179,15 @@ async function main(): Promise<void> {
 
   // Initialize mission artifacts first so the logger can attach a traceId
   // without creating a partial state.json.
-  await ensureMissionInitialized(cwd);
+  const mainScope = createMissionScope(cwd, "mis_00000001");
+  const logger = await EventLogger.forMission(mainScope);
+  await ensureMissionInitialized(mainScope, logger);
 
   // Initialize the global event logger before any agent work happens.
   // The logger reads/writes traceId to state.json so events across runs
   // of the same mission are stitched together.
-  const logger = await EventLogger.forMission(cwd);
-  setGlobalLogger(logger);
+  const mainLogger = await EventLogger.forMission(mainScope);
+  setGlobalLogger(mainLogger);
 
   // Start Observatory deterministically before InteractiveMode accepts the
   // first prompt. Startup is fail-soft: the factory continues if the dashboard
@@ -206,7 +211,7 @@ async function main(): Promise<void> {
     }
 
     try {
-      await logger.shutdown();
+      await mainLogger.shutdown();
     } catch (err) {
       console.error("Error flushing event log:", err);
     } finally {

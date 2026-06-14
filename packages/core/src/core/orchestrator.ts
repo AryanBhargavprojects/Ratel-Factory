@@ -44,6 +44,8 @@ export interface OrchestratorOptions {
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   /** Model pattern (e.g. "claude-sonnet-4", "openai/gpt-4o") — uses first available if omitted */
   model?: string;
+  /** Job control for durable approval flow */
+  jobControl?: MissionExecutionContext["jobControl"];
 }
 
 export class OrchestratorAgent {
@@ -66,7 +68,7 @@ export class OrchestratorAgent {
     const logger = await EventLogger.forMission(scope);
     await ensureMissionInitialized(scope, logger);
 
-    this.context = { scope, logger };
+    this.context = { scope, logger, jobControl: options.jobControl };
 
     const inMemory = options.inMemory ?? true;
 

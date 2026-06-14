@@ -223,10 +223,30 @@ export class JobStore {
   }
 
   async markSucceeded(missionId: string, jobId: string): Promise<MissionJob> {
-    return this.transition(missionId, jobId, "running", "succeeded", (job) => ({
-      ...job,
-      finishedAt: nowIso(),
-    }));
+    const path = this.getJobPath(missionId, jobId);
+    return withFileLock(path, async () => {
+      const current = await readJsonFile<MissionJob>(path);
+      if (!current) {
+        throw new Error(`Job ${jobId} not found`);
+      }
+      const allowedFrom: MissionJobStatus[] = ["running", "waiting_for_approval"];
+      if (!allowedFrom.includes(current.status)) {
+        throw new JobTransitionError(
+          jobId,
+          current.status,
+          "succeeded",
+          `Expected status ${allowedFrom.join(" or ")}`
+        );
+      }
+      const updated: MissionJob = {
+        ...current,
+        status: "succeeded",
+        finishedAt: nowIso(),
+        updatedAt: nowIso(),
+      };
+      await atomicWriteJson(path, updated);
+      return updated;
+    });
   }
 
   async markFailed(

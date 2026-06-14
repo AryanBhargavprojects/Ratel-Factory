@@ -66,7 +66,7 @@ import {
 } from "./mission/feature-completion.js";
 import { createReportReceiver, persistSubmittedReport, persistWorkerReceipt } from "./report-submission.js";
 import { runUserTestingCoordinator } from "./mission/user-testing-coordinator.js";
-import { registerApprovalResolver, getCurrentDashboardUrl } from "../observatory/server.js";
+import { getCurrentDashboardUrl } from "../observatory/server.js";
 import type { MissionExecutionContext } from "./mission/execution-context.js";
 
 /**
@@ -1788,20 +1788,24 @@ export function getFeatureComplexityTool(context: MissionExecutionContext) {
 }
 
 /**
- * Blocks orchestrator execution and waits for the user to approve the plan or submit feedback/edits via the Observatory dashboard.
- * Prints the dashboard link for the user.
+ * Durable wait for user approval.
+ * Writes approval.json, marks the current job waiting_for_approval, and
+ * instructs the orchestrator to end the current turn. After restart, the
+ * approval submission will enqueue a continue_orchestrator job.
  */
 export function waitForUserApprovalTool(context: MissionExecutionContext) {
   return defineTool({
     name: "wait_for_user_approval",
     label: "Wait for User Approval",
     description:
-      "Blocks orchestrator execution and waits for the user to approve the plan or submit feedback/edits via the Observatory dashboard. " +
-      "Prints the dashboard link for the user.",
+      "Pauses the current orchestrator turn and waits for the user to approve or reject the plan via the Observatory dashboard or API. " +
+      "Writes approval.json and transitions the current job to waiting_for_approval. " +
+      "The orchestrator MUST end its turn after calling this tool. " +
+      "After the user submits approval, a continue_orchestrator job will be queued automatically.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _params): Promise<{
       content: { type: "text"; text: string }[];
-      details: { approved: boolean; feedback?: string };
+      details: { waiting: true; status: string };
     }> => {
       const port = 8765;
       const url = getCurrentDashboardUrl(context.scope.projectRoot) || `http://localhost:${port}`;
@@ -1809,25 +1813,43 @@ export function waitForUserApprovalTool(context: MissionExecutionContext) {
       console.log(`\n🛰️  Waiting for user plan approval on the dashboard...`);
       console.log(`   Please open: ${url}\n`);
 
-      return new Promise((resolve) => {
-        registerApprovalResolver((decision) => {
-          resolve({
-            content: [
-              {
-                type: "text",
-                text: decision.approved
-                  ? "Plan approved by user via the Observatory dashboard."
-                  : `Plan rejected by user via the Observatory dashboard. Feedback/Edits: ${decision.feedback || "None"}`
-              }
-            ],
-            details: {
-              approved: decision.approved,
-              feedback: decision.feedback
-            }
-          });
-        });
-      });
-    }
+      // 1. Write approval.json
+      const missionDir = getMissionDir(context.scope);
+      await mkdir(missionDir, { recursive: true });
+      await writeFile(
+        join(missionDir, "approval.json"),
+        JSON.stringify(
+          {
+            status: "pending",
+            missionId: context.scope.missionId,
+            jobId: context.jobId,
+            createdAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+
+      // 2. Mark job waiting for approval via jobControl
+      if (context.jobControl) {
+        await context.jobControl.markWaitingForApproval();
+      }
+
+      // 3. Return instruction to end turn
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Waiting for user approval. The orchestrator MUST end this turn now. After the user approves or rejects via the dashboard, a continue_orchestrator job will be queued automatically.",
+          },
+        ],
+        details: {
+          waiting: true,
+          status: "waiting_for_approval",
+        },
+      };
+    },
   });
 }
 
@@ -1852,4 +1874,10 @@ export function createOrchestratorTools(context: MissionExecutionContext) {
     getFeatureComplexityTool(context),
     waitForUserApprovalTool(context),
   ];
+}
+
+/** Deprecated backward-compatibility exports for pi-sdk. */
+export const ORCHESTRATOR_TOOLS: any[] = [];
+export function setToolCwd(_cwd: string): void {
+  // No-op: tools now receive cwd via MissionExecutionContext
 }

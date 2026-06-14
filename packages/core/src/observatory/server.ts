@@ -11,7 +11,6 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile, access, writeFile, mkdir } from "node:fs/promises";
-import { ARTIFACT_NAMES } from "../core/types.js";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +20,9 @@ import { promisify } from "node:util";
 import { resolveCanonicalWorkspace } from "../core/mission/workspace-resolution.js";
 import { createMissionScope } from "../core/mission/scope.js";
 import { getMissionDir } from "../core/mission/scope.js";
+import { readJsonFile } from "../core/mission/atomic-file.js";
+import { getRatelDir } from "../core/mission/scope.js";
+import { ARTIFACT_NAMES } from "../core/types.js";
 
 const execFile = promisify(execFileCb);
 
@@ -32,26 +34,6 @@ const DASHBOARD_HTML_PATH = join(__dirname, "dashboard.html");
 // Shared mutable state so the TUI footer and Pi commands can discover the
 // actual URL even when the port falls back dynamically.
 let currentDashboardUrl: string | undefined;
-
-export interface ApprovalDecision {
-  approved: boolean;
-  feedback?: string;
-}
-
-let pendingApprovalResolver: ((decision: ApprovalDecision) => void) | undefined;
-
-export function registerApprovalResolver(resolve: (decision: ApprovalDecision) => void): void {
-  pendingApprovalResolver = resolve;
-}
-
-export function resolvePendingApproval(decision: ApprovalDecision): boolean {
-  if (pendingApprovalResolver) {
-    pendingApprovalResolver(decision);
-    pendingApprovalResolver = undefined;
-    return true;
-  }
-  return false;
-}
 
 function getDashboardUrlFilePath(cwd: string): string {
   return join(cwd, ".ratel", "observatory-url.txt");
@@ -115,12 +97,17 @@ function parseEventsJsonl(raw: string): unknown[] {
   return events;
 }
 
-function createDashboardServer(cwd: string): Server {
-  const defaultScope = createMissionScope(cwd, "mis_00000001");
-  const eventsPath = join(getMissionDir(defaultScope), "events.jsonl");
+async function resolveMissionId(cwd: string, preferredMissionId?: string): Promise<string> {
+  if (preferredMissionId) return preferredMissionId;
+  const currentMissionPath = join(getRatelDir(cwd), "current-mission.json");
+  const record = await readJsonFile<{ missionId: string }>(currentMissionPath);
+  return record?.missionId ?? "mis_00000001";
+}
 
+function createDashboardServer(cwd: string): Server {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    const url = req.url ?? "/";
+    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    const pathname = url.pathname;
 
     // CORS headers — allow the dashboard to be opened from anywhere.
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -134,7 +121,11 @@ function createDashboardServer(cwd: string): Server {
     }
 
     // API: Return all parseable events as a JSON array.
-    if (url === "/api/events" || url === "/api/events/") {
+    const eventsMatch = pathname.match(/^\/api\/events(?:\/)?(?:\?.*)?$/);
+    if (eventsMatch && (pathname === "/api/events" || pathname.startsWith("/api/events"))) {
+      const missionId = await resolveMissionId(cwd, url.searchParams.get("missionId") ?? undefined);
+      const scope = createMissionScope(cwd, missionId);
+      const eventsPath = join(getMissionDir(scope), "events.jsonl");
       try {
         await access(eventsPath);
         const raw = await readFile(eventsPath, "utf-8");
@@ -142,8 +133,6 @@ function createDashboardServer(cwd: string): Server {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(events));
       } catch {
-        // File doesn't exist or cannot be read — return empty array.
-        // The dashboard will simply render an empty timeline.
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end("[]");
       }
@@ -151,9 +140,11 @@ function createDashboardServer(cwd: string): Server {
     }
 
     // API: Return git diff and status for the canonical workspace.
-    if (url === "/api/diff" || url.startsWith("/api/diff")) {
+    if (pathname === "/api/diff" || pathname.startsWith("/api/diff")) {
       try {
-        const workspace = await resolveCanonicalWorkspace(defaultScope);
+        const missionId = await resolveMissionId(cwd, url.searchParams.get("missionId") ?? undefined);
+        const scope = createMissionScope(cwd, missionId);
+        const workspace = await resolveCanonicalWorkspace(scope);
         if (!workspace) {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ diff: "", status: "Not a git repository" }));
@@ -187,12 +178,14 @@ function createDashboardServer(cwd: string): Server {
     }
 
     // API: Return mission state, requirements, and features.
-    if (url === "/api/mission" || url === "/api/mission/") {
+    if (pathname === "/api/mission" || pathname.startsWith("/api/mission")) {
       try {
-        const statePath = join(getMissionDir(defaultScope), "state.json");
-        const reqPath = join(getMissionDir(defaultScope), "requirements.json");
-        const featPath = join(getMissionDir(defaultScope), "features.json");
-        const contractPath = join(getMissionDir(defaultScope), "validation-contract.md");
+        const missionId = await resolveMissionId(cwd, url.searchParams.get("missionId") ?? undefined);
+        const scope = createMissionScope(cwd, missionId);
+        const statePath = join(getMissionDir(scope), "state.json");
+        const reqPath = join(getMissionDir(scope), "requirements.json");
+        const featPath = join(getMissionDir(scope), "features.json");
+        const contractPath = join(getMissionDir(scope), "validation-contract.md");
 
         let state = {};
         let requirements = {};
@@ -222,31 +215,50 @@ function createDashboardServer(cwd: string): Server {
     }
 
     // API: Approve plan
-    if (url === "/api/approve" && req.method === "POST") {
+    if (pathname === "/api/approve" && req.method === "POST") {
       try {
         let rawBody = "";
         for await (const chunk of req) {
           rawBody += chunk;
         }
         const body = rawBody ? JSON.parse(rawBody) : {};
+        const missionId = await resolveMissionId(cwd, body.missionId ?? undefined);
+        const scope = createMissionScope(cwd, missionId);
 
         if (body.files) {
           for (const [filename, content] of Object.entries(body.files)) {
-            const isValidArtifact = ARTIFACT_NAMES.includes(filename as any) ||
+            const isValidArtifact =
+              (ARTIFACT_NAMES as readonly string[]).includes(filename) ||
               (filename.startsWith("features/") && filename.endsWith(".feature") && !filename.includes(".."));
-            
+
             if (isValidArtifact) {
-              const filePath = join(getMissionDir(defaultScope), filename);
+              const filePath = join(getMissionDir(scope), filename);
               await mkdir(dirname(filePath), { recursive: true });
               await writeFile(filePath, content as string, "utf-8");
             }
           }
         }
 
-        resolvePendingApproval({ approved: true, feedback: body.feedback });
+        // Write approval decision to approval.json for durability
+        const approvalPath = join(getMissionDir(scope), "approval.json");
+        await writeFile(
+          approvalPath,
+          JSON.stringify(
+            {
+              status: "approved",
+              missionId,
+              feedback: body.feedback,
+              files: body.files ? Object.keys(body.files) : undefined,
+              decidedAt: new Date().toISOString(),
+            },
+            null,
+            2
+          ),
+          "utf-8"
+        );
 
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify({ ok: true, missionId }));
       } catch (err) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
@@ -255,31 +267,50 @@ function createDashboardServer(cwd: string): Server {
     }
 
     // API: Reject plan / Request changes
-    if (url === "/api/reject" && req.method === "POST") {
+    if (pathname === "/api/reject" && req.method === "POST") {
       try {
         let rawBody = "";
         for await (const chunk of req) {
           rawBody += chunk;
         }
         const body = rawBody ? JSON.parse(rawBody) : {};
+        const missionId = await resolveMissionId(cwd, body.missionId ?? undefined);
+        const scope = createMissionScope(cwd, missionId);
 
         if (body.files) {
           for (const [filename, content] of Object.entries(body.files)) {
-            const isValidArtifact = ARTIFACT_NAMES.includes(filename as any) ||
+            const isValidArtifact =
+              (ARTIFACT_NAMES as readonly string[]).includes(filename) ||
               (filename.startsWith("features/") && filename.endsWith(".feature") && !filename.includes(".."));
-            
+
             if (isValidArtifact) {
-              const filePath = join(getMissionDir(defaultScope), filename);
+              const filePath = join(getMissionDir(scope), filename);
               await mkdir(dirname(filePath), { recursive: true });
               await writeFile(filePath, content as string, "utf-8");
             }
           }
         }
 
-        resolvePendingApproval({ approved: false, feedback: body.feedback });
+        // Write approval decision to approval.json for durability
+        const approvalPath = join(getMissionDir(scope), "approval.json");
+        await writeFile(
+          approvalPath,
+          JSON.stringify(
+            {
+              status: "rejected",
+              missionId,
+              feedback: body.feedback,
+              files: body.files ? Object.keys(body.files) : undefined,
+              decidedAt: new Date().toISOString(),
+            },
+            null,
+            2
+          ),
+          "utf-8"
+        );
 
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify({ ok: true, missionId }));
       } catch (err) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));

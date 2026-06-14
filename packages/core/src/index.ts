@@ -12,6 +12,14 @@ import { startService, createApiServer, type ApiOptions } from "./api.js";
 export { startService, createApiServer };
 export type { ApiOptions, ApiServer } from "./api.js";
 
+// Re-export control plane modules
+export { MissionControlPlane } from "./control-plane/mission-control-plane.js";
+export { JobRunner } from "./control-plane/job-runner.js";
+export type { JobExecutor } from "./control-plane/job-runner.js";
+export { MissionStore } from "./control-plane/mission-store.js";
+export { JobStore } from "./control-plane/job-store.js";
+export type { MissionRecord, MissionJob, MissionJobType, MissionJobStatus } from "./control-plane/types.js";
+
 // Re-export core modules for programmatic use
 export { OrchestratorAgent } from "./core/orchestrator.js";
 export * from "./core/artifacts.js";
@@ -20,8 +28,9 @@ export * from "./core/types.js";
 export * from "./core/tools.js";
 export * from "./core/prompts.js";
 export { spawnResearchAgent, spawnSmartFriendAgent, spawnContractAgent } from "./core/agents.js";
-export { EventLogger } from "./core/observability/event-logger.js";
+export { EventLogger, setGlobalLogger, getGlobalLogger, clearGlobalLogger } from "./core/observability/event-logger.js";
 export { DEFAULT_ORCHESTRATOR_SKILLS_DIR, loadSkillsFromDir } from "./core/utils/skills.js";
+export { createMissionScope, getMissionDir, getRatelDir, type MissionScope } from "./core/mission/scope.js";
 export { startObservatory, type ObservatoryHandle } from "./observatory/service.js";
 export { startDashboardServer, startDashboardServerOnAvailablePort, getCurrentDashboardUrl } from "./observatory/server.js";
 export { default as registerObservatoryDashboard } from "./observatory/dashboard.js";

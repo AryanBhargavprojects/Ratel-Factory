@@ -9,4 +9,7 @@ export interface MissionExecutionContext {
   scope: MissionScope;
   logger: EventLogger;
   jobId?: string;
+  jobControl?: {
+    markWaitingForApproval(): Promise<void>;
+  };
 }
