@@ -27,6 +27,7 @@ MD_Files/
 # Session artifacts
 *.png
 !Ratel_logo.png
+!ratel-logo2.png
 fix_plan.md
 
 # Keep the old pattern as a safety net for future test directories

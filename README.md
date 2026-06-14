@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Ratel-logo.png" alt="Ratel Logo" width="160">
+  <img src="ratel-logo2.png" alt="Ratel Logo" width="160">
 </p>
 
 <h1 align="center">Ratel</h1>
