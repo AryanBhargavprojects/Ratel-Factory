@@ -165,6 +165,9 @@ export class OrchestratorAgent {
       "ask_smart_friend",
       "draft_validation_contract",
       "write_mission_artifact",
+      "mark_feature_integrated",
+      "mark_milestone_validated",
+      "mark_mission_completed",
       "load_mission_state",
       "halt_mission",
       "log_decision",
@@ -175,6 +178,7 @@ export class OrchestratorAgent {
       "list_models",
       "ping_agents",
       "ensure_skills_installed",
+      "get_feature_complexity",
       "wait_for_user_approval",
     ];
 

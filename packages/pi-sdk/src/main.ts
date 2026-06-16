@@ -78,6 +78,9 @@ const ORCHESTRATOR_TOOL_NAMES = [
   "ask_smart_friend",
   "draft_validation_contract",
   "write_mission_artifact",
+  "mark_feature_integrated",
+  "mark_milestone_validated",
+  "mark_mission_completed",
   "load_mission_state",
   "halt_mission",
   "log_decision",
@@ -88,6 +91,7 @@ const ORCHESTRATOR_TOOL_NAMES = [
   "list_models",
   "ping_agents",
   "ensure_skills_installed",
+  "get_feature_complexity",
   "wait_for_user_approval",
 ];
 
@@ -131,25 +135,36 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   await budget.initialize(budgetLimits);
 
   const fallbackConfig = await getFallbackModelConfig(cwd);
-  const models = new ModelRouter({
-    projectRoot: cwd,
+  const missionModelConfig = {
     orchestrator: {
-      model: fallbackConfig.orchestrator.model ?? "sdk-default",
+      model: fallbackConfig.orchestrator.model,
       fallbackModels: fallbackConfig.orchestrator.fallbackModels ?? [],
     },
     worker: {
-      model: fallbackConfig.worker.model ?? "sdk-default",
+      model: fallbackConfig.worker.model,
       fallbackModels: fallbackConfig.worker.fallbackModels ?? [],
     },
     validator: {
-      model: fallbackConfig.validator.model ?? "sdk-default",
+      model: fallbackConfig.validator.model,
       fallbackModels: fallbackConfig.validator.fallbackModels ?? [],
     },
+  };
+  const models = new ModelRouter({
+    projectRoot: cwd,
+    orchestrator: missionModelConfig.orchestrator,
+    worker: missionModelConfig.worker,
+    validator: missionModelConfig.validator,
     modelRouting: fallbackConfig.modelRouting,
   });
   await models.init();
 
-  const executionContext = { scope, logger, budget, models };
+  const executionContext = {
+    scope,
+    logger,
+    budget,
+    models,
+    modelConfig: missionModelConfig,
+  };
 
   // 3. Build the cwd-independent parts: auth, model registry, settings
   const authStorage = AuthStorage.create();

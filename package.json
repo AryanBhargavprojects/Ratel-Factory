@@ -10,8 +10,9 @@
     "build": "npm run build --workspace=packages/core && node -e \"require('fs').cpSync('packages/core/src/observatory/dashboard.html','dist/observatory/dashboard.html')\"",
     "build:all": "npm run build --workspace=packages/core && npm run build --workspace=packages/opencode-plugin && npm run build --workspace=packages/pi-extension && npm run build --workspace=packages/pi-sdk",
     "check:canonical-core": "node scripts/check-canonical-core.mjs",
-    "dev": "npm run dev --workspace=packages/pi-sdk",
-    "start": "npm run start --workspace=packages/pi-sdk",
+    "dev": "tsx packages/pi-sdk/src/main.ts",
+    "dev:core": "npm run dev --workspace=packages/core",
+    "start": "node packages/pi-sdk/dist/main.js",
     "test": "tsx --test test/**/*.test.ts",
     "test:all": "npm test && npm test --workspace=packages/core && npm test --workspace=packages/opencode-plugin && npm test --workspace=packages/pi-extension && npm test --workspace=packages/pi-sdk"
   },
