@@ -54,39 +54,42 @@ Ratel is an **AI Software Factory** — a framework designed for running autonom
 
 ## Installation & Setup
 
-Ratel supports multiple coding agent integrations. You can install it using the automated script installers or set it up manually from source.
+The primary supported end-user path is the **OpenCode adapter**. It installs the Ratel service, the OpenCode plugin, command stubs, and the bundled `ratel-factory` skill.
 
-### 1. Automated Installation
-
-Choose the installer matching your target coding agent ecosystem:
-
-#### OpenCode
+### 1. Automated Installation (OpenCode)
 
 ```bash
-# Download and execute the OpenCode adapter installer
-curl -fsSL https://ratel.dev/install-opencode.sh | bash
+curl -fsSL http://209.97.168.207/install-opencode.sh | bash
 ```
 
 This script will automatically:
-*   Download and install the core Ratel factory daemon.
-*   Add the `@ratel/opencode` plugin hook configuration inside your `opencode.json`.
-*   Configure command stubs (`/ratel`, `/ratel-mission`, `/ratel-observatory`) and launch the server in the background.
+*   Install the latest `@ratel-factory/core` and `@ratel-factory/opencode` packages from npm.
+*   Add the `@ratel-factory/opencode` plugin hook configuration inside your `opencode.json`.
+*   Install command stubs (`/ratel`, `/ratel-mission`, `/ratel-observatory`) and the `ratel-factory` OpenCode skill.
+*   Clean up stale legacy packages, stale `.ratel/service.json` metadata, and running Ratel service processes so an outdated service cannot be reused.
 
-#### Pi SDK
+After installing, open OpenCode in a project and run:
+
+```text
+/ratel
+```
+
+`/ratel` is a health command only: it pings all factory agents and does not start a mission or inspect the codebase.
+
+### 2. Pi SDK (development / direct mode)
 
 ```bash
-# Download and execute the Pi SDK adapter installer
-curl -fsSL https://ratel.dev/install-pi.sh | bash
+curl -fsSL http://209.97.168.207/install-pi.sh | bash
 ```
 
 Once completed, activate the extension inside your Pi session:
 ```bash
-pi install @ratel/pi-extension
+pi install @ratel-factory/pi-extension
 ```
 
-This will register lifecycle hooks, state restorations, and custom toolsets (such as `run_worker` and `run_validator`) inside the Pi runtime context.
+This registers lifecycle hooks, state restoration, and custom toolsets inside the Pi runtime context. Direct Pi mode is mainly for Ratel adapter/core development.
 
-### 2. Manual Source Setup (Development Mode)
+### 3. Manual Source Setup (Development Mode)
 
 If you are developing custom adapters, dashboard components, or core tools, build the codebase from source:
 
@@ -107,12 +110,11 @@ npm run dev
 
 **Installer flags:**
 - `--dev` — Install from local workspace instead of npm
-- `--port 9999` — Override the default service port (8765)
 - `--help` — Show usage
 
 **Example:**
 ```bash
-bash install/install-opencode.sh --dev --port 9999
+bash install/install-opencode.sh --dev
 ```
 
 ---
@@ -123,9 +125,9 @@ Ratel separates client-side platform hooks (Adapters) from factory scheduling an
 
 ### Canonical Core Package
 
-There is **one canonical core**: `@ratel/core`. All factory logic lives in `packages/core/src/`.
+There is **one canonical core**: `@ratel-factory/core`. All factory logic lives in `packages/core/src/`.
 
-- **Core Service** (`@ratel/core`) — runs as a standalone HTTP service. All state lives here.
+- **Core Service** (`@ratel-factory/core`) — runs as a standalone HTTP service. All state lives here.
 - **Adapters** are thin HTTP clients that register tools/commands with the agent's extension API.
 - **Direct mode** — `src/adapters/pi-sdk/main.ts` runs the core in-process without the HTTP layer (for development).
 - **Legacy source** (`src/core/`, `src/observatory/`) is a deprecated path that has been ported into `packages/core/src/`. The architecture guard (`npm run check:canonical-core`) blocks any resurrection.
@@ -177,7 +179,7 @@ Orchestrator (mission planning, user interaction, phase transitions)
 
 Ratel uses a **service-first** architecture:
 
-- **Core Service** (`@ratel/core`) — runs as a standalone HTTP service. All state lives here.
+- **Core Service** (`@ratel-factory/core`) — runs as a standalone HTTP service. All state lives here.
 - **Adapters** are thin HTTP clients that register tools/commands with the agent's extension API.
 - **Direct mode** — `src/adapters/pi-sdk/main.ts` runs the core in-process without the HTTP layer (for development).
 
@@ -323,7 +325,7 @@ npm run build:all    # Build all packages
 
 # Testing
 npm test             # Run all tests (root test/)
-npm test --workspace=@ratel/core   # Run core tests
+npm test --workspace=@ratel-factory/core   # Run core tests
 npm test:all         # Test all packages
 
 # Running
@@ -340,7 +342,7 @@ npm run build --workspace=packages/pi-extension
 ```
 ratel/
 ├── packages/
-│   ├── core/                     # @ratel/core — Factory service
+│   ├── core/                     # @ratel-factory/core — Factory service
 │   │   ├── src/
 │   │   │   ├── api.ts            # HTTP API server (v1 + deprecated)
 │   │   │   ├── index.ts          # Service entry point
@@ -356,16 +358,20 @@ ratel/
 │   │   │   └── observatory/      # Dashboard service
 │   │   └── test/                 # Core package tests (20+)
 │   │
-│   ├── opencode-plugin/          # @ratel/opencode — OpenCode plugin
+│   ├── opencode-plugin/          # @ratel-factory/opencode — OpenCode plugin
 │   │   ├── src/
 │   │   │   ├── plugin.ts         # Plugin entry
 │   │   │   ├── service.ts        # HTTP client
+│   │   │   ├── service-lifecycle.ts # Service discovery/auto-start
+│   │   │   ├── auth-bridge.ts    # OpenCode → Pi/Ratel auth bridge
+│   │   │   ├── resolve-project-root.ts # OpenCode cwd/worktree resolver
 │   │   │   ├── commands.ts       # Command handlers
 │   │   │   └── prompts.ts        # Prompts
 │   │   ├── commands/             # Slash command stubs
+│   │   ├── skills/               # Bundled OpenCode skill
 │   │   └── package.json
 │   │
-│   ├── pi-extension/             # @ratel/pi-extension — Pi extension
+│   ├── pi-extension/             # @ratel-factory/pi-extension — Pi extension
 │   │   ├── src/
 │   │   │   ├── extension.ts      # Extension entry
 │   │   │   ├── service.ts        # HTTP client
@@ -419,20 +425,40 @@ When the factory starts, it launches a read-only observatory dashboard:
 
 ## Adapters
 
-### OpenCode Plugin (`@ratel/opencode`)
+### OpenCode Plugin (`@ratel-factory/opencode`)
+
+Current prepared package version: `@ratel-factory/opencode@0.1.3` with `@ratel-factory/core@0.1.1`.
 
 **Commands:**
-- `/ratel` — Toggle factory mode
+- `/ratel` — Ping factory health and all six factory agents. This is health/status only: it does **not** start a mission, inspect the codebase, or modify project state.
 - `/ratel-mission` — Show current mission status
 - `/ratel-observatory` — Open Observatory dashboard
+
+**Factory agents pinged by `/ratel`:**
+- `research`
+- `smart_friend`
+- `contract_writer`
+- `worker`
+- `scrutiny_validator`
+- `user_testing_validator`
 
 **Tools:**
 - `ratel_start_mission` — Start a new mission with a goal
 - `ratel_get_status` — Get mission status
 - `ratel_run_worker` — Run a worker for a feature
 - `ratel_run_validation` — Run validation for a milestone
+- `ratel_ping_agents` — Ping all factory agents and report per-agent health
 
-### Pi Extension (`@ratel/pi-extension`)
+**Service lifecycle:**
+- The plugin auto-discovers a local Ratel service using `.ratel/service.json` in the project root.
+- If no healthy service exists, it starts `ratel --serve` for the project.
+- The plugin rejects filesystem-root worktrees such as `/` and falls back to the actual OpenCode directory so `ratel.json` is found correctly.
+
+**Auth bridge:**
+- The plugin reuses existing OpenCode API credentials, especially `opencode-go`, by bridging OpenCode auth into Pi/Ratel auth.
+- V1 defaults to using the same OpenCode model for all factory agents. Users can later change specific agent models in `ratel.json`.
+
+### Pi Extension (`@ratel-factory/pi-extension`)
 
 **Commands:**
 - `/ratel` — Toggle factory mode

@@ -48,6 +48,7 @@ import { spawnWorkerAgent } from "./workers/worker.js";
 import { spawnScrutinyValidator, spawnUserTestingValidator } from "./workers/validators.js";
 import type { MissionPhase, ArtifactName, Feature, ScrutinyReport, UserTestingReport } from "./types.js";
 import { getModelConfig, setModelConfig, listAvailableModels, resolveModel } from "./config.js";
+import { pingAllAgents } from "./ping-agents.js";
 import { extractLastJsonLine, writeRawOutput } from "./utils/jsonl.js";
 import { ensureSkillsInstalled } from "./utils/skill-installer.js";
 import {
@@ -1370,248 +1371,43 @@ export function pingAgentsTool(context: MissionExecutionContext) {
 
       const timeoutMs = params.timeoutMs ?? 20000;
 
-      type PingResult = {
-        status: "ok" | "failed" | "timeout";
-        durationMs: number;
-        response?: string;
-        error?: string;
-      };
-
-      type PingRole = {
-        name: string;
-        model: string | null;
-        skillNames: string[];
-        tools: string[];
-        expectedText: string;
-      };
-
-      const modelConfig = await getModelConfig(context.scope.projectRoot);
-      const allSkills = await loadSkillsFromDir(context.scope.projectRoot, DEFAULT_ORCHESTRATOR_SKILLS_DIR);
-
-      const roles: PingRole[] = [
-        {
-          name: "research",
-          model: modelConfig.orchestrator,
-          skillNames: ["parallel-web-search", "parallel-deep-research", "find-docs"],
-          tools: ["read", "grep", "find", "ls", "bash"],
-          expectedText: "research ok",
-        },
-        {
-          name: "smart_friend",
-          model: modelConfig.orchestrator,
-          skillNames: [
-            "software-design-philosophy",
-            "architecture-blueprint-generator",
-            "grill-with-docs",
-            "parallel-web-search",
-            "find-docs",
-            "deep-research",
-            "web-design-guidelines",
-            "ui-ux-pro-max",
-          ],
-          tools: ["read", "grep", "find", "ls"],
-          expectedText: "smart_friend ok",
-        },
-        {
-          name: "contract_writer",
-          model: modelConfig.orchestrator,
-          skillNames: [
-            "parallel-web-search",
-            "find-docs",
-            "software-design-philosophy",
-            "ui-ux-pro-max",
-            "slc-product-thinking",
-            "html-as-output",
-            "gherkin-contract",
-            "cucumber-gherkin",
-          ],
-          tools: ["read", "grep", "find", "ls", "bash"],
-          expectedText: "contract_writer ok",
-        },
-        {
-          name: "worker",
-          model: modelConfig.worker,
-          skillNames: [
-            "test-driven-development",
-            "systematic-debugging",
-            "using-git-worktrees",
-            "diagnose",
-            "software-design-philosophy",
-            "writing-plans",
-            "find-docs",
-            "executing-plans",
-            "verification-before-completion",
-          ],
-          tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
-          expectedText: "worker ok",
-        },
-        {
-          name: "scrutiny_validator",
-          model: modelConfig.validator,
-          skillNames: [
-            "test-driven-development",
-            "software-design-philosophy",
-            "diagnose",
-            "systematic-debugging",
-            "find-docs",
-            "dispatching-parallel-agents",
-            "requesting-code-review",
-          ],
-          tools: ["read", "grep", "find", "ls", "bash"],
-          expectedText: "scrutiny_validator ok",
-        },
-        {
-          name: "user_testing_validator",
-          model: modelConfig.validator,
-          skillNames: ["agent-browser", "find-docs"],
-          tools: ["read", "grep", "find", "ls", "bash"],
-          expectedText: "user_testing_validator ok",
-        },
-      ];
-
-      async function runLightweightPing(role: PingRole): Promise<PingResult> {
-        const pingStart = Date.now();
-        let timeout: NodeJS.Timeout | undefined;
-        try {
-          const result = await Promise.race([
-            (async () => {
-              const resolvedModel = resolveModel(role.model);
-              if (role.model && !resolvedModel) {
-                throw new Error(`Configured model could not be resolved: ${role.model}`);
-              }
-
-              const authStorage = AuthStorage.create();
-              const modelRegistry = ModelRegistry.create(authStorage);
-              const settingsManager = SettingsManager.inMemory({
-                compaction: { enabled: false },
-                retry: { enabled: true, maxRetries: 0 },
-              });
-              const skills = allSkills.filter((s) => role.skillNames.includes(s.name));
-              const resourceLoader = new DefaultResourceLoader({
-                cwd: context.scope.projectRoot,
-                agentDir: getAgentDir(),
-                settingsManager,
-                systemPromptOverride: () =>
-                  `You are the Ratel ${role.name} health-check target. ` +
-                  `This is a lightweight availability ping, not a mission. ` +
-                  `Do not inspect files. Do not call tools. Reply with ONLY: ${role.expectedText}`,
-                skillsOverride: () => ({ skills, diagnostics: [] }),
-              });
-              await resourceLoader.reload();
-
-              const { session } = await createAgentSession({
-                cwd: context.scope.projectRoot,
-                authStorage,
-                modelRegistry,
-                settingsManager,
-                resourceLoader,
-                sessionManager: SessionManager.inMemory(context.scope.projectRoot),
-                tools: role.tools,
-                model: resolvedModel,
-              });
-
-              let response = "";
-              const unsubscribe = session.subscribe((event) => {
-                if (
-                  event.type === "message_update" &&
-                  event.assistantMessageEvent.type === "text_delta"
-                ) {
-                  response += event.assistantMessageEvent.delta;
-                }
-              });
-
-              try {
-                await session.prompt(`Reply with ONLY: ${role.expectedText}`);
-              } finally {
-                unsubscribe();
-                session.dispose();
-              }
-              return response;
-            })(),
-            new Promise<string>((_, reject) => {
-              timeout = setTimeout(() => reject(new Error(`Ping timed out after ${timeoutMs}ms`)), timeoutMs);
-            }),
-          ]);
-          if (timeout) clearTimeout(timeout);
-
-          const responseText = result.trim();
-          return {
-            status: responseText.length > 0 ? "ok" : "failed",
-            durationMs: Date.now() - pingStart,
-            response: responseText.slice(0, 200),
-            error: responseText.length > 0 ? undefined : "Empty response from agent",
-          };
-        } catch (err) {
-          if (timeout) clearTimeout(timeout);
-          const isTimeout = err instanceof Error && err.message.includes("timed out");
-          return {
-            status: isTimeout ? "timeout" : "failed",
-            durationMs: Date.now() - pingStart,
-            error: err instanceof Error ? err.message : String(err),
-          };
-        }
-      }
-
-      // Launch all pings in parallel. These are safe lightweight pings, not the
-      // production spawners, so they must not write mission artifacts or start apps.
-      const results = await Promise.allSettled(roles.map((role) => runLightweightPing(role)));
-
-      // Map results to a structured object
-      const agentNames = ["research", "smart_friend", "contract_writer", "worker", "scrutiny_validator", "user_testing_validator"];
-      const pingResults: Record<string, { status: "ok" | "failed" | "timeout"; durationMs: number; response?: string; error?: string }> = {};
-      let okCount = 0;
-      let failedCount = 0;
-
-      for (let i = 0; i < agentNames.length; i++) {
-        const r = results[i];
-        if (r.status === "fulfilled") {
-          pingResults[agentNames[i]] = r.value;
-          if (r.value.status === "ok") okCount++;
-          else failedCount++;
-        } else {
-          pingResults[agentNames[i]] = {
-            status: "failed",
-            durationMs: 0,
-            error: r.reason instanceof Error ? r.reason.message : String(r.reason),
-          };
-          failedCount++;
-        }
-      }
+      const result = await pingAllAgents(context.scope.projectRoot, timeoutMs);
 
       const totalDurationMs = Date.now() - startTime;
-      const overallStatus = failedCount === 0 ? "ok" : "degraded";
+      const overallStatus = result.ok ? "ok" : "degraded";
 
       context.logger.toolResult("ping_agents", {
         durationMs: totalDurationMs,
-        totalAgents: agentNames.length,
-        okCount,
-        failedCount,
+        totalAgents: result.totalAgents,
+        okCount: result.okCount,
+        failedCount: result.failedCount,
         overallStatus,
       });
 
       // Log ping events for each agent
-      for (const name of agentNames) {
-        const r = pingResults[name];
-        context.logger.ping(name, r.status, r.durationMs, r.error);
+      for (const a of result.agents) {
+        context.logger.ping(a.role, a.status, a.timeMs, a.error);
       }
+
+      // Get model config for report
+      const modelConfig = await getModelConfig(context.scope.projectRoot);
 
       // Format user-facing summary
       const summaryLines: string[] = [
         `Factory health check: ${overallStatus.toUpperCase()}`,
-        `  Total agents: ${agentNames.length}`,
-        `  OK: ${okCount}`,
-        `  Failed: ${failedCount}`,
+        `  Total agents: ${result.totalAgents}`,
+        `  OK: ${result.okCount}`,
+        `  Failed: ${result.failedCount}`,
         `  Total time: ${totalDurationMs}ms`,
         ``,
         `Per-agent results:`,
       ];
-      for (const name of agentNames) {
-        const r = pingResults[name];
-        const icon = r.status === "ok" ? "✓" : "✗";
-        summaryLines.push(`  ${icon} ${name}: ${r.status} (${r.durationMs}ms)${r.error ? ` — ${r.error}` : ""}`);
+      for (const a of result.agents) {
+        const icon = a.status === "ok" ? "✓" : "✗";
+        summaryLines.push(`  ${icon} ${a.role}: ${a.status} (${a.timeMs}ms)${a.error ? ` — ${a.error}` : ""}`);
       }
 
-      if (failedCount > 0) {
+      if (result.failedCount > 0) {
         summaryLines.push(``);
         summaryLines.push(`RECOMMENDATION: At least one agent is degraded. Common causes:`);
         summaryLines.push(`  - Timeout too low for the role's model + prompt/skill bundle`);
@@ -1643,12 +1439,11 @@ export function pingAgentsTool(context: MissionExecutionContext) {
         ``,
         `## Results`,
         ``,
-        `| Agent | Status | Duration | Error | Response preview |`,
-        `|---|---:|---:|---|---|`,
-        ...agentNames.map((name) => {
-          const r = pingResults[name];
-          return `| ${name} | ${r.status} | ${r.durationMs}ms | ${r.error ?? ""} | ${(r.response ?? "").replace(/\|/g, "\\|")} |`;
-        }),
+        `| Agent | Status | Duration | Error |`,
+        `|---|---:|---|---|`,
+        ...result.agents.map((a) =>
+          `| ${a.role} | ${a.status} | ${a.timeMs}ms | ${a.error ?? ""} |`
+        ),
         ``,
         `## Notes`,
         ``,
@@ -1668,12 +1463,12 @@ export function pingAgentsTool(context: MissionExecutionContext) {
         content: [{ type: "text", text: summaryLines.join("\n") }],
         details: {
           overallStatus,
-          totalAgents: agentNames.length,
-          okCount,
-          failedCount,
+          totalAgents: result.totalAgents,
+          okCount: result.okCount,
+          failedCount: result.failedCount,
           totalDurationMs,
           reportPath,
-          results: pingResults,
+          results: Object.fromEntries(result.agents.map(a => [a.role, { status: a.status, durationMs: a.timeMs, error: a.error }])),
         },
       };
     },

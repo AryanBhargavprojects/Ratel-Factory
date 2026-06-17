@@ -9,8 +9,8 @@
     "sourceMap": true,
     "types": ["node"],
     "paths": {
-      "@ratel/core": ["../core/src/index.ts"],
-      "@ratel/core/*": ["../core/src/*"]
+      "@ratel-factory/core": ["../core/src/index.ts"],
+      "@ratel-factory/core/*": ["../core/src/*"]
     }
   },
   "include": ["src/**/*"],

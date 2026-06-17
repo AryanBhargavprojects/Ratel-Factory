@@ -5,6 +5,13 @@
  * All adapter packages use this to delegate to the service.
  */
 
+export class RatelServiceError extends Error {
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message);
+    this.name = "RatelServiceError";
+  }
+}
+
 export interface EnqueuedJobResponse {
   missionId: string;
   jobId: string;
@@ -28,6 +35,22 @@ export interface ObservatoryStatusResponse {
   url: string | null;
 }
 
+export interface AgentPingResult {
+  role: string;
+  status: "ok" | "failed" | "timeout";
+  timeMs: number;
+  error?: string;
+}
+
+export interface PingAgentsResponse {
+  ok: boolean;
+  totalAgents: number;
+  okCount: number;
+  failedCount: number;
+  totalTimeMs: number;
+  agents: AgentPingResult[];
+}
+
 export class RatelServiceClient {
   constructor(private baseUrl: string) {}
 
@@ -40,28 +63,46 @@ export class RatelServiceClient {
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(this.resolve(path), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "Unknown error");
-      throw new Error(`HTTP ${res.status}: ${text}`);
+    const url = this.resolve(path);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "Unknown error");
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+      return res.json() as Promise<T>;
+    } catch (err) {
+      if (err instanceof RatelServiceError) throw err;
+      throw new RatelServiceError(
+        `Unable to connect to Ratel service at ${this.baseUrl}. Is it running? (${err instanceof Error ? err.message : String(err)})`,
+        err,
+      );
     }
-    return res.json() as Promise<T>;
   }
 
   private async get<T>(path: string): Promise<T> {
-    const res = await fetch(this.resolve(path), {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "Unknown error");
-      throw new Error(`HTTP ${res.status}: ${text}`);
+    const url = this.resolve(path);
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "Unknown error");
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+      return res.json() as Promise<T>;
+    } catch (err) {
+      if (err instanceof RatelServiceError) throw err;
+      throw new RatelServiceError(
+        `Unable to connect to Ratel service at ${this.baseUrl}. Is it running? (${err instanceof Error ? err.message : String(err)})`,
+        err,
+      );
     }
-    return res.json() as Promise<T>;
   }
 
   async health(): Promise<{ status: string }> {
@@ -98,6 +139,10 @@ export class RatelServiceClient {
 
   async getObservatoryUrl(): Promise<ObservatoryStatusResponse> {
     return this.get("/observatory/status");
+  }
+
+  async pingAgents(): Promise<PingAgentsResponse> {
+    return this.post("/ping/agents", {});
   }
 
   getMissionEventsUrl(missionId: string): string {

@@ -5,6 +5,7 @@ declare module "@opencode-ai/plugin" {
   export interface PluginContext {
     client: any;
     directory: string;
+    worktree?: string;
   }
 
   export interface Plugin {

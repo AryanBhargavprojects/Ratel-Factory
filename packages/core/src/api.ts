@@ -9,6 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile, access, readdir, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { URL } from "node:url";
+import { pingAllAgents } from "./core/ping-agents.js";
 import { MissionControlPlane } from "./control-plane/mission-control-plane.js";
 import { JobRunner } from "./control-plane/job-runner.js";
 import { MissionStore } from "./control-plane/mission-store.js";
@@ -117,6 +118,27 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
       // GET /health
       if (url.pathname === "/health" && method === "GET") {
         sendJson(res, 200, { status: "ok" });
+        return;
+      }
+
+      // POST /api/v1/ping/agents
+      if (url.pathname === "/api/v1/ping/agents" && method === "POST") {
+        let body: { timeoutMs?: number };
+        try {
+          body = await parseBody(req) as { timeoutMs?: number };
+        } catch {
+          body = {};
+        }
+        const timeoutMs = typeof body.timeoutMs === "number" && body.timeoutMs > 0
+          ? body.timeoutMs
+          : 20000;
+        try {
+          const result = await pingAllAgents(cwd, timeoutMs);
+          sendJson(res, 200, result);
+        } catch (err) {
+          console.error("[API] ping/agents failed:", err);
+          sendError(res, 500, err instanceof Error ? err.message : "Internal ping error");
+        }
         return;
       }
 
