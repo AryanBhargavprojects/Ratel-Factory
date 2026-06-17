@@ -1,0 +1,166 @@
+---
+---
+<div id="terminal-container" class="terminal-window">
+  <div class="terminal-header">
+    <div class="terminal-buttons">
+      <span class="btn-dot close"></span>
+      <span class="btn-dot minimize"></span>
+      <span class="btn-dot expand"></span>
+    </div>
+    <div class="terminal-title">ratel-mission-runner</div>
+  </div>
+  <div class="terminal-body">
+    <div id="terminal-output" class="terminal-text"></div>
+  </div>
+</div>
+
+<style>
+  .terminal-window {
+    background: #1c1c1e;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height: 380px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  }
+
+  .terminal-header {
+    background: #2c2c2e;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #3a3a3c;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .terminal-buttons {
+    display: flex;
+    gap: 6px;
+  }
+
+  .btn-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .btn-dot.close { background: #ff453a; }
+  .btn-dot.minimize { background: #ffd60a; }
+  .btn-dot.expand { background: #30d158; }
+
+  .terminal-title {
+    font-size: 0.72rem;
+    color: #98989d;
+    font-family: var(--font-mono);
+    flex: 1;
+    text-align: center;
+    padding-right: 36px;
+  }
+
+  .terminal-body {
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .terminal-text {
+    color: #e5e5e7;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+</style>
+
+<script>
+  const lines = [
+    { type: "input", text: "ratel start \"A Svelte currency converter\"" },
+    { type: "info", text: "\n[INFO] Initializing Ratel Software Factory..." },
+    { type: "phase", text: "[PHASE 1] Intake: Registering goal... OK" },
+    { type: "phase", text: "[PHASE 2] Discovery: Scanning workspace files..." },
+    { type: "sub", text: "  -> Found src/components/, package.json" },
+    { type: "phase", text: "[PHASE 4] Constraint Analysis: Detecting dependencies..." },
+    { type: "sub", text: "  -> Framework: Svelte" },
+    { type: "sub", text: "  -> Target directory: ./currency-converter" },
+    { type: "phase", text: "[PHASE 5] Validation Contract: Writing Gherkin features..." },
+    { type: "sub", text: "  -> Created features/calculations.feature" },
+    { type: "sub", text: "  -> Created validation-contract.md" },
+    { type: "phase", text: "[PHASE 7] User Approval: Awaiting dashboard confirmation..." },
+    { type: "sub", text: "  -> Opening Observatory dashboard at http://localhost:8765" },
+    { type: "sub", text: "  -> Plan APPROVED by user." },
+    { type: "phase", text: "[PHASE 8] Execution: Spawning worker and validator agents..." },
+    { type: "sub", text: "  -> [feat/F1] Coding currency calculation logic... OK" },
+    { type: "sub", text: "  -> [Validator] Running Vitest checks... 12/12 PASSED" },
+    { type: "sub", text: "  -> [Validator] Executing Playwright E2E shard... PASSED" },
+    { type: "sub", text: "  -> [Gate] Verification contract satisfied." },
+    { type: "success", text: "[SUCCESS] Mission completed! Changes merged into integration branch.\n" }
+  ];
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const outputElement = document.getElementById("terminal-output");
+  
+  async function runTerminalSimulation() {
+    // Prevent execution if element is missing or has been removed from the DOM
+    if (!outputElement || !document.body.contains(outputElement)) return;
+    outputElement.innerHTML = "";
+
+    for (const line of lines) {
+      // Periodic check to stop simulation if element was detached during sleep
+      if (!document.body.contains(outputElement)) return;
+
+      if (line.type === "input") {
+        // Type command
+        const promptSpan = document.createElement("span");
+        promptSpan.style.color = "#32d74b";
+        promptSpan.textContent = "guest@ratel-factory:~$ ";
+        outputElement.appendChild(promptSpan);
+
+        const cmdSpan = document.createElement("span");
+        outputElement.appendChild(cmdSpan);
+
+        for (let i = 0; i < line.text.length; i++) {
+          if (!document.body.contains(outputElement)) return;
+          cmdSpan.textContent += line.text[i];
+          await sleep(50);
+        }
+        await sleep(500);
+      } else {
+        // Print logs
+        const logSpan = document.createElement("span");
+        if (line.type === "phase") {
+          logSpan.style.color = "#64d2ff";
+        } else if (line.type === "success") {
+          logSpan.style.color = "#32d74b";
+          logSpan.style.fontWeight = "bold";
+        } else if (line.type === "sub") {
+          logSpan.style.color = "#9ca3af";
+        }
+        logSpan.textContent = line.text + "\n";
+        outputElement.appendChild(logSpan);
+        
+        // Scroll container to bottom
+        const body = outputElement.parentElement;
+        if (body) {
+          body.scrollTop = body.scrollHeight;
+        }
+        
+        await sleep(400);
+      }
+    }
+
+    // Loop restart
+    await sleep(6000);
+    runTerminalSimulation();
+  }
+
+  // Launch simulation on load
+  runTerminalSimulation();
+</script>
