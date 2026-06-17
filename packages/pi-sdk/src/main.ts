@@ -39,7 +39,7 @@ import {
   createMissionScope,
   getRatelDir,
   readJsonFile,
-} from "@ratel/core";
+} from "@ratel-factory/core";
 
 /**
  * Names of the 14 orchestrator skills that get loaded into the main session.
@@ -125,10 +125,10 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   await ensureMissionInitialized(scope, logger);
 
   // Build context with budget and model router for failover support
-  const { BudgetManager } = await import("@ratel/core");
-  const { getBudgetConfig } = await import("@ratel/core");
-  const { ModelRouter } = await import("@ratel/core");
-  const { getFallbackModelConfig } = await import("@ratel/core");
+  const { BudgetManager } = await import("@ratel-factory/core");
+  const { getBudgetConfig } = await import("@ratel-factory/core");
+  const { ModelRouter } = await import("@ratel-factory/core");
+  const { getFallbackModelConfig } = await import("@ratel-factory/core");
 
   const budgetLimits = await getBudgetConfig(cwd);
   const budget = new BudgetManager(scope);

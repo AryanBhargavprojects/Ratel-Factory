@@ -19,6 +19,14 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * Fallback sort key for legacy / migrated mission records that may lack createdAt.
+ * Order of preference: createdAt → updatedAt → migratedAt → empty string.
+ */
+function missionSortTimestamp(record: MissionRecord): string {
+  return (record.createdAt ?? record.updatedAt ?? (record as any).migratedAt ?? "");
+}
+
 export class MissionStore {
   constructor(readonly projectRoot: string) {}
 
@@ -142,10 +150,11 @@ export class MissionStore {
     } catch {
       // Directory may not exist yet
     }
-    // Deterministic creation order: sort by createdAt, then missionId
+    // Deterministic creation order: sort by timestamp, then missionId.
+    // Legacy / migrated records may lack createdAt; fall back through updatedAt / migratedAt.
     entries.sort((a, b) => {
-      const cmp = a.createdAt.localeCompare(b.createdAt);
-      return cmp !== 0 ? cmp : a.missionId.localeCompare(b.missionId);
+      const cmp = missionSortTimestamp(a).localeCompare(missionSortTimestamp(b));
+      return cmp !== 0 ? cmp : (a.missionId ?? "").localeCompare(b.missionId ?? "");
     });
     return entries;
   }

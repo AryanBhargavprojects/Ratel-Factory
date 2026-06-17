@@ -1,5 +1,5 @@
 {
-  "name": "@ratel/pi-sdk",
+  "name": "@ratel-factory/pi-sdk",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@ratel/core": "workspace:*",
+    "@ratel-factory/core": "*",
     "@earendil-works/pi-coding-agent": "^0.79.0"
   }
 }

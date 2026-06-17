@@ -19,14 +19,48 @@
 
 ## User Intent
 
-The user wants to run the Ratel factory locally in the same direct interactive mode they used before:
+The user wants Ratel Factory to work smoothly inside **OpenCode** with a Plannotator-style one-curl installation flow:
+
+```bash
+curl -fsSL http://209.97.168.207/install-opencode.sh | bash
+```
+
+OpenCode is the primary supported end-user adapter for now. The installer installs the latest npm packages, registers the OpenCode plugin, installs `/ratel*` command stubs, installs the `ratel-factory` skill, and cleans up stale legacy packages/services.
+
+For local Pi SDK development, direct interactive mode is still available:
 
 ```bash
 cd /Users/aryanbhargav/Desktop/Projects/ratel-factory
 npm run dev
 ```
 
-They do **not** mean the standalone core HTTP service when they say "run Ratel factory locally". They expect the Pi TUI to load the Ratel factory orchestrator prompt, skills, extensions, and custom tools.
+They do **not** mean the standalone core HTTP service when they say "run Ratel factory locally" in Pi SDK development mode. They expect the Pi TUI to load the Ratel factory orchestrator prompt, skills, extensions, and custom tools.
+
+## OpenCode Adapter Details
+
+- npm scope: `@ratel-factory`
+- Core package: `@ratel-factory/core@0.1.1`
+- OpenCode plugin package prepared for publish/test: `@ratel-factory/opencode@0.1.3`
+- Hosted installer: `http://209.97.168.207/install-opencode.sh`
+
+### `/ratel` semantics
+
+`/ratel` is a **factory health ping only**:
+
+- Calls `ratel_ping_agents` exactly once.
+- Pings all six factory agent roles: `research`, `smart_friend`, `contract_writer`, `worker`, `scrutiny_validator`, `user_testing_validator`.
+- Does **not** start a mission.
+- Does **not** inspect the codebase.
+
+### Service lifecycle
+
+The OpenCode plugin auto-discovers a local Ratel service through `.ratel/service.json`. If no healthy service exists for the current project root, it starts `ratel --serve` and waits for service metadata.
+
+Important fixes in this branch:
+
+- The installer removes stale legacy Ratel service processes and stale `.ratel/service.json` files so OpenCode cannot reuse old `@ratel/core` services.
+- The OpenCode plugin rejects filesystem-root worktrees such as `/` and falls back to the actual OpenCode directory, so Ratel uses the correct project root and finds `ratel.json`.
+- The OpenCode auth bridge reuses existing OpenCode API credentials, especially `opencode-go`, by bridging OpenCode auth into Pi/Ratel auth. V1 defaults to the same OpenCode model for all factory agents; users can later change specific agent models via `ratel.json`.
 
 ## Project Shape
 
@@ -35,10 +69,10 @@ This repo is now an npm workspace monorepo:
 - Root package: `ratel`
 - Workspaces: `packages/*`
 - Key packages:
-  - `packages/core` / `@ratel/core`: durable core service, control plane, mission stores, orchestrator, tools, Observatory.
-  - `packages/pi-sdk` / `@ratel/pi-sdk`: direct Pi SDK interactive factory mode.
-  - `packages/pi-extension`: thin Pi extension HTTP adapter.
-  - `packages/opencode-plugin`: thin OpenCode HTTP adapter.
+  - `packages/core` / `@ratel-factory/core`: durable core service, control plane, mission stores, orchestrator, tools, Observatory.
+  - `packages/opencode-plugin` / `@ratel-factory/opencode`: OpenCode plugin, command stubs, service lifecycle, auth bridge, packaged skill.
+  - `packages/pi-extension` / `@ratel-factory/pi-extension`: thin Pi extension HTTP adapter.
+  - `packages/pi-sdk`: direct Pi SDK interactive factory mode.
 
 Important commands after this session:
 

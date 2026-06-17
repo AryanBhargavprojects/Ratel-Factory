@@ -53,3 +53,7 @@ plannotator/
 .superpowers/
 hunk/
 plannotator/
+
+adapter_plan.md
+factory_analysis.md
+implementation_spec.md

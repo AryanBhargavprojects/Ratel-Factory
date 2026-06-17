@@ -14,8 +14,8 @@
     "declarationMap": true,
     "sourceMap": true,
     "paths": {
-      "@ratel/core": ["./packages/core/src/index.ts"],
-      "@ratel/core/*": ["./packages/core/src/*"]
+      "@ratel-factory/core": ["./packages/core/src/index.ts"],
+      "@ratel-factory/core/*": ["./packages/core/src/*"]
     }
   },
   "include": ["src/**/*"],

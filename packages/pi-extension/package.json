@@ -1,6 +1,7 @@
 {
-  "name": "@ratel/pi-extension",
+  "name": "@ratel-factory/pi-extension",
   "version": "0.1.0",
+  "private": true,
   "description": "Ratel Pi Extension — Factory adapter for Pi SDK",
   "type": "module",
   "main": "dist/index.js",
@@ -19,7 +20,7 @@
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
-    "@ratel/core": "workspace:*"
+    "@ratel-factory/core": "*"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.79.0"

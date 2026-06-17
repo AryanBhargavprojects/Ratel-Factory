@@ -22,8 +22,8 @@ set -euo pipefail
 VERSION="${RATEL_VERSION:-latest}"
 SERVICE_PORT="${RATEL_SERVICE_PORT:-8765}"
 DEV_MODE=false
-EXTENSION_NAME="@ratel/pi-extension"
-CORE_NAME="@ratel/core"
+EXTENSION_NAME="@ratel-factory/pi-extension"
+CORE_NAME="@ratel-factory/core"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,11 +104,7 @@ install_packages() {
     npm install -g "./packages/core"
     npm install -g "./packages/pi-extension"
   else
-    info "Installing $CORE_NAME@$VERSION..."
-    npm install -g "$CORE_NAME@$VERSION"
-
-    info "Installing $EXTENSION_NAME@$VERSION..."
-    npm install -g "$EXTENSION_NAME@$VERSION"
+    die "Pi extension is not yet published to npm. Please run with --dev from a local workspace clone."
   fi
 
   info "Packages installed ✓"

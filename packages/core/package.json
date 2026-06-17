@@ -1,7 +1,13 @@
 {
-  "name": "@ratel/core",
-  "version": "0.1.0",
+  "name": "@ratel-factory/core",
+  "version": "0.1.1",
   "description": "Ratel AI Software Factory — Core Service",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "exports": {
@@ -30,10 +36,11 @@
     "ratel": "dist/index.js"
   },
   "scripts": {
+    "prepack": "npm run build",
     "build": "tsc && node -e \"require('fs').cpSync('src/observatory/dashboard.html','dist/observatory/dashboard.html')\"",
     "dev": "tsx src/index.ts --serve",
     "start": "node dist/index.js --serve",
-    "test": "echo 'No tests in @ratel/core yet'"
+    "test": "echo 'No tests in @ratel-factory/core yet'"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.0",
