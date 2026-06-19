@@ -179,6 +179,105 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
         return;
       }
 
+      // POST /api/v1/missions/:missionId/messages
+      // Free-form user reply / clarification to the mission orchestrator.
+      // Blessed replacement for deprecated /api/mission/complete.
+      const messagesMatch = url.pathname.match(/^\/api\/v1\/missions\/([^\/]+)\/messages$/);
+      if (messagesMatch && method === "POST") {
+        const missionId = messagesMatch[1];
+        let body: { message?: string; questionId?: string };
+        try {
+          body = await parseBody(req) as { message?: string; questionId?: string };
+        } catch {
+          sendError(res, 400, "Invalid JSON body");
+          return;
+        }
+        if (typeof body.message !== "string" || body.message.trim().length === 0) {
+          sendError(res, 400, "Missing or empty 'message' field");
+          return;
+        }
+        const mission = await controlPlane.getMission(missionId);
+        if (!mission) {
+          sendError(res, 404, "Mission not found");
+          return;
+        }
+        const payload: Record<string, unknown> = { message: body.message.trim() };
+        if (typeof body.questionId === "string" && body.questionId.length > 0) {
+          payload.questionId = body.questionId;
+        }
+        const job = await controlPlane.enqueueJob({
+          missionId,
+          type: "continue_orchestrator",
+          payload,
+        });
+        sendJson(res, 202, { missionId, jobId: job.jobId, status: "queued" });
+        return;
+      }
+
+      // POST /api/v1/missions/:missionId/questions/:questionId/answer
+      // Direct answer endpoint — wrapper over the messages endpoint. Validates
+      // the question exists/current if easy, writes an answer artifact, and
+      // enqueues a continue_orchestrator job with a message referencing the
+      // question id. Direct unblocking of an in-flight ask_user promise is
+      // NOT performed; the answer is delivered via queued continuation.
+      const answerMatch = url.pathname.match(/^\/api\/v1\/missions\/([^\/]+)\/questions\/([^\/]+)\/answer$/);
+      if (answerMatch && method === "POST") {
+        const missionId = answerMatch[1];
+        const questionId = answerMatch[2];
+        let body: { answer?: unknown };
+        try {
+          body = await parseBody(req) as { answer?: unknown };
+        } catch {
+          sendError(res, 400, "Invalid JSON body");
+          return;
+        }
+        if (body.answer === undefined || body.answer === null) {
+          sendError(res, 400, "Missing 'answer' field");
+          return;
+        }
+        if (typeof body.answer === "string" && body.answer.trim().length === 0) {
+          sendError(res, 400, "Empty 'answer' field");
+          return;
+        }
+        const mission = await controlPlane.getMission(missionId);
+        if (!mission) {
+          sendError(res, 404, "Mission not found");
+          return;
+        }
+
+        // Best-effort: record the answer against the pending-question artifact
+        // so an in-flight ask_user short-wait (if enabled) can observe it. This
+        // is fail-soft; missing file does not block the queued continuation.
+        const scope = createMissionScope(cwd, missionId);
+        const missionDir = getMissionDir(scope);
+        try {
+          const pendingPath = join(missionDir, "pending-question.json");
+          const raw = await readFile(pendingPath, "utf-8");
+          const parsed = JSON.parse(raw) as { questionId?: string; status?: string };
+          if (parsed.questionId === questionId) {
+            const updated = {
+              ...parsed,
+              status: "answered",
+              answer: body.answer,
+              answeredAt: new Date().toISOString(),
+            } as Record<string, unknown>;
+            await writeFile(pendingPath, JSON.stringify(updated, null, 2), "utf-8");
+          }
+        } catch {
+          // No pending question file or stale — proceed with queued continuation.
+        }
+
+        const answerStr = typeof body.answer === "string" ? body.answer : JSON.stringify(body.answer);
+        const message = `Answer to question ${questionId}: ${answerStr}`;
+        const job = await controlPlane.enqueueJob({
+          missionId,
+          type: "continue_orchestrator",
+          payload: { message, questionId, answer: body.answer },
+        });
+        sendJson(res, 202, { missionId, questionId, jobId: job.jobId, status: "queued" });
+        return;
+      }
+
       // GET /api/v1/missions/:missionId/jobs
       const jobsListMatch = url.pathname.match(/^\/api\/v1\/missions\/([^\/]+)\/jobs$/);
       if (jobsListMatch && method === "GET") {
@@ -564,21 +663,28 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
       // POST /api/mission/complete (deprecated)
       if (url.pathname === "/api/mission/complete" && method === "POST") {
         res.setHeader("Deprecation", "true");
-        let body: { missionId?: string; featureId?: string };
+        let body: { missionId?: string; featureId?: string; message?: string };
         try {
-          body = await parseBody(req) as { missionId?: string; featureId?: string };
+          body = await parseBody(req) as { missionId?: string; featureId?: string; message?: string };
         } catch {
           sendError(res, 400, "Invalid JSON body");
           return;
         }
-        if (!body.missionId || !body.featureId) {
-          sendError(res, 400, "Missing 'missionId' or 'featureId'");
+        if (!body.missionId) {
+          sendError(res, 400, "Missing 'missionId'");
           return;
         }
+        // Backward-compatible message: prefer an explicit body.message, then
+        // fall back to the historical "Mark feature X as complete" for callers
+        // that only supply featureId.
+        const message =
+          typeof body.message === "string" && body.message.trim().length > 0
+            ? body.message.trim()
+            : `Mark feature ${body.featureId ?? "unknown"} as complete`;
         const job = await controlPlane.enqueueJob({
           missionId: body.missionId,
           type: "continue_orchestrator",
-          payload: { message: `Mark feature ${body.featureId} as complete` },
+          payload: { message },
         });
         sendJson(res, 200, { missionId: body.missionId, featureId: body.featureId, jobId: job.jobId, status: "queued" });
         return;

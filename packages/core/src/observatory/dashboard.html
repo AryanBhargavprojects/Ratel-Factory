@@ -653,6 +653,18 @@
       planExpanded: false
     };
 
+    // Read missionId from page URL query param (?missionId=mis_...)
+    function getMissionIdFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('missionId') || null;
+    }
+
+    // Build query string to append to API URLs when missionId is present
+    function missionQueryParam() {
+      const id = getMissionIdFromUrl();
+      return id ? `?missionId=${encodeURIComponent(id)}` : '';
+    }
+
     // DOM references
     const $planDialog = document.getElementById('plan-dialog');
     const $btnClosePlan = document.getElementById('btn-close-plan');
@@ -1151,7 +1163,7 @@
     // API Polling Functions
     async function pollEvents() {
       try {
-        const res = await fetch('/api/events');
+        const res = await fetch('/api/events' + missionQueryParam());
         if (!res.ok) return;
         const events = await res.json();
         if (events.length === state.lastEventCount) return;
@@ -1165,7 +1177,7 @@
 
     async function pollDiff() {
       try {
-        const res = await fetch('/api/diff');
+        const res = await fetch('/api/diff' + missionQueryParam());
         if (!res.ok) return;
         const data = await res.json();
         $bodyWorkerDiff.innerHTML = renderDiff(data.diff);
@@ -1176,7 +1188,7 @@
 
     async function pollMission() {
       try {
-        const res = await fetch('/api/mission');
+        const res = await fetch('/api/mission' + missionQueryParam());
         if (!res.ok) return;
         const data = await res.json();
 

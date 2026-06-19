@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { MissionControlPlane } from "../src/control-plane/mission-control-plane.js";
 import type { JobExecutor } from "../src/control-plane/job-runner.js";
 import type { MissionJob } from "../src/control-plane/types.js";
+import { NoMissionProgressError } from "../src/control-plane/progress-detector.js";
 
 class FakeExecutor implements JobExecutor {
   jobsStarted: { job: MissionJob; signal: AbortSignal }[] = [];
@@ -243,6 +244,39 @@ describe("mission control plane", () => {
     assert.strictEqual(executor.jobsStarted.length, 2);
   });
 
+  it("enqueueMission writes current-mission.json so Observatory resolves without query param", async () => {
+    await cp.start();
+    const { mission } = await cp.enqueueMission({ goal: "Observatory test" });
+
+    // Verify current-mission.json was written with the correct missionId
+    const ratelDir = join(projectRoot, ".ratel");
+    const currentMissionPath = join(ratelDir, "current-mission.json");
+    const raw = await import("node:fs/promises").then((fs) =>
+      fs.readFile(currentMissionPath, "utf-8").then(JSON.parse).catch(() => null)
+    );
+    assert.ok(raw, "current-mission.json should exist");
+    assert.strictEqual(raw.missionId, mission.missionId);
+    assert.ok(raw.setAt, "should have setAt timestamp");
+  });
+
+  it("enqueueMission with idempotency key still writes current-mission.json", async () => {
+    await cp.start();
+    const key = "idem-obs-001";
+    const { mission } = await cp.enqueueMission({ goal: "Idempotent obs", idempotencyKey: key });
+
+    const ratelDir = join(projectRoot, ".ratel");
+    const currentMissionPath = join(ratelDir, "current-mission.json");
+    const raw = await import("node:fs/promises").then((fs) =>
+      fs.readFile(currentMissionPath, "utf-8").then(JSON.parse).catch(() => null)
+    );
+    assert.ok(raw, "current-mission.json should exist for idempotent creation");
+    assert.strictEqual(raw.missionId, mission.missionId);
+
+    // Second call with same key returns existing mission but still updates pointer
+    const { mission: second } = await cp.enqueueMission({ goal: "Different", idempotencyKey: key });
+    assert.strictEqual(second.missionId, mission.missionId);
+  });
+
   it("default global concurrency is one", async () => {
     await cp.start();
     const { mission: m1, job: j1 } = await cp.enqueueMission({ goal: "Mission 1" });
@@ -290,5 +324,56 @@ describe("mission control plane", () => {
 
     assert.strictEqual(job1.jobId, job2.jobId);
     assert.deepStrictEqual(job1.payload, job2.payload);
+  });
+
+  it("NoMissionProgressError is requeued (retryable) then failed after max attempts", async () => {
+    await cp.start();
+    const { mission, job } = await cp.enqueueMission({ goal: "No-progress mission" });
+
+    // Make the executor throw NoMissionProgressError every time
+    executor.setResult(job.jobId, {
+      error: new NoMissionProgressError("No progress", 3),
+    });
+
+    // Wait for the job to cycle through attempts and eventually fail
+    // maxAttempts is 3 for start_mission, so after 3 attempts it should fail
+    await waitForCondition(
+      () =>
+        cp.getJob(mission.missionId, job.jobId).then((j) => j?.status === "failed"),
+      10000,
+    );
+
+    const finalJob = await cp.getJob(mission.missionId, job.jobId);
+    assert.strictEqual(finalJob?.status, "failed");
+    assert.ok(finalJob?.error);
+    assert.strictEqual(finalJob?.error?.code, "no_mission_progress");
+    assert.strictEqual(finalJob?.error?.retryable, false);
+  });
+
+  it("worker/validation jobs are NOT subject to no-progress gate", async () => {
+    // The no-progress gate only applies to start_mission and continue_orchestrator.
+    // Worker and validation jobs should succeed normally even if the fake executor
+    // does nothing (since the real executor handles them differently).
+    // This test verifies the control plane doesn't apply the gate to non-orchestrator jobs.
+    await cp.start();
+    const { mission, job: startJob } = await cp.enqueueMission({ goal: "Worker test" });
+
+    // Wait for start_mission to succeed first
+    await waitForCondition(() =>
+      cp.getJob(mission.missionId, startJob.jobId).then((j) => j?.status === "succeeded")
+    );
+
+    const workerJob = await cp.enqueueJob({
+      missionId: mission.missionId,
+      type: "run_worker",
+      payload: { featureId: "F1" },
+    });
+
+    await waitForCondition(() =>
+      cp.getJob(mission.missionId, workerJob.jobId).then((j) => j?.status === "succeeded")
+    );
+
+    const finalJob = await cp.getJob(mission.missionId, workerJob.jobId);
+    assert.strictEqual(finalJob?.status, "succeeded");
   });
 });

@@ -22,6 +22,15 @@ import type { MissionExecutionContext } from "./mission/execution-context.js";
 import { BudgetManager } from "./budget/budget-manager.js";
 import { ModelRouter } from "./models/model-router.js";
 
+/** Maximum characters before emitting an intermediate assistant_message chunk. */
+const ASSISTANT_CHUNK_THRESHOLD = 2000;
+
+/** Maximum characters stored in a single assistant_message event payload. */
+const ASSISTANT_MAX_TEXT_LENGTH = 8000;
+
+/** Maximum preview length for poll responses. */
+const ASSISTANT_PREVIEW_LENGTH = 300;
+
 /**
  * OrchestratorAgent — Mission-State Governor
  *
@@ -202,11 +211,35 @@ export class OrchestratorAgent {
     this.session = session;
 
     // Default telemetry subscription — streams assistant text to stdout
+    // AND accumulates text for durable assistant_message events.
+    let accumulatedText = "";
+    let lastChunkEnd = 0;
+
     this.unsubscribe = session.subscribe((event) => {
       switch (event.type) {
         case "message_update": {
           if (event.assistantMessageEvent.type === "text_delta") {
             process.stdout.write(event.assistantMessageEvent.delta);
+            accumulatedText += event.assistantMessageEvent.delta;
+
+            // Emit intermediate chunk if we've crossed the threshold
+            // and are at a natural break (paragraph or sentence boundary).
+            if (accumulatedText.length - lastChunkEnd >= ASSISTANT_CHUNK_THRESHOLD) {
+              const newText = accumulatedText.slice(lastChunkEnd);
+              const breakIdx = findNaturalBreak(newText);
+              if (breakIdx > 0) {
+                const chunk = newText.slice(0, breakIdx);
+                lastChunkEnd += breakIdx;
+                const bounded = boundText(chunk);
+                this.context?.logger.assistantMessage({
+                  role: "orchestrator",
+                  text: bounded.text,
+                  length: chunk.length,
+                  truncated: bounded.truncated,
+                  preview: makePreview(chunk),
+                }, "orchestrator");
+              }
+            }
           }
           break;
         }
@@ -230,6 +263,22 @@ export class OrchestratorAgent {
         case "agent_end": {
           // eslint-disable-next-line no-console
           console.error("\n[AGENT END]\n");
+
+          // Emit final accumulated text as a durable assistant_message event.
+          // This is the primary durable artifact for service-mode visibility.
+          if (accumulatedText.length > 0) {
+            const finalText = accumulatedText.slice(lastChunkEnd);
+            if (finalText.length > 0) {
+              const bounded = boundText(finalText);
+              this.context?.logger.assistantMessage({
+                role: "orchestrator",
+                text: bounded.text,
+                length: finalText.length,
+                truncated: bounded.truncated,
+                preview: makePreview(finalText),
+              }, "orchestrator");
+            }
+          }
           break;
         }
       }
@@ -310,6 +359,59 @@ export class OrchestratorAgent {
     this.session?.dispose();
     this.session = undefined;
   }
+}
+
+/* ── Assistant text helpers ── */
+
+/**
+ * Find a natural break point in text (paragraph, sentence, or line boundary)
+ * within the first chunkThreshold characters. Returns 0 if no good break found.
+ */
+function findNaturalBreak(text: string): number {
+  // Prefer paragraph break (double newline)
+  const paraIdx = text.indexOf("\n\n");
+  if (paraIdx > 0 && paraIdx < ASSISTANT_CHUNK_THRESHOLD) return paraIdx + 2;
+
+  // Then sentence break (.!? followed by space/newline)
+  const sentenceMatch = text.match(/[.!?]\s/g);
+  if (sentenceMatch) {
+    // Find the last sentence break within threshold
+    let lastIdx = 0;
+    const regex = /[.!?]\s/g;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text)) !== null) {
+      if (m.index + 2 <= ASSISTANT_CHUNK_THRESHOLD) {
+        lastIdx = m.index + 2;
+      } else {
+        break;
+      }
+    }
+    if (lastIdx > 0) return lastIdx;
+  }
+
+  // Fall back to line break
+  const lineIdx = text.indexOf("\n");
+  if (lineIdx > 0 && lineIdx < ASSISTANT_CHUNK_THRESHOLD) return lineIdx + 1;
+
+  return 0;
+}
+
+/** Bound text to max length, returning truncated flag. */
+function boundText(text: string): { text: string; truncated: boolean } {
+  if (text.length <= ASSISTANT_MAX_TEXT_LENGTH) {
+    return { text, truncated: false };
+  }
+  return {
+    text: text.slice(0, ASSISTANT_MAX_TEXT_LENGTH),
+    truncated: true,
+  };
+}
+
+/** Create a short preview from the beginning of the text. */
+function makePreview(text: string): string {
+  const trimmed = text.trimStart();
+  if (trimmed.length <= ASSISTANT_PREVIEW_LENGTH) return trimmed;
+  return trimmed.slice(0, ASSISTANT_PREVIEW_LENGTH) + "…";
 }
 
 /* ── Standalone entrypoint (useful for quick tests) ── */

@@ -49,7 +49,9 @@ export type EventType =
   | "validation_recovery"
   | "integration_preflight"
   | "budget_usage"
-  | "budget_exceeded";
+  | "budget_exceeded"
+  | "assistant_message"
+  | "pending_question";
 
 export interface RatelEvent {
   timestamp: string;            // ISO 8601
@@ -274,6 +276,47 @@ export class EventLogger {
   /** Log a budget exceeded event. */
   budgetExceeded(data: { missionId: string; reason: string; limit: number; actual: number }): void {
     this.emit("budget_exceeded", data);
+  }
+
+  /**
+   * Log a coalesced assistant message chunk.
+   * Emitted on agent_end with the full accumulated text, and optionally
+   * on intermediate paragraph/segment boundaries for long responses.
+   * Payload is bounded: role, agent_level, text (truncated if needed),
+   * length, truncated flag, and a short preview for poll responses.
+   */
+  assistantMessage(data: {
+    role: string;
+    text: string;
+    length: number;
+    truncated: boolean;
+    preview: string;
+  }, agentLevel?: AgentLevel): void {
+    this.emit("assistant_message", data, agentLevel);
+  }
+
+  /**
+   * Log a pending question emitted by the service-mode ask_user bridge.
+   *
+   * The orchestrator asked the user a structured question but no TUI is
+   * available to answer it synchronously. The question is persisted to
+   * `.ratel/missions/<missionId>/pending-question.json` and appended to
+   * `questions.jsonl`. This event is durable progress (service-mode
+   * visibility) so the no-progress gate does not kill the turn.
+   *
+   * Payload is bounded: questionId, missionId, jobId, a short question
+   * preview, and a bounded options preview (first N options).
+   */
+  pendingQuestion(data: {
+    questionId: string;
+    missionId: string;
+    jobId?: string;
+    question: string;
+    options?: string[];
+    questionType?: string;
+    status: string;
+  }, agentLevel?: AgentLevel): void {
+    this.emit("pending_question", data, agentLevel ?? "orchestrator");
   }
 
   /**

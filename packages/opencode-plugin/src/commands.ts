@@ -48,7 +48,7 @@ export async function handleCommand(ctx: CommandContext): Promise<void> {
   try {
     switch (command) {
       case "ratel": {
-        console.log("[Ratel] /ratel command received — pinging factory agents");
+        await log("info", "[Ratel] /ratel command received — pinging factory agents");
         try {
           // Fast sanity check first
           const health = await service.health();
@@ -119,18 +119,18 @@ export async function handleCommand(ctx: CommandContext): Promise<void> {
         break;
       }
       case "ratel-mission": {
-        console.log("[Ratel] /ratel-mission command received — showing mission status");
+        await log("info", "[Ratel] /ratel-mission command received — showing mission status");
         if (!cachedMissionId) {
           await log("info", "[Ratel] No active mission. Start one with the ratel_start_mission tool.");
           return;
         }
         const [mission, job] = await Promise.all([
-          service.getMissionStatus(cachedMissionId).catch((e: Error) => ({ missionId: cachedMissionId, state: { error: e.message } })),
+          service.getMissionStatus(cachedMissionId).catch((e: Error) => ({ missionId: cachedMissionId, status: `error: ${e.message}` as const })),
           cachedJobId ? service.getJobStatus(cachedMissionId, cachedJobId).catch((e: Error) => ({ jobId: cachedJobId, status: `error: ${e.message}` })) : undefined,
         ]);
         const lines = [
           `Mission: ${mission.missionId}`,
-          `State: ${JSON.stringify(mission.state, null, 2)}`,
+          `Status: ${JSON.stringify(mission.status)}`,
         ];
         if (job) {
           lines.push(`Job: ${(job as any).jobId ?? cachedJobId} — status: ${(job as any).status ?? "unknown"}`);
@@ -139,11 +139,16 @@ export async function handleCommand(ctx: CommandContext): Promise<void> {
         break;
       }
       case "ratel-observatory": {
-        console.log("[Ratel] /ratel-observatory command received — opening dashboard");
+        await log("info", "[Ratel] /ratel-observatory command received — opening dashboard");
         try {
           const status = await service.getObservatoryUrl();
           if (status.url) {
-            await log("info", `[Ratel] Observatory: ${status.url}`);
+            // Include missionId query param when we have a cached mission so the
+            // dashboard opens directly on the current mission's data.
+            const url = cachedMissionId
+              ? `${status.url}?missionId=${encodeURIComponent(cachedMissionId)}`
+              : status.url;
+            await log("info", `[Ratel] Observatory: ${url}`);
           } else {
             await log("warning", "[Ratel] Observatory is not running. Start the service with `ratel --serve`.");
           }
@@ -153,11 +158,10 @@ export async function handleCommand(ctx: CommandContext): Promise<void> {
         break;
       }
       default: {
-        console.log(`[Ratel] Unknown command: ${command}`);
+        await log("warning", `[Ratel] Unknown command: ${command}`);
       }
     }
   } catch (err) {
-    console.error(`[Ratel] Command error (${command}):`, err);
     await log("error", `[Ratel] Command failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

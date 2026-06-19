@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ratel Configuration Schema",
+  "description": "Schema for ratel.json — the project-level configuration file for the Ratel AI Software Factory. Documents model fields, fallback chains, and provider prefix conventions.",
+  "type": "object",
+  "properties": {
+    "orchestrator": {
+      "type": "object",
+      "description": "Configuration for the Orchestrator agent level (also used by research, smart-friend, and contract subagents).",
+      "properties": {
+        "model": {
+          "type": ["string", "null"],
+          "description": "Model slug in 'provider/model-id' format. null means 'use SDK default'. Must be a valid model from the Pi/OpenCode model registry. Provider aliases (e.g. 'openai') are normalized to canonical provider namespaces (e.g. 'openai-codex') on write.",
+          "examples": [
+            "anthropic/claude-sonnet-4",
+            "openai-codex/gpt-5.4",
+            "openrouter/z-ai/glm-5.1"
+          ]
+        },
+        "fallbackModels": {
+          "type": "array",
+          "description": "Ordered fallback model chain. Each entry must be a valid 'provider/model-id' slug. Duplicates (after alias normalization) are removed. Unknown slugs are warned and filtered at config-read time.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "workers": {
+      "type": "object",
+      "description": "Configuration for Worker agent spawns.",
+      "properties": {
+        "model": {
+          "type": ["string", "null"],
+          "description": "Model slug in 'provider/model-id' format. null means 'use SDK default'.",
+          "examples": [
+            "anthropic/claude-sonnet-4",
+            "openai-codex/gpt-5.4"
+          ]
+        },
+        "fallbackModels": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "validators": {
+      "type": "object",
+      "description": "Configuration for Validator agent spawns (scrutiny, code-review, user-testing).",
+      "properties": {
+        "model": {
+          "type": ["string", "null"],
+          "description": "Model slug in 'provider/model-id' format. null means 'use SDK default'.",
+          "examples": [
+            "anthropic/claude-sonnet-4",
+            "openai-codex/gpt-5.4"
+          ]
+        },
+        "fallbackModels": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "providerPrefixes": {
+    "description": "Known provider prefixes for model slugs. These are the canonical provider namespaces used by Pi/OpenCode. Aliases (e.g. 'openai' for 'openai-codex') are normalized on write but discouraged in ratel.json.",
+    "examples": [
+      {
+        "prefix": "anthropic",
+        "description": "Anthropic models (Claude series)"
+      },
+      {
+        "prefix": "openai-codex",
+        "description": "OpenAI models via OpenCode's codex provider. The alias 'openai' is normalized to 'openai-codex' when the target model exists."
+      },
+      {
+        "prefix": "openrouter",
+        "description": "OpenRouter — model IDs may contain slashes (e.g. 'openrouter/z-ai/glm-5.1')"
+      },
+      {
+        "prefix": "google",
+        "description": "Google Gemini models"
+      },
+      {
+        "prefix": "opencode-go",
+        "description": "OpenCode's native Go provider"
+      }
+    ],
+    "note": "Use canonical provider namespaces from the model registry (run list_models to see available providers). Avoid aliases in ratel.json — they are normalized on write but may cause confusion."
+  }
+}

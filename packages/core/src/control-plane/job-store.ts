@@ -287,11 +287,18 @@ export class JobStore {
       const canRetry = current.attempt < current.maxAttempts;
 
       if (!isRetryable || !canRetry) {
+        // The job is now terminally failed — no further retries are possible.
+        // Reflect that on the stored error so consumers reading a `failed`
+        // job don't see a stale `retryable: true` (the error type may be
+        // retryable in principle, but this job instance cannot be retried).
+        const terminalError = error
+          ? { ...error, retryable: false }
+          : undefined;
         const updated: MissionJob = {
           ...current,
           status: "failed",
           finishedAt: nowIso(),
-          error,
+          error: terminalError,
           updatedAt: nowIso(),
         };
         await atomicWriteJson(path, updated);

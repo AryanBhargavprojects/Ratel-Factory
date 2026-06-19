@@ -18,9 +18,41 @@ export interface EnqueuedJobResponse {
   status: "queued";
 }
 
+export interface RatelEvent {
+  timestamp: string;
+  event_type: string;
+  trace_id: string;
+  span_id: string;
+  parent_span_id?: string;
+  agent_level?: string;
+  data: Record<string, unknown>;
+}
+
+export interface MissionEventsResponse {
+  missionId: string;
+  events: RatelEvent[];
+  after: number;
+  /** Client-computed: after + events.length for next poll */
+  nextAfter: number;
+}
+
+export interface ApproveMissionOptions {
+  approved?: boolean;
+  feedback?: string;
+  files?: Record<string, string>;
+}
+
+/** Mission status values returned by the core service. */
+export type MissionStatus =
+  | "active"
+  | "waiting_for_approval"
+  | "completed"
+  | "halted"
+  | "cancelled";
+
 export interface MissionStatusResponse {
   missionId: string;
-  state: unknown;
+  status: MissionStatus;
 }
 
 export interface JobStatusResponse {
@@ -125,8 +157,26 @@ export class RatelServiceClient {
     return this.post(`/missions/${encodeURIComponent(missionId)}/jobs/${encodeURIComponent(jobId)}/cancel`, {});
   }
 
-  async approveMission(missionId: string): Promise<EnqueuedJobResponse> {
-    return this.post(`/missions/${encodeURIComponent(missionId)}/approval`, { approved: true });
+  async approveMission(missionId: string, options?: ApproveMissionOptions): Promise<EnqueuedJobResponse> {
+    const body: Record<string, unknown> = {
+      approved: options?.approved ?? true,
+    };
+    if (options?.feedback) body.feedback = options.feedback;
+    if (options?.files) body.files = options.files;
+    return this.post(`/missions/${encodeURIComponent(missionId)}/approval`, body);
+  }
+
+  async getMissionEvents(missionId: string, after?: number): Promise<MissionEventsResponse> {
+    const offset = after ?? 0;
+    const raw = await this.get<{ missionId: string; events: RatelEvent[]; after: number }>(
+      `/missions/${encodeURIComponent(missionId)}/events?after=${offset}`,
+    );
+    return {
+      missionId: raw.missionId,
+      events: raw.events,
+      after: raw.after,
+      nextAfter: offset + raw.events.length,
+    };
   }
 
   async runWorker(missionId: string, featureId: string): Promise<EnqueuedJobResponse> {
@@ -135,6 +185,39 @@ export class RatelServiceClient {
 
   async runValidation(missionId: string, milestoneId: string): Promise<EnqueuedJobResponse> {
     return this.post(`/missions/${encodeURIComponent(missionId)}/validations`, { milestoneId });
+  }
+
+  /**
+   * Send a free-form user message / reply / clarification to the mission
+   * orchestrator. Enqueues a continue_orchestrator job. This is the blessed
+   * replacement for deprecated /api/mission/complete for free-form replies.
+   */
+  async sendMessage(
+    missionId: string,
+    message: string,
+    questionId?: string,
+  ): Promise<EnqueuedJobResponse> {
+    const body: Record<string, unknown> = { message };
+    if (questionId) body.questionId = questionId;
+    return this.post(`/missions/${encodeURIComponent(missionId)}/messages`, body);
+  }
+
+  /**
+   * Submit a direct answer to a specific pending question. Wrapper over the
+   * messages endpoint: the core service enqueues a continue_orchestrator job
+   * with a message referencing the question id. Direct unblocking of an
+   * in-flight ask_user promise is not performed; the answer is delivered via
+   * queued continuation.
+   */
+  async answerQuestion(
+    missionId: string,
+    questionId: string,
+    answer: unknown,
+  ): Promise<EnqueuedJobResponse> {
+    return this.post(
+      `/missions/${encodeURIComponent(missionId)}/questions/${encodeURIComponent(questionId)}/answer`,
+      { answer },
+    );
   }
 
   async getObservatoryUrl(): Promise<ObservatoryStatusResponse> {
