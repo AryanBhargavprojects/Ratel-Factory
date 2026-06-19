@@ -2,9 +2,12 @@
   "$schema": "./docs/ratel-schema.json",
   "name": "ratel",
   "version": "0.1.0",
+  "budget": {
+    "maxTotalTokens": 15000000
+  },
   "orchestrator": {
     "systemPrompt": null,
-    "thinkingLevel": "medium",
+    "thinkingLevel": "high",
     "model": "openai-codex/gpt-5.5",
     "tools": [
       "read",
@@ -88,7 +91,8 @@
     }
   },
   "workers": {
-    "model": "ollama/kimi-k2.6:cloud",
+    "model": "opencode-go/kimi-k2.7-code",
+    "thinking": "high",
     "defaultTools": [
       "read",
       "bash",
@@ -97,7 +101,7 @@
     ]
   },
   "validators": {
-    "model": "ollama/minimax-m3:cloud",
+    "model": "opencode-go/kimi-k2.7-code",
     "defaultTools": [
       "read",
       "bash",

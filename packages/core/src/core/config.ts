@@ -142,34 +142,22 @@ export async function getModelConfig(cwd: string): Promise<ModelConfig> {
   };
 }
 
-function validateModelString(model: string): boolean {
-  if (!model || typeof model !== "string") return false;
-  const slashIndex = model.indexOf("/");
-  return slashIndex > 0 && slashIndex < model.length - 1;
-}
-
-function deduplicateModels(models: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const m of models) {
-    const trimmed = m.trim();
-    if (!trimmed) continue;
-    if (!validateModelString(trimmed)) {
-      console.warn(`[config] Invalid model string in fallbackModels: "${trimmed}" — expected "provider/model-id"`);
-      continue;
-    }
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    result.push(trimmed);
-  }
-  return result;
-}
-
 /**
  * Build fallback-aware model config for all three levels.
- * Rejects duplicate and invalid model strings.
+ *
+ * - Validates primary and fallback model strings against the live registry.
+ * - Normalizes provider aliases (e.g. `openai` → `openai-codex`).
+ * - Unknown/invalid model strings are warned and filtered out (primary → null,
+ *   fallbacks → removed) rather than silently passed through.
+ * - `null`/missing primary means "use SDK default" — this is preserved.
+ * - Rejects duplicate model strings after normalization.
+ *
+ * @param agentDir - Optional Pi agent directory for registry lookup.
  */
-export async function getFallbackModelConfig(cwd: string): Promise<{
+export async function getFallbackModelConfig(
+  cwd: string,
+  agentDir?: string,
+): Promise<{
   orchestrator: FallbackModelConfig;
   worker: FallbackModelConfig;
   validator: FallbackModelConfig;
@@ -177,25 +165,57 @@ export async function getFallbackModelConfig(cwd: string): Promise<{
 }> {
   const config = await readRatelConfig(cwd);
 
-  const primary = config.orchestrator?.model ?? null;
-  const orchestratorFallbacks = deduplicateModels(
-    config.orchestrator?.fallbackModels?.filter((m) => m !== primary) ?? []
-  );
+  // Resolve a model string through the registry, returning canonical slug or null.
+  // Warns on unknown/invalid strings.
+  const resolveOrNull = (raw: string | null | undefined): string | null => {
+    if (!raw) return null;
+    const resolved = resolveModelSlug(raw, agentDir);
+    if (!resolved) {
+      console.warn(
+        `[getFallbackModelConfig] Unknown model "${raw}" in ratel.json — ` +
+        `will fall back to SDK default. Check for typos or run list_models.`,
+      );
+      return null;
+    }
+    return resolved.canonical;
+  };
 
-  const workerPrimary = config.workers?.model ?? null;
-  const workerFallbacks = deduplicateModels(
-    config.workers?.fallbackModels?.filter((m) => m !== workerPrimary) ?? []
-  );
+  // Resolve and deduplicate a fallback chain.
+  const resolveFallbacks = (rawFallbacks: string[] | undefined, primary: string | null): string[] => {
+    const seen = new Set<string>();
+    if (primary) seen.add(primary);
+    const result: string[] = [];
+    for (const raw of rawFallbacks ?? []) {
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const resolved = resolveModelSlug(trimmed, agentDir);
+      if (!resolved) {
+        console.warn(
+          `[getFallbackModelConfig] Unknown fallback model "${trimmed}" in ratel.json — skipped.`,
+        );
+        continue;
+      }
+      const canonical = resolved.canonical;
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+      result.push(canonical);
+    }
+    return result;
+  };
 
-  const validatorPrimary = config.validators?.model ?? null;
-  const validatorFallbacks = deduplicateModels(
-    config.validators?.fallbackModels?.filter((m) => m !== validatorPrimary) ?? []
-  );
+  const orchPrimary = resolveOrNull(config.orchestrator?.model);
+  const orchFallbacks = resolveFallbacks(config.orchestrator?.fallbackModels, orchPrimary);
+
+  const workPrimary = resolveOrNull(config.workers?.model);
+  const workFallbacks = resolveFallbacks(config.workers?.fallbackModels, workPrimary);
+
+  const valPrimary = resolveOrNull(config.validators?.model);
+  const valFallbacks = resolveFallbacks(config.validators?.fallbackModels, valPrimary);
 
   return {
-    orchestrator: { model: primary, fallbackModels: orchestratorFallbacks },
-    worker: { model: workerPrimary, fallbackModels: workerFallbacks },
-    validator: { model: validatorPrimary, fallbackModels: validatorFallbacks },
+    orchestrator: { model: orchPrimary, fallbackModels: orchFallbacks },
+    worker: { model: workPrimary, fallbackModels: workFallbacks },
+    validator: { model: valPrimary, fallbackModels: valFallbacks },
     modelRouting: {
       failureThreshold: config.modelRouting?.failureThreshold ?? 2,
       cooldownMs: config.modelRouting?.cooldownMs ?? 120000,
@@ -220,24 +240,47 @@ export async function getObservabilityConfig(cwd: string): Promise<ResolvedObser
 /**
  * Set the model for a specific level. Writes to ratel.json.
  * Pass `null` as model to clear (revert to SDK default).
+ *
+ * Validates non-null model strings against the live Pi/OpenCode-compatible
+ * model registry. Unknown provider/model slugs are rejected with an error.
+ * Alias normalization (e.g. `openai` → `openai-codex`) is applied and the
+ * canonical slug is persisted.
+ *
  * Returns the updated full ModelConfig.
+ *
+ * @throws If the model string is invalid or not found in the registry.
  */
 export async function setModelConfig(
   cwd: string,
   level: "orchestrator" | "worker" | "validator",
   model: string | null,
+  agentDir?: string,
 ): Promise<ModelConfig> {
+  // Validate non-null model strings against the registry
+  let canonicalSlug: string | null = null;
+  if (model !== null) {
+    const resolved = resolveModelSlug(model, agentDir);
+    if (!resolved) {
+      throw new Error(
+        `Cannot set model: "${model}" is not a valid model slug or not found in the model registry. ` +
+        `Use "provider/model-id" format (e.g. "openai-codex/gpt-5.4"). ` +
+        `Run list_models to see available models.`,
+      );
+    }
+    canonicalSlug = resolved.canonical;
+  }
+
   const config = await readRatelConfig(cwd);
 
   if (level === "orchestrator") {
     if (!config.orchestrator) config.orchestrator = {};
-    config.orchestrator.model = model;
+    config.orchestrator.model = canonicalSlug;
   } else if (level === "worker") {
     if (!config.workers) config.workers = {};
-    config.workers.model = model;
+    config.workers.model = canonicalSlug;
   } else {
     if (!config.validators) config.validators = {};
-    config.validators.model = model;
+    config.validators.model = canonicalSlug;
   }
 
   await writeRatelConfig(cwd, config);
@@ -245,6 +288,120 @@ export async function setModelConfig(
 }
 
 // ── Model Resolution ─────────────────────────────────────────────────────
+
+/**
+ * Provider alias map for normalizing user-facing provider names to
+ * canonical registry provider namespaces.
+ *
+ * Only applied when the exact provider is NOT found in the registry AND
+ * the aliased provider/model combination actually exists.
+ */
+const PROVIDER_ALIASES: Record<string, string> = {
+  openai: "openai-codex",
+};
+
+/**
+ * Result of resolving a model slug against the registry.
+ */
+export interface ResolvedModelSlug {
+  /** Canonical slug: `${model.provider}/${model.id}` */
+  canonical: string;
+  /** The resolved Model object from the registry. */
+  model: ReturnType<ModelRegistry["find"]>;
+  /** Warning message if alias normalization was applied. */
+  warning?: string;
+}
+
+/**
+ * Create a ModelRegistry for the given agent directory.
+ * Refreshes to pick up any changes to models.json.
+ */
+function createRegistry(agentDir?: string): ModelRegistry {
+  const authStorage = AuthStorage.create();
+  const effectiveAgentDir = agentDir ?? getDefaultAgentDir();
+  const registry = ModelRegistry.create(
+    authStorage,
+    join(effectiveAgentDir, "models.json"),
+  );
+  registry.refresh();
+  return registry;
+}
+
+/**
+ * Resolve a model slug like `"openai-codex/gpt-5.4"` against the live
+ * Pi/OpenCode-compatible model registry.
+ *
+ * - Trims and validates `provider/model-id` format (split on first slash).
+ * - Tries exact registry match first.
+ * - If no exact match, tries provider alias normalization (e.g. `openai` → `openai-codex`)
+ *   ONLY when the aliased provider/model actually exists in the registry.
+ * - Returns the canonical slug and Model object on success.
+ * - Returns `undefined` for null/empty/invalid/unknown strings.
+ *
+ * This is the single source of truth for model string validation.
+ * Write paths (setModelConfig) should call this and reject on undefined.
+ * Read/fallback paths (getFallbackModelConfig) should call this and
+ * warn + filter on undefined.
+ *
+ * @param modelString - The model slug to resolve (e.g. "openai-codex/gpt-5.4").
+ * @param agentDir - Optional Pi agent directory path. Uses default if omitted.
+ */
+export function resolveModelSlug(
+  modelString?: string | null,
+  agentDir?: string,
+): ResolvedModelSlug | undefined {
+  if (!modelString || typeof modelString !== "string") return undefined;
+
+  const trimmed = modelString.trim();
+  if (!trimmed) return undefined;
+
+  // Model strings are "provider/model-id". Some providers (notably OpenRouter)
+  // use model IDs that themselves contain slashes, e.g.
+  // "openrouter/z-ai/glm-5.1". Split only on the first slash.
+  const slashIndex = trimmed.indexOf("/");
+  if (slashIndex <= 0 || slashIndex === trimmed.length - 1) {
+    console.warn(
+      `[resolveModelSlug] Invalid model string format: "${trimmed}" — expected "provider/model-id"`,
+    );
+    return undefined;
+  }
+  const provider = trimmed.slice(0, slashIndex);
+  const id = trimmed.slice(slashIndex + 1);
+
+  const registry = createRegistry(agentDir);
+
+  // 1. Try exact match
+  let model = registry.find(provider, id);
+  if (model) {
+    return {
+      canonical: `${model.provider}/${model.id}`,
+      model,
+    };
+  }
+
+  // 2. Try alias normalization
+  const aliasTarget = PROVIDER_ALIASES[provider];
+  if (aliasTarget) {
+    const aliasedModel = registry.find(aliasTarget, id);
+    if (aliasedModel) {
+      const canonical = `${aliasedModel.provider}/${aliasedModel.id}`;
+      console.warn(
+        `[resolveModelSlug] Normalized alias "${trimmed}" → "${canonical}"`,
+      );
+      return {
+        canonical,
+        model: aliasedModel,
+        warning: `"${provider}" is an alias for "${aliasTarget}"; persisted as "${canonical}"`,
+      };
+    }
+  }
+
+  // 3. Not found
+  console.warn(
+    `[resolveModelSlug] Model not found in registry: provider="${provider}" id="${id}"`,
+  );
+  return undefined;
+}
 
 /**
  * Resolve a model string like `"anthropic/claude-sonnet-4"` to a Model object
@@ -260,43 +417,17 @@ export async function setModelConfig(
  * Logs a warning when a non-empty string cannot be resolved, so config typos
  * are visible in startup output rather than discovered at runtime.
  *
+ * Delegates to resolveModelSlug for registry lookup and alias normalization.
+ *
  * @param agentDir - Optional Pi agent directory path. Uses default if omitted.
  */
 export function resolveModel(
   modelString?: string | null,
   agentDir?: string,
 ): ReturnType<ModelRegistry["find"]> {
-  if (!modelString) return undefined;
-
-  // Model strings are "provider/model-id". Some providers (notably OpenRouter)
-  // use model IDs that themselves contain slashes, e.g.
-  // "openrouter/z-ai/glm-5.1". Split only on the first slash.
-  const slashIndex = modelString.indexOf("/");
-  if (slashIndex <= 0 || slashIndex === modelString.length - 1) {
-    console.warn(
-      `[resolveModel] Invalid model string format: "${modelString}" — expected "provider/model-id"`,
-    );
-    return undefined;
-  }
-  const provider = modelString.slice(0, slashIndex);
-  const id = modelString.slice(slashIndex + 1);
-
-  // Use ModelRegistry which loads custom providers from ~/.pi/agent/models.json
-  // in addition to the built-in provider catalog.
-  const authStorage = AuthStorage.create();
-  const effectiveAgentDir = agentDir ?? getDefaultAgentDir();
-  const modelRegistry = ModelRegistry.create(
-    authStorage,
-    join(effectiveAgentDir, "models.json"),
-  );
-  const model = modelRegistry.find(provider, id);
-
-  if (!model) {
-    console.warn(
-      `[resolveModel] Model not found in registry: provider="${provider}" id="${id}" — will fall back to SDK default`,
-    );
-  }
-  return model;
+  const resolved = resolveModelSlug(modelString, agentDir);
+  if (!resolved) return undefined;
+  return resolved.model;
 }
 
 // ── Model Discovery ──────────────────────────────────────────────────────
@@ -305,6 +436,8 @@ export interface ModelInfo {
   provider: string;
   id: string;
   name: string;
+  /** Canonical slug: `${provider}/${id}` */
+  canonical: string;
   hasAuth: boolean;
 }
 
@@ -322,7 +455,12 @@ export async function getUserTestingConfig(cwd: string): Promise<{ maxConcurrenc
 
 /**
  * List all models available on this machine (from Pi's ModelRegistry).
+ *
+ * Refreshes the registry before listing to pick up any changes to models.json.
  * Uses AuthStorage to check which providers have API keys configured.
+ *
+ * Each returned entry includes a `canonical` field with the
+ * `${provider}/${id}` slug for use in ratel.json model fields.
  *
  * @param _cwd - Legacy project root (unused, kept for compatibility).
  * @param agentDir - Optional explicit Pi agent directory.
@@ -332,11 +470,15 @@ export async function listAvailableModels(_cwd: string, agentDir?: string): Prom
   const effectiveAgentDir = agentDir ?? getDefaultAgentDir();
   const modelRegistry = ModelRegistry.create(authStorage, join(effectiveAgentDir, "models.json"));
 
+  // Refresh to pick up any changes to models.json
+  modelRegistry.refresh();
+
   const models = modelRegistry.getAvailable();
   return models.map((m) => ({
     provider: m.provider,
     id: m.id,
     name: m.name ?? m.id,
+    canonical: `${m.provider}/${m.id}`,
     hasAuth: modelRegistry.hasConfiguredAuth(m),
   }));
 }

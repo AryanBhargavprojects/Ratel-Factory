@@ -4,6 +4,7 @@ import { JobStore } from "./job-store.js";
 import { runLegacyMigration } from "./legacy-migration.js";
 import type { JobExecutor } from "./job-runner.js";
 import type { MissionRecord, MissionJob, MissionJobType } from "./types.js";
+import { NoMissionProgressError } from "./progress-detector.js";
 
 export interface CreateMissionInput {
   goal: string;
@@ -99,6 +100,10 @@ export class MissionControlPlane {
       goal: input.goal,
       idempotencyKey: input.idempotencyKey,
     });
+
+    // Set current mission pointer so the Observatory dashboard can resolve
+    // the active mission without requiring a query param.
+    await this.missionStore.setCurrentMissionId(mission.missionId);
 
     const { job } = await this.jobStore.createJob({
       missionId: mission.missionId,
@@ -269,10 +274,17 @@ export class MissionControlPlane {
           });
         }
       } else {
+        // Extract error code: prefer NoMissionProgressError.code, fall back to err.name
+        const errorCode =
+          err instanceof NoMissionProgressError
+            ? err.code
+            : err instanceof Error
+              ? err.name
+              : "UNKNOWN";
         const error = {
-          code: err instanceof Error ? err.name : "UNKNOWN",
+          code: errorCode,
           message: err instanceof Error ? err.message : String(err),
-          retryable: true,
+          retryable: err instanceof NoMissionProgressError ? err.retryable : true,
         };
         await this.jobStore.requeue(job.missionId, job.jobId, error);
       }

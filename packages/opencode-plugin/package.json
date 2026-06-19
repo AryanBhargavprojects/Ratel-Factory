@@ -1,6 +1,6 @@
 {
   "name": "@ratel-factory/opencode",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Ratel OpenCode Plugin — Factory adapter for OpenCode",
   "publishConfig": {
     "access": "public"
@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@opencode-ai/plugin": "^1.1.10",
-    "@ratel-factory/core": "^0.1.1"
+    "@ratel-factory/core": "^0.2.0"
   },
   "devDependencies": {
     "tsx": "^4.0.0",

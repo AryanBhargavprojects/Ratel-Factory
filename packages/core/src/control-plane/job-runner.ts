@@ -12,6 +12,11 @@ import { BudgetExceededError } from "../core/budget/types.js";
 import { observeAgentSession } from "../core/observability/session-events.js";
 import { ModelRouter } from "../core/models/model-router.js";
 import { classifyAgentError } from "../core/models/error-classifier.js";
+import {
+  NoMissionProgressError,
+  hasDurableProgress,
+} from "./progress-detector.js";
+import type { RatelEvent } from "../core/observability/event-logger.js";
 
 export interface JobExecutor {
   execute(job: MissionJob, signal: AbortSignal): Promise<void>;
@@ -104,9 +109,59 @@ export class JobRunner implements JobExecutor {
           budgetManager: budget,
         });
 
+        // Collect event types for progress detection.
+        // We subscribe to the same session to capture tool events that
+        // observeAgentSession forwards to the logger.
+        const progressEvents: RatelEvent[] = [];
+        const progressUnsub = session.subscribe((event) => {
+          // We only need event_type for progress detection.
+          // Cast the session event to extract what we can.
+          const record = event && typeof event === "object" ? event as Record<string, unknown> : null;
+          if (record?.type) {
+            progressEvents.push({
+              timestamp: new Date().toISOString(),
+              event_type: String(record.type) as RatelEvent["event_type"],
+              trace_id: logger.getTraceId(),
+              span_id: "",
+              data: {},
+            });
+          }
+        });
+
         const wallClockSignal = budget.createWallClockAbortSignal(signal);
         const prompt = this.buildPrompt(job);
         await agent.prompt(prompt, wallClockSignal);
+
+        // Flush logger to ensure all events are persisted before we check progress
+        await logger.flush();
+
+        // ── Service-mode progress gate ──
+        // For orchestrator jobs (start_mission, continue_orchestrator),
+        // verify that the turn produced at least one durable progress marker.
+        // If not, throw NoMissionProgressError so the control plane does NOT
+        // mark the job succeeded.
+        if (job.type === "start_mission" || job.type === "continue_orchestrator") {
+          if (!hasDurableProgress(progressEvents)) {
+            // Also check the logger's flushed events as a fallback.
+            // The session subscription may not capture all event types
+            // (e.g., artifact_write emitted directly by tools).
+            const fileEvents = await readRecentEventsFromFile(scope);
+            const allEvents = [...progressEvents, ...fileEvents];
+
+            if (!hasDurableProgress(allEvents)) {
+              progressUnsub();
+              unsubscribe();
+              agent.dispose();
+              await logger.shutdown();
+              throw new NoMissionProgressError(
+                `Orchestrator job ${job.type} completed with no durable progress (${allEvents.length} events seen)`,
+                allEvents.length,
+              );
+            }
+          }
+        }
+
+        progressUnsub();
 
         // Success — record circuit success and clean up
         await models.recordSuccess(modelString);
@@ -199,5 +254,41 @@ export class JobRunner implements JobExecutor {
       default:
         return "";
     }
+  }
+}
+
+/**
+ * Read recent events from the mission's events.jsonl file.
+ * Used as a fallback when the in-memory session subscription may miss
+ * events emitted directly by tools (e.g., artifact_write).
+ */
+async function readRecentEventsFromFile(
+  scope: import("../core/mission/scope.js").MissionScope,
+): Promise<RatelEvent[]> {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const { getMissionDir } = await import("../core/mission/scope.js");
+
+    const eventsPath = join(getMissionDir(scope), "events.jsonl");
+    const raw = await readFile(eventsPath, "utf-8");
+    const lines = raw.trimEnd().split("\n").filter((l) => l.trim().length > 0);
+
+    // Parse the last 50 lines (enough to cover a single orchestrator turn)
+    const recent = lines.slice(-50);
+    const events: RatelEvent[] = [];
+    for (const line of recent) {
+      try {
+        const parsed = JSON.parse(line) as RatelEvent;
+        if (parsed.event_type && parsed.timestamp) {
+          events.push(parsed);
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return events;
+  } catch {
+    return [];
   }
 }

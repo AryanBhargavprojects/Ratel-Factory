@@ -5,8 +5,9 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   AuthStorage,
   createAgentSession,
@@ -47,7 +48,8 @@ import {
 import { spawnWorkerAgent } from "./workers/worker.js";
 import { spawnScrutinyValidator, spawnUserTestingValidator } from "./workers/validators.js";
 import type { MissionPhase, ArtifactName, Feature, ScrutinyReport, UserTestingReport } from "./types.js";
-import { getModelConfig, setModelConfig, listAvailableModels, resolveModel } from "./config.js";
+import { getModelConfig, setModelConfig, listAvailableModels, resolveModel, getDefaultAgentDir } from "./config.js";
+import type { ModelConfig } from "./config.js";
 import { pingAllAgents } from "./ping-agents.js";
 import { extractLastJsonLine, writeRawOutput } from "./utils/jsonl.js";
 import { ensureSkillsInstalled } from "./utils/skill-installer.js";
@@ -1261,7 +1263,9 @@ export function setModelTool(context: MissionExecutionContext) {
     description:
       "Set the model for a specific agent level. Three levels: orchestrator (also used by research, smart-friend, contract), " +
       "worker (used by all worker spawns), validator (used by scrutiny, code-review, user-testing). " +
-      "Format: 'provider/model-id' (e.g. 'anthropic/claude-sonnet-4'). Pass null or empty string to revert to SDK default. " +
+      "Format: 'provider/model-id' (e.g. 'openai-codex/gpt-5.4'). Pass null or empty string to revert to SDK default. " +
+      "The model is validated against the live model registry before persisting — unknown provider/model slugs are rejected. " +
+      "Provider aliases (e.g. 'openai' → 'openai-codex') are normalized to canonical slugs. " +
       "The model change takes effect on the next agent spawn — running agents are not affected.",
     parameters: Type.Object({
       level: Type.Union([
@@ -1270,20 +1274,52 @@ export function setModelTool(context: MissionExecutionContext) {
         Type.Literal("validator"),
       ], { description: "Agent level: orchestrator, worker, or validator" }),
       model: Type.String({
-        description: "Model in provider/model-id format (e.g. 'anthropic/claude-sonnet-4'). Pass '' to clear (revert to SDK default).",
+        description: "Model in provider/model-id format (e.g. 'openai-codex/gpt-5.4'). Pass '' to clear (revert to SDK default).",
       }),
     }),
     execute: async (_toolCallId, params) => {
       const model = params.model.trim() || null;
-      const updated = await setModelConfig(context.scope.projectRoot, params.level, model);
       const levelLabel = params.level.charAt(0).toUpperCase() + params.level.slice(1);
+
+      let resultConfig: ModelConfig;
+      let resultError: string | undefined;
+
+      try {
+        resultConfig = await setModelConfig(
+          context.scope.projectRoot,
+          params.level,
+          model,
+          getDefaultAgentDir(),
+        );
+        resultError = undefined;
+      } catch (err) {
+        resultConfig = await getModelConfig(context.scope.projectRoot);
+        resultError = err instanceof Error ? err.message : String(err);
+      }
+
       const modelLabel = model || "SDK default";
+      const details: { level: typeof params.level; model: string | null; config: ModelConfig; error: string | undefined } = {
+        level: params.level,
+        model,
+        config: resultConfig,
+        error: resultError,
+      };
+
+      if (resultError) {
+        return {
+          content: [{
+            type: "text",
+            text: `ERROR: ${resultError}\n\nThe model was NOT changed. Use list_models to see available models and their canonical slugs.`,
+          }],
+          details,
+        };
+      }
       return {
         content: [{
           type: "text",
-          text: `${levelLabel} model set to: ${modelLabel}\n\nCurrent model config:\n- Orchestrator: ${updated.orchestrator || "SDK default"}\n- Worker: ${updated.worker || "SDK default"}\n- Validator: ${updated.validator || "SDK default"}`,
+          text: `${levelLabel} model set to: ${modelLabel}\n\nCurrent model config:\n- Orchestrator: ${resultConfig.orchestrator || "SDK default"}\n- Worker: ${resultConfig.worker || "SDK default"}\n- Validator: ${resultConfig.validator || "SDK default"}`,
         }],
-        details: { level: params.level, model, config: updated },
+        details,
       };
     },
   });
@@ -1299,11 +1335,12 @@ export function listModelsTool(context: MissionExecutionContext) {
     label: "List Models",
     description:
       "List available models (from Pi's ModelRegistry) and current model configuration for all three agent levels. " +
-      "Shows which providers have API keys configured and which models are available.",
+      "Shows canonical provider/model-id slugs, which providers have API keys configured, and auth status. " +
+      "The registry is refreshed before listing to pick up any changes to models.json.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _params) => {
       const [availableModels, currentConfig] = await Promise.all([
-        listAvailableModels(context.scope.projectRoot),
+        listAvailableModels(context.scope.projectRoot, getDefaultAgentDir()),
         getModelConfig(context.scope.projectRoot),
       ]);
 
@@ -1322,13 +1359,16 @@ export function listModelsTool(context: MissionExecutionContext) {
         `- **Validator**: ${currentConfig.validator || "SDK default"}`,
         "",
         "## Available Models",
+        `_Use canonical slugs (provider/model-id) with set_model.`,
+        "",
       ];
 
       for (const [provider, models] of [...byProvider.entries()].sort()) {
-        lines.push(``);
-        lines.push(`### ${provider}`);
+        const authStatus = models[0]?.hasAuth ? "🔑 auth configured" : "⚠️ no auth";
+        lines.push(`### ${provider} (${authStatus})`);
         for (const m of models.sort((a, b) => a.id.localeCompare(b.id))) {
-          lines.push(`- ${m.provider}/${m.id}`);
+          const authIcon = m.hasAuth ? "🔑" : "⚠️";
+          lines.push(`- ${authIcon} \`${m.canonical}\` — ${m.name}`);
         }
       }
 
@@ -1338,7 +1378,17 @@ export function listModelsTool(context: MissionExecutionContext) {
 
       return {
         content: [{ type: "text", text: lines.join("\n") }],
-        details: { config: currentConfig, availableCount: availableModels.length },
+        details: {
+          config: currentConfig,
+          availableCount: availableModels.length,
+          models: availableModels.map((m) => ({
+            canonical: m.canonical,
+            provider: m.provider,
+            id: m.id,
+            name: m.name,
+            hasAuth: m.hasAuth,
+          })),
+        },
       };
     },
   });
@@ -1770,6 +1820,365 @@ export function markMissionCompletedTool(context: MissionExecutionContext) {
   });
 }
 
+/**
+ * ask_user — service-mode bridge for structured user questions.
+ *
+ * The Pi extension `ask_user` (`.pi/extensions/ratel-ask.ts`) drives the TUI
+ * (`ctx.ui.select`/`input`/`confirm`). In service mode there is no TUI, so the
+ * built-in returns immediately with `cancelled: true` / `null` answers,
+ * which causes intake loops. This custom tool overrides the extension tool
+ * (customTools are registered after extension tools in the pi tool registry)
+ * and bridges the gap:
+ *
+ * - Interactive / TUI mode (`ctx.hasUI`): replicates the extension's UI
+ *   behaviour so dev mode is preserved.
+ * - Service / headless mode (`!ctx.hasUI`): persists a durable pending
+ *   question under the mission dir, emits a `pending_question` event (which
+ *   counts as durable progress so the no-progress gate does not kill the
+ *   turn), and returns a structured `{ status: "waiting_for_user", ... }`
+ *   result instead of an empty/cancelled answer. The user's reply arrives
+ *   asynchronously via `POST /api/v1/missions/:id/messages` (or the answer
+ *   endpoint), which enqueues a `continue_orchestrator` job.
+ *
+ * Parameter shape is compatible with the Pi ask_user usage (`questions`
+ * array with `id`/`type`/`question`/`options`/etc.) and also tolerates
+ * simpler shapes (a bare `question` string, or a single `{question, options}`
+ * object without an enclosing array).
+ */
+export function askUserTool(context: MissionExecutionContext) {
+  return defineTool({
+    name: "ask_user",
+    label: "Ask User",
+    description:
+      "Present structured questions to the user and collect answers. " +
+      "Supports select (single choice), multi_select (multiple choices), " +
+      "text (free input), and confirm (yes/no) question types. " +
+      "In service mode, persists the question for asynchronous user reply " +
+      "via the Ratel API and returns a waiting_for_user status.",
+    promptSnippet: "Ask the user structured questions and collect answers",
+    promptGuidelines: [
+      "Use ask_user when you need the user's input on a decision, choice, or requirement.",
+      "Ask questions one at a time or in small groups (2-5 questions max).",
+      "For select questions, always include a sensible default option if one exists.",
+      "For confirm questions, frame the question so 'yes' means proceed and 'no' means stop.",
+    ],
+    parameters: Type.Object({
+      questions: Type.Array(
+        Type.Object({
+          id: Type.String({ description: "Unique identifier for this question" }),
+          question: Type.String({ description: "The question text to display to the user" }),
+          type: Type.Union([
+            Type.Literal("select"),
+            Type.Literal("multi_select"),
+            Type.Literal("text"),
+            Type.Literal("confirm"),
+          ], { description: "Question type" }),
+          options: Type.Optional(
+            Type.Array(Type.String(), {
+              description: "Options for select/multi_select.",
+            }),
+          ),
+          placeholder: Type.Optional(Type.String()),
+          required: Type.Optional(Type.Boolean({ default: true })),
+        }),
+        { description: "Questions to ask the user" },
+      ),
+    }),
+    execute: async (_toolCallId, params, signal, _onUpdate, ctx): Promise<{
+      content: { type: "text"; text: string }[];
+      details: Record<string, unknown>;
+    }> => {
+      const questions = normalizeAskUserParams(params);
+      context.logger.toolCall("ask_user", {
+        questionCount: questions.length,
+        serviceMode: !(ctx as { hasUI?: boolean } | undefined)?.hasUI,
+      });
+
+      const hasUI = (ctx as { hasUI?: boolean } | undefined)?.hasUI === true;
+
+      // ── Interactive / TUI mode: replicate the extension's UI behaviour ──
+      if (hasUI && ctx?.ui) {
+        const result = await runInteractiveAskUser(questions, ctx as {
+          ui: {
+            select: (q: string, opts: string[], o?: { signal?: AbortSignal }) => Promise<string | undefined>;
+            input: (q: string, placeholder?: string, o?: { signal?: AbortSignal }) => Promise<string | undefined>;
+            confirm: (q: string, _placeholder?: string, o?: { signal?: AbortSignal }) => Promise<boolean>;
+            setStatus: (key: string, value: string | undefined) => void;
+          };
+        }, signal);
+        context.logger.toolResult("ask_user", { mode: "interactive", answered: result.answers.length });
+        return {
+          content: [{ type: "text", text: JSON.stringify({ answers: result.answers }, null, 2) }],
+          details: { answers: result.answers, mode: "interactive" },
+        };
+      }
+
+      // ── Service / headless mode: persist + emit + return waiting status ──
+      const questionId = `q_${randomUUID()}`;
+      const missionDir = getMissionDir(context.scope);
+      await mkdir(missionDir, { recursive: true });
+
+      const now = new Date().toISOString();
+      const previewQuestion = questions[0]?.question ?? "";
+      const previewOptions = (questions[0]?.options ?? []).slice(0, 8);
+      const previewType = questions[0]?.type ?? "text";
+
+      const pendingRecord = {
+        questionId,
+        missionId: context.scope.missionId,
+        jobId: context.jobId,
+        questions,
+        status: "pending",
+        createdAt: now,
+      };
+
+      // Durable representation: pending-question.json (latest) + questions.jsonl (append-only)
+      await writeFile(
+        join(missionDir, "pending-question.json"),
+        JSON.stringify(pendingRecord, null, 2),
+        "utf-8",
+      );
+      await appendFile(
+        join(missionDir, "questions.jsonl"),
+        JSON.stringify(pendingRecord) + "\n",
+        "utf-8",
+      );
+
+      // Durable event so ratel_poll_status can stop and the no-progress gate passes.
+      context.logger.pendingQuestion({
+        questionId,
+        missionId: context.scope.missionId,
+        jobId: context.jobId,
+        question: truncateForPreview(previewQuestion, 300),
+        options: previewOptions,
+        questionType: previewType,
+        status: "waiting_for_user",
+      });
+
+      // Optional short wait for a synchronous answer file. Default 0s (do not
+      // hold service worker jobs). The answer normally arrives via an
+      // enqueued continue_orchestrator job, not by blocking this call.
+      const waitMs = resolveAskUserWaitMs();
+      if (waitMs > 0) {
+        const answered = await waitForAnswerFile(missionDir, questionId, waitMs, signal);
+        if (answered) {
+          context.logger.toolResult("ask_user", { mode: "service", answered: true, questionId });
+          return {
+            content: [{ type: "text", text: JSON.stringify({ answers: answered.answers, questionId }, null, 2) }],
+            details: { answers: answered.answers, questionId, mode: "service", status: "answered" },
+          };
+        }
+      }
+
+      context.logger.toolResult("ask_user", { mode: "service", answered: false, questionId });
+      const waitingResult = {
+        status: "waiting_for_user",
+        questionId,
+        missionId: context.scope.missionId,
+        question: previewQuestion,
+        options: previewOptions,
+        questionType: previewType,
+        questions,
+        instruction:
+          "No synchronous answer is available in service mode. The user's reply will arrive via POST /api/v1/missions/" +
+          context.scope.missionId +
+          "/messages (or the answer endpoint), which enqueues a continue_orchestrator job. End this turn; do NOT loop.",
+      };
+      return {
+        content: [{ type: "text", text: JSON.stringify(waitingResult, null, 2) }],
+        details: { ...waitingResult, mode: "service" },
+      };
+    },
+  });
+}
+
+/** Normalize ask_user params into a canonical questions array, tolerating simpler shapes. */
+function normalizeAskUserParams(params: Record<string, unknown>): Array<{
+  id: string;
+  question: string;
+  type: "select" | "multi_select" | "text" | "confirm";
+  options?: string[];
+  placeholder?: string;
+  required?: boolean;
+}> {
+  const raw = params as {
+    questions?: unknown;
+    question?: unknown;
+    options?: unknown;
+    type?: unknown;
+    id?: unknown;
+    placeholder?: unknown;
+    required?: unknown;
+  };
+
+  let rawQuestions: unknown[] | undefined;
+  if (Array.isArray(raw.questions)) {
+    rawQuestions = raw.questions;
+  } else if (typeof raw.question === "string" || (raw.question && typeof raw.question === "object")) {
+    // Bare single question shape: { question, options, type }
+    rawQuestions = [raw];
+  } else if (Array.isArray(raw.options)) {
+    // { options: [...] } with no question text
+    rawQuestions = [raw];
+  }
+
+  const list = rawQuestions ?? [];
+  const normalized = list.map((entry, idx): {
+    id: string;
+    question: string;
+    type: "select" | "multi_select" | "text" | "confirm";
+    options?: string[];
+    placeholder?: string;
+    required?: boolean;
+  } => {
+    const e = (entry ?? {}) as Record<string, unknown>;
+    const type = normalizeQuestionType(e.type);
+    const options = Array.isArray(e.options) ? e.options.filter((o): o is string => typeof o === "string") : undefined;
+    const question = typeof e.question === "string" ? e.question : typeof e === "string" ? e : "";
+    return {
+      id: typeof e.id === "string" ? e.id : `q_${idx}`,
+      question,
+      type,
+      options,
+      placeholder: typeof e.placeholder === "string" ? e.placeholder : undefined,
+      required: typeof e.required === "boolean" ? e.required : true,
+    };
+  });
+
+  return normalized.length > 0
+    ? normalized
+    : [{ id: "q_0", question: "", type: "text" }];
+}
+
+function normalizeQuestionType(t: unknown): "select" | "multi_select" | "text" | "confirm" {
+  if (t === "select" || t === "multi_select" || t === "text" || t === "confirm") return t;
+  return "text";
+}
+
+function truncateForPreview(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max) + "…";
+}
+
+/** Resolve the optional service-mode ask_user synchronous wait window (0-2000ms). */
+function resolveAskUserWaitMs(): number {
+  const raw = process.env.RATEL_ASK_USER_WAIT_MS;
+  if (raw === undefined) return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(2000, Math.round(n));
+}
+
+/**
+ * Best-effort short wait for an answer file written by the answer endpoint.
+ * Returns parsed answers if the file appears within waitMs, else undefined.
+ */
+async function waitForAnswerFile(
+  missionDir: string,
+  questionId: string,
+  waitMs: number,
+  signal?: AbortSignal,
+): Promise<{ answers: unknown } | undefined> {
+  const path = join(missionDir, "pending-question.json");
+  const deadline = Date.now() + waitMs;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) return undefined;
+    try {
+      const raw = await readFile(path, "utf-8");
+      const parsed = JSON.parse(raw) as { questionId?: string; status?: string; answer?: unknown; answers?: unknown };
+      if (parsed.questionId === questionId && parsed.status === "answered") {
+        const answers = parsed.answers ?? (parsed.answer !== undefined ? [{ id: questionId, answer: parsed.answer }] : undefined);
+        return { answers: answers ?? [] };
+      }
+    } catch {
+      // file missing or invalid — keep waiting
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return undefined;
+}
+
+/** Replicate the ratel-ask extension's interactive UI flow for dev/TUI mode. */
+async function runInteractiveAskUser(
+  questions: Array<{ id: string; question: string; type: string; options?: string[]; placeholder?: string; required?: boolean }>,
+  ctx: {
+    ui: {
+      select: (q: string, opts: string[], o?: { signal?: AbortSignal }) => Promise<string | undefined>;
+      input: (q: string, placeholder?: string, o?: { signal?: AbortSignal }) => Promise<string | undefined>;
+      confirm: (q: string, _placeholder?: string, o?: { signal?: AbortSignal }) => Promise<boolean>;
+      setStatus: (key: string, value: string | undefined) => void;
+    };
+  },
+  signal?: AbortSignal,
+): Promise<{ answers: Array<{ id: string; question: string; answer: string | string[] | null; cancelled?: boolean }> }> {
+  const FREE_TEXT_OPTION = "(Type your own answer)";
+  const SKIP_OPTION = "";
+  const DONE_OPTION = "Done";
+  const answers: Array<{ id: string; question: string; answer: string | string[] | null; cancelled?: boolean }> = [];
+  const total = questions.length;
+
+  for (let i = 0; i < total; i++) {
+    const q = questions[i];
+    ctx.ui.setStatus("ratel-ask", `Question ${i + 1} of ${total}: ${q.question}`);
+    let answer: string | string[] | null = null;
+    let cancelled = false;
+    let skip = false;
+
+    try {
+      switch (q.type) {
+        case "select": {
+          const opts = [...(q.options ?? []), SKIP_OPTION, FREE_TEXT_OPTION];
+          const result = await ctx.ui.select(q.question, opts, { signal });
+          if (result === undefined) cancelled = true;
+          else if (result === SKIP_OPTION) skip = true;
+          else if (result === FREE_TEXT_OPTION) {
+            const custom = await ctx.ui.input(q.question, "Your answer", { signal });
+            if (custom === undefined) cancelled = true;
+            else answer = custom;
+          } else answer = result;
+          break;
+        }
+        case "multi_select": {
+          const selected: string[] = [];
+          const remaining = [...(q.options ?? [])];
+          while (remaining.length > 0) {
+            const header = selected.length === 0 ? "none" : selected.join(", ");
+            const opts = [...remaining, SKIP_OPTION, DONE_OPTION];
+            const result = await ctx.ui.select(`${q.question}\nSelected: ${header}`, opts, { signal });
+            if (result === undefined || result === DONE_OPTION) break;
+            if (result === SKIP_OPTION) continue;
+            selected.push(result);
+            const idx = remaining.indexOf(result);
+            if (idx >= 0) remaining.splice(idx, 1);
+          }
+          answer = selected.length > 0 ? selected : null;
+          break;
+        }
+        case "text": {
+          const result = await ctx.ui.input(q.question, q.placeholder ?? "", { signal });
+          if (result === undefined) cancelled = true;
+          else answer = result;
+          break;
+        }
+        case "confirm": {
+          const result = await ctx.ui.confirm(q.question, "", { signal });
+          answer = result ? "yes" : "no";
+          break;
+        }
+      }
+    } catch {
+      cancelled = true;
+    }
+
+    if (skip) continue;
+    answers.push({ id: q.id, question: q.question, answer, cancelled });
+    if (cancelled && (q.required ?? true)) break;
+  }
+
+  ctx.ui.setStatus("ratel-ask", undefined);
+  return { answers };
+}
+
 /** Create orchestrator custom tools from a mission execution context. */
 export function createOrchestratorTools(context: MissionExecutionContext) {
   return [
@@ -1792,6 +2201,10 @@ export function createOrchestratorTools(context: MissionExecutionContext) {
     ensureSkillsInstalledTool(context),
     getFeatureComplexityTool(context),
     waitForUserApprovalTool(context),
+    // ask_user is registered last so it overrides the pi extension's
+    // `.pi/extensions/ratel-ask.ts` tool of the same name (customTools are
+    // applied after extension-registered tools in the pi tool registry).
+    askUserTool(context),
   ];
 }
 

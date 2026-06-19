@@ -13,6 +13,19 @@ import { RatelServiceClient } from "./service.js";
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Logger abstraction for service lifecycle diagnostics.
+ *
+ * When provided (e.g. from the OpenCode plugin ctx), messages route
+ * through the app log channel instead of raw stdout/stderr.  This
+ * prevents lifecycle messages from leaking into the OpenCode
+ * composer / input bar.
+ */
+export type ServiceLogger = (
+  level: "info" | "warning" | "error",
+  message: string,
+) => void | Promise<void>;
+
 export interface ServicePortfile {
   pid: number;
   url: string;
@@ -20,6 +33,41 @@ export interface ServicePortfile {
   cwd: string;
   startedAt: string;
   version: string;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a log function that respects the injected logger, falling
+ * back to console only when no logger is available.
+ *
+ * - Info messages are gated behind RATEL_OPENCODE_DEBUG=1 when no
+ *   logger is present (routine discovery/startup diagnostics).
+ * - Warnings and errors always reach the logger; when no logger is
+ *   available they fall back to console.error (user-relevant).
+ *
+ * The env var is read at call time so tests can toggle it.
+ */
+function createLog(
+  logger?: ServiceLogger,
+): (level: "info" | "warning" | "error", message: string) => Promise<void> {
+  return async (level, message) => {
+    try {
+      if (logger) {
+        await Promise.resolve(logger(level, message));
+      } else if (level === "error" || level === "warning") {
+        const prefix =
+          level === "error" ? "[Ratel ERROR]" : "[Ratel WARN]";
+        console.error(`${prefix} ${message}`);
+      } else if (process.env.RATEL_OPENCODE_DEBUG === "1") {
+        console.log(`[Ratel] ${message}`);
+      }
+    } catch {
+      // Never let logging errors propagate
+    }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +129,11 @@ async function healthCheck(url: string): Promise<boolean> {
  */
 export async function ensureRatelService(
   projectRoot: string,
+  logger?: ServiceLogger,
+  _spawn?: typeof spawn,
 ): Promise<RatelServiceClient | null> {
+  const log = createLog(logger);
+
   // 1. Check for existing portfile
   const portfile = await readServicePortfile(projectRoot);
 
@@ -90,21 +142,22 @@ export async function ensureRatelService(
     const healthy = await healthCheck(portfile.url);
 
     if (healthy && portfile.cwd === projectRoot) {
-      console.log(`[Ratel] Discovered running service at ${portfile.url}`);
+      await log("info", `Discovered running service at ${portfile.url}`);
       return new RatelServiceClient(portfile.url);
     }
 
     // Portfile exists but service isn't healthy or cwd mismatch
     if (!healthy) {
-      console.log(
-        `[Ratel] Existing portfile found but service at ${portfile.url} is not healthy. Starting a new one.`,
+      await log(
+        "info",
+        `Existing portfile found but service at ${portfile.url} is not healthy. Starting a new one.`,
       );
     }
   }
 
   // 3. No healthy service — spawn one
-  console.log(`[Ratel] Starting service for project: ${projectRoot}`);
-  return waitForService(projectRoot, 15000);
+  await log("info", `Starting service for project: ${projectRoot}`);
+  return waitForService(projectRoot, 15000, logger, _spawn);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,20 +174,25 @@ export async function ensureRatelService(
 export async function waitForService(
   projectRoot: string,
   timeoutMs: number,
+  logger?: ServiceLogger,
+  _spawn?: typeof spawn,
 ): Promise<RatelServiceClient | null> {
+  const log = createLog(logger);
+  const doSpawn = _spawn ?? spawn;
+
   return new Promise((resolve) => {
     let child: ChildProcess;
     try {
-      child = spawn("ratel", ["--serve"], {
+      child = doSpawn("ratel", ["--serve"], {
         cwd: projectRoot,
         stdio: "ignore",
         detached: false,
       });
     } catch (err) {
-      console.error(
-        `[Ratel] Failed to spawn ratel process: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      resolve(null);
+      log(
+        "error",
+        `Failed to spawn ratel process: ${err instanceof Error ? err.message : String(err)}`,
+      ).finally(() => resolve(null));
       return;
     }
 
@@ -151,34 +209,35 @@ export async function waitForService(
 
     child.on("exit", (code, signal) => {
       if (!settled) {
-        console.error(
-          `[Ratel] Service process exited (code=${code}, signal=${signal}) before becoming ready.`,
-        );
-        done(null);
+        log(
+          "error",
+          `Service process exited (code=${code}, signal=${signal}) before becoming ready.`,
+        ).finally(() => done(null));
       }
     });
 
     child.on("error", (err) => {
       if (!settled) {
-        console.error(
-          `[Ratel] Service process error: ${err.message}`,
+        log("error", `Service process error: ${err.message}`).finally(() =>
+          done(null),
         );
-        done(null);
       }
     });
 
     const interval = setInterval(async () => {
       // Timeout guard
       if (Date.now() - startTime > timeoutMs) {
-        console.error(
-          `[Ratel] Timed out after ${timeoutMs}ms waiting for service to start.`,
-        );
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          // Process may have already exited
-        }
-        done(null);
+        log(
+          "error",
+          `Timed out after ${timeoutMs}ms waiting for service to start.`,
+        ).finally(() => {
+          try {
+            child.kill("SIGTERM");
+          } catch {
+            // Process may have already exited
+          }
+          done(null);
+        });
         return;
       }
 
@@ -187,7 +246,7 @@ export async function waitForService(
       if (pf && pf.cwd === projectRoot) {
         const healthy = await healthCheck(pf.url);
         if (healthy) {
-          console.log(`[Ratel] Auto-started service at ${pf.url}`);
+          await log("info", `Auto-started service at ${pf.url}`);
           done(new RatelServiceClient(pf.url));
         }
       }

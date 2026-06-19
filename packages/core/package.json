@@ -1,6 +1,6 @@
 {
   "name": "@ratel-factory/core",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Ratel AI Software Factory — Core Service",
   "publishConfig": {
     "access": "public"
@@ -40,7 +40,7 @@
     "build": "tsc && node -e \"require('fs').cpSync('src/observatory/dashboard.html','dist/observatory/dashboard.html')\"",
     "dev": "tsx src/index.ts --serve",
     "start": "node dist/index.js --serve",
-    "test": "echo 'No tests in @ratel-factory/core yet'"
+    "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.0",
