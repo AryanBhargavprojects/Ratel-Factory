@@ -1,6 +1,9 @@
+import Link from 'next/link';
 import { getAllContent } from '@/lib/db';
 import { searchContent } from '@/lib/search';
 import { submitContent } from '@/lib/actions';
+import { ContentForm } from '@/components/ContentForm';
+import { makePreview } from '@/lib/content';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,15 +21,7 @@ export default async function HomePage({ searchParams }: PageProps) {
 
       <section aria-labelledby="store-heading">
         <h2 id="store-heading">Store content</h2>
-        <form action={submitContent as unknown as (formData: FormData) => void}>
-          <label htmlFor="title">Title</label>
-          <input id="title" name="title" type="text" placeholder="Enter a title" required />
-
-          <label htmlFor="body">Body</label>
-          <textarea id="body" name="body" placeholder="Enter the content body" required />
-
-          <button type="submit">Store content</button>
-        </form>
+        <ContentForm action={submitContent} />
       </section>
 
       <section aria-labelledby="search-heading">
@@ -52,8 +47,12 @@ export default async function HomePage({ searchParams }: PageProps) {
           <ul>
             {results.map((item) => (
               <li key={item.id}>
-                <strong>{item.title}</strong>
-                <p>{item.body}</p>
+                <article>
+                  <h3>
+                    <Link href={`/content/${item.id}`}>{item.title}</Link>
+                  </h3>
+                  <p>{makePreview(item.body)}</p>
+                </article>
               </li>
             ))}
           </ul>

@@ -8,11 +8,14 @@ process.env.SQLITE_DB_PATH = join(tmpDir, 'app.db');
 
 let submitContent: (formData: FormData) => Promise<{ success: boolean; id?: number; error?: string }>;
 let searchContentAction: (formData: FormData) => Promise<{ success: boolean; results?: import('@/lib/search').SearchResult[]; error?: string }>;
+let getAllContent: () => import('@/lib/db').Content[];
 
 beforeAll(async () => {
   const actions = await import('@/lib/actions');
+  const db = await import('@/lib/db');
   submitContent = actions.submitContent;
   searchContentAction = actions.searchContentAction;
+  getAllContent = db.getAllContent;
 });
 
 afterAll(() => {
@@ -53,5 +56,36 @@ describe('server actions', () => {
     const result = await submitContent(formData);
     expect(result.success).toBe(false);
     expect(result.error).toBeTruthy();
+  });
+
+  it('rejects a missing title with a clear message', async () => {
+    const formData = new FormData();
+    formData.set('title', '');
+    formData.set('body', 'Body without title');
+
+    const result = await submitContent(formData);
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Title is required.');
+  });
+
+  it('rejects a missing body with a clear message', async () => {
+    const formData = new FormData();
+    formData.set('title', 'Title only');
+    formData.set('body', '');
+
+    const result = await submitContent(formData);
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Body is required.');
+  });
+
+  it('does not persist content when validation fails', async () => {
+    const before = getAllContent().length;
+
+    const formData = new FormData();
+    formData.set('title', '');
+    formData.set('body', 'Body without title');
+
+    await submitContent(formData);
+    expect(getAllContent().length).toBe(before);
   });
 });

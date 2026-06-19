@@ -46,4 +46,16 @@ describe('persistence', () => {
     const content = getContentById(999999);
     expect(content).toBeUndefined();
   });
+
+  it('stores and retrieves long ordinary text without truncation', () => {
+    const longBody = 'word '.repeat(1200).trim();
+    expect(longBody.length).toBeGreaterThanOrEqual(5000);
+
+    const id = storeContent('Long note', longBody);
+    const content = getContentById(id);
+
+    expect(content).toBeDefined();
+    expect(content?.body).toBe(longBody);
+    expect(content?.body.length).toBe(longBody.length);
+  });
 });
