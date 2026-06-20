@@ -67,13 +67,21 @@ The primary supported end-user path is the **OpenCode adapter**. It installs the
 ### 1. Automated Installation (OpenCode)
 
 ```bash
-curl -fsSL http://209.97.168.207/install-opencode.sh | bash
+curl -fsSL https://ratelfactory.dev/install-opencode.sh | bash
+```
+
+To pin a specific release instead of npm `latest`:
+
+```bash
+RATEL_VERSION=0.2.0 bash <(curl -fsSL https://ratelfactory.dev/install-opencode.sh)
 ```
 
 This script will automatically:
 *   Install the latest `@ratel-factory/core` and `@ratel-factory/opencode` packages from npm.
 *   Add the `@ratel-factory/opencode` plugin hook configuration inside your `opencode.json`.
 *   Install command stubs (`/ratel`, `/ratel-mission`, `/ratel-observatory`) and the `ratel-factory` OpenCode skill.
+*   Configure the OpenCode plugin tools for starting missions, polling low-token status, answering intake questions, approving plans, and running workers/validators.
+*   Bridge OpenCode API-key credentials into Pi/Ratel auth so factory agents can use the same provider keys and model namespaces as OpenCode.
 *   Clean up stale legacy packages, stale `.ratel/service.json` metadata, and running Ratel service processes so an outdated service cannot be reused.
 
 After installing, open OpenCode in a project and run:
@@ -87,7 +95,7 @@ After installing, open OpenCode in a project and run:
 ### 2. Pi SDK (development / direct mode)
 
 ```bash
-curl -fsSL http://209.97.168.207/install-pi.sh | bash
+curl -fsSL https://ratelfactory.dev/install-pi.sh | bash
 ```
 
 Once completed, activate the extension inside your Pi session:
@@ -111,6 +119,9 @@ npm install
 
 # Build all packages
 npm run build:all
+
+# Install the local OpenCode adapter build
+bash install/install-opencode.sh --dev
 
 # Start the factory in direct, interactive mode
 npm run dev
@@ -372,6 +383,9 @@ ratel/
 │   │   │   ├── service.ts        # HTTP client
 │   │   │   ├── service-lifecycle.ts # Service discovery/auto-start
 │   │   │   ├── auth-bridge.ts    # OpenCode → Pi/Ratel auth bridge
+│   │   │   ├── auth-sync-watcher.ts # OpenCode auth.json watcher/fallback sync
+│   │   │   ├── polling.ts        # Low-token mission polling helpers
+│   │   │   ├── logging.ts        # OpenCode app-log safe logger
 │   │   │   ├── resolve-project-root.ts # OpenCode cwd/worktree resolver
 │   │   │   ├── commands.ts       # Command handlers
 │   │   │   └── prompts.ts        # Prompts
@@ -435,7 +449,7 @@ When the factory starts, it launches a read-only observatory dashboard:
 
 ### OpenCode Plugin (`@ratel-factory/opencode`)
 
-Current prepared package version: `@ratel-factory/opencode@0.1.3` with `@ratel-factory/core@0.1.1`.
+Current prepared package version: `@ratel-factory/opencode@0.2.0` with `@ratel-factory/core@0.2.0`.
 
 **Commands:**
 - `/ratel` — Ping factory health and all six factory agents. This is health/status only: it does **not** start a mission, inspect the codebase, or modify project state.
@@ -452,18 +466,34 @@ Current prepared package version: `@ratel-factory/opencode@0.1.3` with `@ratel-f
 
 **Tools:**
 - `ratel_start_mission` — Start a new mission with a goal
+- `ratel_poll_status` — Poll mission events until a compact stop condition is reached (`orchestrator_question`, `phase_change`, `mission_complete`, or `halted`)
+- `ratel_send_message` — Send a free-form user reply or clarification back to the orchestrator during intake/discovery
+- `ratel_answer_question` — Answer a specific pending question returned by polling
+- `ratel_approve_mission` — Approve or reject the generated mission plan/validation contract
 - `ratel_get_status` — Get mission status
 - `ratel_run_worker` — Run a worker for a feature
 - `ratel_run_validation` — Run validation for a milestone
 - `ratel_ping_agents` — Ping all factory agents and report per-agent health
 
+**OpenCode mission loop:**
+1. Start a mission with `ratel_start_mission`.
+2. Call `ratel_poll_status` instead of streaming raw events into the chat context.
+3. If polling returns `stopReason: "orchestrator_question"`, show the returned `pendingQuestion` or `assistantMessage` to the user.
+4. Send the user reply with `ratel_answer_question` when a `questionId` is present, or `ratel_send_message` for free-form clarification.
+5. Poll again until approval, worker execution, halt, or mission completion.
+
 **Service lifecycle:**
 - The plugin auto-discovers a local Ratel service using `.ratel/service.json` in the project root.
 - If no healthy service exists, it starts `ratel --serve` for the project.
 - The plugin rejects filesystem-root worktrees such as `/` and falls back to the actual OpenCode directory so `ratel.json` is found correctly.
+- Service-mode orchestrator text, pending questions, and durable progress are written to mission events so OpenCode can safely poll without relying on hidden stdout.
 
 **Auth bridge:**
 - The plugin reuses existing OpenCode API credentials, especially `opencode-go`, by bridging OpenCode auth into Pi/Ratel auth.
+- Changed OpenCode API keys overwrite stale Pi/Ratel keys for bridge-managed providers.
+- Providers removed from OpenCode are removed from Pi/Ratel auth only when they were previously bridge-managed; unrelated manual Pi providers are preserved.
+- The bridge stores non-secret provider metadata and key hashes in `.ratel/provider-namespaces.json`; it never stores raw keys outside the Pi auth file.
+- Sync runs before agent-spawning/orchestrator-waking tools and also watches OpenCode `auth.json` with a debounced filesystem watcher plus periodic fallback.
 - V1 defaults to using the same OpenCode model for all factory agents. Users can later change specific agent models in `ratel.json`.
 
 ### Pi Extension (`@ratel-factory/pi-extension`)
@@ -501,6 +531,8 @@ POST /api/v1/missions/:missionId/workers  → { featureId } → 202 { jobId, sta
 POST /api/v1/missions/:missionId/validations → { milestoneId } → 202 { jobId, status: "queued" }
 POST /api/v1/missions/:missionId/user-testing → { milestoneId } → 202 { jobId, status: "queued" }
 POST /api/v1/missions/:missionId/approval → { approved: bool, feedback?, files? } → 202 { jobId, status: "queued" }
+POST /api/v1/missions/:missionId/messages → { message, questionId? } → 202 { jobId, status: "queued" }
+POST /api/v1/missions/:missionId/questions/:questionId/answer → { answer } → 202 { jobId, status: "queued" }
 GET  /api/v1/missions/:missionId/events   → { events: [...] }
 GET  /api/v1/missions/:missionId/events/stream → SSE stream
 GET  /api/observatory/status              → { enabled, url }
