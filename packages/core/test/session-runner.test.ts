@@ -3,12 +3,13 @@ import assert from "node:assert";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runSessionWithFailover } from "../src/core/models/session-runner.js";
+import { runSessionWithFailover, collectResponse } from "../src/core/models/session-runner.js";
 import { ModelRouter } from "../src/core/models/model-router.js";
 import { BudgetManager } from "../src/core/budget/budget-manager.js";
 import { createMissionScope, getMissionDir } from "../src/core/mission/scope.js";
 import type { MissionExecutionContext } from "../src/core/mission/execution-context.js";
 import type { ResolvedModel } from "../src/core/models/error-classifier.js";
+import { EmptyOutputError, classifyAgentError } from "../src/core/models/error-classifier.js";
 
 describe("session-runner", () => {
   async function setupContext(overrides: Partial<MissionExecutionContext> = {}): Promise<MissionExecutionContext> {
@@ -259,6 +260,103 @@ describe("session-runner", () => {
         assert.ok(err.message.includes("Final failure message"));
         return true;
       }
+    );
+
+    await rm(ctx.scope.projectRoot, { recursive: true, force: true });
+  });
+
+  // ── Wave 3: empty output classification and retry ──
+
+  it("collectResponse throws EmptyOutputError on a 0-byte response", async () => {
+    const fakeSession = {
+      subscribe: (_cb: (event: unknown) => void) => () => {},
+      prompt: async (_p: string) => {},
+    } as any;
+
+    await assert.rejects(
+      collectResponse(fakeSession, "hi"),
+      (err: unknown) => {
+        assert.ok(err instanceof EmptyOutputError, "expected EmptyOutputError");
+        return true;
+      },
+    );
+  });
+
+  it("collectResponse throws EmptyOutputError on a whitespace-only response", async () => {
+    const fakeSession = {
+      subscribe: (cb: (event: any) => void) => {
+        cb({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "   \n\t " } });
+        return () => {};
+      },
+      prompt: async (_p: string) => {},
+    } as any;
+
+    await assert.rejects(
+      collectResponse(fakeSession, "hi"),
+      (err: unknown) => {
+        assert.ok(err instanceof EmptyOutputError);
+        return true;
+      },
+    );
+  });
+
+  it("collectResponse returns non-empty text unchanged", async () => {
+    const fakeSession = {
+      subscribe: (cb: (event: any) => void) => {
+        cb({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hello world" } });
+        return () => {};
+      },
+      prompt: async (_p: string) => {},
+    } as any;
+
+    const result = await collectResponse(fakeSession, "hi");
+    assert.strictEqual(result, "hello world");
+  });
+
+  it("retries empty output once and falls back to the next model", async () => {
+    const ctx = await setupContext();
+    const attemptedModels: string[] = [];
+    let callCount = 0;
+
+    const result = await runSessionWithFailover({
+      context: ctx,
+      role: "orchestrator",
+      attempt: async (model) => {
+        attemptedModels.push(model.modelString);
+        callCount++;
+        if (callCount === 1) {
+          throw new EmptyOutputError("primary produced no output");
+        }
+        return "fallback-success";
+      },
+    });
+
+    assert.strictEqual(result, "fallback-success");
+    assert.strictEqual(attemptedModels.length, 2);
+    assert.strictEqual(attemptedModels[0], "test/primary");
+    assert.strictEqual(attemptedModels[1], "test/fallback");
+
+    await rm(ctx.scope.projectRoot, { recursive: true, force: true });
+  });
+
+  it("halts with empty_output classification when all attempts return empty", async () => {
+    const ctx = await setupContext();
+
+    await assert.rejects(
+      async () => runSessionWithFailover({
+        context: ctx,
+        role: "orchestrator",
+        attempt: async () => {
+          throw new EmptyOutputError("no output from model");
+        },
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof EmptyOutputError, "expected EmptyOutputError after all-empty attempts");
+        const classified = classifyAgentError(err);
+        assert.strictEqual(classified.category, "empty_output");
+        assert.strictEqual(classified.retryable, true);
+        return true;
+      },
     );
 
     await rm(ctx.scope.projectRoot, { recursive: true, force: true });

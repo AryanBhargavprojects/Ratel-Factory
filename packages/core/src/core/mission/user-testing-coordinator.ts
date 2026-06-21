@@ -18,6 +18,7 @@ import type {
   ReportSource,
 } from "../types.js";
 import { createReportReceiver, persistSubmittedReport } from "../report-submission.js";
+import { EmptyOutputError } from "../models/error-classifier.js";
 import { extractLastJsonLine, writeRawOutput } from "../utils/jsonl.js";
 import { getUserTestingConfig } from "../config.js";
 import type { EventLogger } from "../observability/event-logger.js";
@@ -169,6 +170,7 @@ export async function runShard(
   let responseText = "";
   let timedOut = false;
   let error: string | undefined;
+  let failureCategory: "empty_output" | "parse_failure" | undefined;
   let shardReceiver: ReturnType<typeof import("../workers/validators.js").createSubmitUserTestingShardReportTool>["receiver"] | undefined;
 
   try {
@@ -176,8 +178,16 @@ export async function runShard(
     responseText = shardResult.response;
     shardReceiver = shardResult.receiver;
   } catch (err) {
-    error = err instanceof Error ? err.message : String(err);
-    timedOut = error.includes("timeout");
+    if (err instanceof EmptyOutputError) {
+      // 0-byte output after retry: classify as `empty_output` (infrastructure
+      // failure), NOT parse_failure.
+      failureCategory = "empty_output";
+      error = err.message;
+      timedOut = false;
+    } else {
+      error = err instanceof Error ? err.message : String(err);
+      timedOut = error.includes("timeout");
+    }
   }
 
   // Persist raw output
@@ -211,6 +221,12 @@ export async function runShard(
     });
   }
 
+  // If the shard produced no text at all, keep `empty_output` classification
+  // instead of letting the missing report collapse into a generic parse_failure.
+  if (!report && failureCategory === undefined && error) {
+    failureCategory = "parse_failure";
+  }
+
   return {
     shard,
     parseStatus: report ? "ok" : "failed",
@@ -221,6 +237,7 @@ export async function runShard(
     durationMs,
     timedOut,
     error,
+    failureCategory,
   };
 }
 

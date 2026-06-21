@@ -9,7 +9,7 @@ import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsMana
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { MissionExecutionContext } from "../mission/execution-context.js";
 import type { AgentRole } from "./model-router.js";
-import { classifyAgentError, type ResolvedModel } from "./error-classifier.js";
+import { classifyAgentError, EmptyOutputError, type ResolvedModel } from "./error-classifier.js";
 import { BudgetExceededError } from "../budget/types.js";
 import { resolveModel } from "../config.js";
 
@@ -23,15 +23,18 @@ export interface SessionRunnerOptions<T> {
 /**
  * Collect the full text response from a session after prompting.
  *
- * Logs a warning when the response is empty AND the session ended very quickly
- * (< 1 second) — this is a strong signal that the model never actually ran.
- * Common causes:
+ * A 0-byte / whitespace-only response is treated as a retryable
+ * `EmptyOutputError` (category `empty_output`). Throwing here lets
+ * `runSessionWithFailover` classify the failure and retry / fall back to the
+ * next model candidate. The mission only halts when retry AND failover also
+ * return empty. Parse failures remain a separate, non-retryable category —
+ * they are produced by JSONL parsers downstream, not here.
+ *
+ * Common causes of an empty response:
  *   - Model resolution failure (resolveModel returned undefined)
  *   - Provider not configured (e.g., Azure fallback when no Azure creds)
  *   - API error before any tokens were generated
- * Without this warning, the empty response is silently propagated to the
- * tool layer, which then reports "contract writer produced no artifacts"
- * without indicating the real cause.
+ *   - Non-text output (image / tool-only turn)
  */
 export async function collectResponse(session: AgentSession, prompt: string): Promise<string> {
   let response = "";
@@ -53,20 +56,60 @@ export async function collectResponse(session: AgentSession, prompt: string): Pr
 
   const durationMs = Date.now() - startTime;
 
-  if (response.length === 0 && durationMs < 1000) {
-    console.warn(
-      `[collectResponse] Agent produced no output in ${durationMs}ms — ` +
-        `possible model resolution failure, missing API credentials, upstream API error, or non-text output. ` +
-        `Empty response will propagate to the calling tool.`,
-    );
-  } else if (response.length === 0) {
-    console.warn(
-      `[collectResponse] Agent produced no output in ${durationMs}ms. ` +
-        `Empty response will propagate to the calling tool.`,
+  if (response.trim().length === 0) {
+    if (durationMs < 1000) {
+      console.warn(
+        `[collectResponse] Agent produced no output in ${durationMs}ms — ` +
+          `possible model resolution failure, missing API credentials, upstream API error, or non-text output. ` +
+          `Throwing EmptyOutputError (retryable).`,
+      );
+    } else {
+      console.warn(
+        `[collectResponse] Agent produced no output in ${durationMs}ms. ` +
+          `Throwing EmptyOutputError (retryable).`,
+      );
+    }
+    throw new EmptyOutputError(
+      `Agent produced empty output after ${durationMs}ms (no text deltas received).`,
     );
   }
 
   return response;
+}
+
+/**
+ * Collect a response with a single automatic retry on empty output.
+ *
+ * Worker / validator / shard spawns do not always route through
+ * `runSessionWithFailover` (which handles model failover). To close the
+ * Issue #3 gap for those local spawns, this helper wraps `collectResponse`
+ * and re-attempts the prompt exactly once when the first attempt produces a
+ * 0-byte / whitespace-only response.
+ *
+ * Semantics:
+ *   - First attempt non-empty → return immediately (one prompt).
+ *   - First attempt empty (`EmptyOutputError`) → retry once on the SAME
+ *     session. A non-empty retry returns.
+ *   - Retry also empty → rethrow `EmptyOutputError` so the caller can
+ *     classify the failure as `empty_output` (NOT `parse_failure`).
+ *
+ * This intentionally does NOT create a fresh session — keeping the change
+ * localized to response collection. Broad failover remains the job of
+ * `runSessionWithFailover`.
+ */
+export async function collectResponseWithRetry(
+  session: AgentSession,
+  prompt: string,
+): Promise<string> {
+  try {
+    return await collectResponse(session, prompt);
+  } catch (err) {
+    if (!(err instanceof EmptyOutputError)) {
+      throw err;
+    }
+    // Retry exactly once on the same session.
+    return await collectResponse(session, prompt);
+  }
 }
 
 /**
@@ -178,7 +221,16 @@ export async function runSessionWithFailover<T>(options: SessionRunnerOptions<T>
     }
   }
 
-  // If we exhausted all candidates or max attempts, throw a clear exhaustion error
+  // If we exhausted all candidates or max attempts, throw a clear exhaustion error.
+  // When every attempt returned empty output, preserve the EmptyOutputError type so
+  // downstream classification stays `empty_output` (retryable semantics at the
+  // session boundary) rather than collapsing into a generic exhaustion message.
+  if (lastError && lastError.name === "EmptyOutputError") {
+    throw new EmptyOutputError(
+      `All model attempts returned empty output for role: ${role} ` +
+        `(maxModelAttemptsPerRun=${maxAttempts}). Last error: ${lastError.message}`,
+    );
+  }
   const exhaustedError = lastError
     ? new Error(
         `All model attempts exhausted for role: ${role} (maxModelAttemptsPerRun=${maxAttempts}). ` +
