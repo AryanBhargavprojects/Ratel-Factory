@@ -1,35 +1,49 @@
 {
   "name": "@ratel-factory/pi-extension",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Ratel Pi Extension — Factory adapter for Pi SDK",
+  "version": "0.2.1",
+  "description": "Ratel Factory — native Pi Coding Agent extension. Registers Ratel factory commands, tools, lifecycle hooks, and a bundled skill so Pi users can run Ratel missions through the Pi extension API.",
+  "keywords": [
+    "pi-package",
+    "ratel",
+    "ai-software-factory",
+    "pi-extension"
+  ],
+  "license": "Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
-  "pi": {
-    "extensions": ["./"]
-  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
   },
+  "pi": {
+    "extensions": ["./dist/index.js"],
+    "skills": ["./skills"]
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/",
+    "skills/"
+  ],
   "scripts": {
+    "prepack": "npm run build",
     "build": "tsc",
-    "dev": "tsx src/extension.ts",
+    "dev": "tsx src/index.ts",
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
-    "@ratel-factory/core": "*"
+    "@ratel-factory/core": "^0.2.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.79.0"
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.79.0",
-    "@earendil-works/pi-agent-core": "^0.79.0",
-    "@earendil-works/pi-ai": "^0.79.0",
-    "@earendil-works/pi-tui": "^0.79.0",
+    "typebox": "^1.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }

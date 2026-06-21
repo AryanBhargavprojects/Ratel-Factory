@@ -18,6 +18,7 @@ release/missions-backup-*/
 test/
 !packages/core/test/
 !packages/opencode-plugin/test/
+!packages/pi-extension/test/
 
 # Generated app directories
 test-directory/
