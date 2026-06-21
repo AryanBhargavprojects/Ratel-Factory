@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 #
-# Ratel Factory — Native Pi Coding Agent Extension Installer
+# Ratel Factory — Pi Extension Installer (compatibility helper)
 #
-# Installs the Ratel factory for users of the Pi Coding Agent. This installs
-# the Ratel core service and the native @ratel-factory/pi-extension Pi
-# package, then activates the extension inside Pi.
+# Preferred install path is the direct Pi command:
+#   pi install npm:@ratel-factory/pi-extension
+# which pulls in @ratel-factory/core automatically as a dependency of the
+# extension and activates the extension inside Pi.
+#
+# This script exists for users who still curl-install Ratel. When run, it
+# invokes the canonical `pi install npm:@ratel-factory/pi-extension` command
+# for you (no separate global `npm install -g @ratel-factory/core` needed).
+# In --dev mode it installs from a local workspace clone instead.
 #
 # This is the Pi-native path. It is NOT the OpenCode adapter. Use
 # install-opencode.sh for OpenCode.
 #
 # Usage:
-#   curl -fsSL https://ratelfactory.dev/install-pi.sh | bash
-#   # or locally:
 #   bash install/install-pi.sh
+#   RATEL_VERSION=0.2.1 bash install/install-pi.sh
 #
 # Flags:
 #   --dev      Install from local workspace instead of npm (for development)
@@ -31,7 +36,6 @@ VERSION="${RATEL_VERSION:-latest}"
 SERVICE_PORT="${RATEL_SERVICE_PORT:-8765}"
 DEV_MODE=false
 EXTENSION_NAME="@ratel-factory/pi-extension"
-CORE_NAME="@ratel-factory/core"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,60 +80,59 @@ check_pi() {
   info "Pi $(pi --version 2>/dev/null || echo 'unknown') ✓"
 }
 
-# ── Install Packages ─────────────────────────────────────────────────────────
+# ── Install / Activate ────────────────────────────────────────────────────────
 
-install_packages() {
-  info "Installing Ratel packages..."
+install_and_activate() {
+  info "Installing Ratel Pi extension..."
 
   if [ "$DEV_MODE" = true ]; then
     info "Dev mode: installing from local workspace..."
     if [ ! -f "package.json" ] || [ ! -d "packages/core" ] || [ ! -d "packages/pi-extension" ]; then
       error "Dev mode requires running from the ratel repo root."
     fi
+    # Build local packages so the path install resolves to compiled dist.
+    (cd packages/core && npm run build >/dev/null 2>&1) || warn "core build failed; continuing"
+    (cd packages/pi-extension && npm run build >/dev/null 2>&1) || warn "pi-extension build failed; continuing"
+    # Install core globally so the bundled resolver can find it via node module
+    # resolution from the dev-installed extension (dev path).
     npm install -g "./packages/core"
-    npm install -g "./packages/pi-extension"
-  else
-    info "Installing $CORE_NAME@$VERSION from npm..."
-    npm install -g "${CORE_NAME}@${VERSION}"
-    info "Installing $EXTENSION_NAME@$VERSION from npm..."
-    npm install -g "${EXTENSION_NAME}@${VERSION}"
-  fi
-
-  info "Packages installed ✓"
-}
-
-# ── Activate the Pi Extension ────────────────────────────────────────────────
-
-activate_extension() {
-  info "Activating the Ratel Pi extension..."
-
-  if [ "$DEV_MODE" = true ]; then
-    # In dev mode the global install created a node_modules entry; locate it
-    # and install it into Pi by path so developers always test their build.
+    # Install the local extension into Pi by path so developers test their build.
     local ext_dir
     ext_dir="$(npm root -g)/$EXTENSION_NAME"
-    if [ -d "$ext_dir" ]; then
-      pi install "$ext_dir" || warn "Could not install local extension into Pi. Run: pi install $ext_dir"
-    else
-      warn "Local extension not found at $ext_dir; run 'pi install $ext_dir' manually after building."
+    if [ ! -d "$ext_dir" ]; then
+      ext_dir="$(pwd)/packages/pi-extension"
     fi
+    pi install "$ext_dir" || error "Could not install local extension into Pi. Run: pi install $ext_dir"
   else
-    pi install "npm:${EXTENSION_NAME}@${VERSION}" || warn "Could not install extension into Pi. Run: pi install npm:${EXTENSION_NAME}"
+    info "Running: pi install npm:${EXTENSION_NAME}@${VERSION}"
+    info "  (this installs the extension and its @ratel-factory/core dependency automatically)"
+    pi install "npm:${EXTENSION_NAME}@${VERSION}" || error "Could not install extension into Pi. Run: pi install npm:${EXTENSION_NAME}"
   fi
 
-  info "Extension activation attempted ✓"
+  info "Ratel Pi extension installed ✓"
 }
 
 # ── Start Service ────────────────────────────────────────────────────────────
 
 start_service() {
-  info "Starting Ratel service on port $SERVICE_PORT..."
+  info "Checking for a running Ratel service on port $SERVICE_PORT..."
 
   if curl -s "http://localhost:$SERVICE_PORT/health" >/dev/null 2>&1; then
     info "Ratel service already running on port $SERVICE_PORT ✓"
     return
   fi
 
+  # The Pi extension auto-starts the bundled @ratel-factory/core service on
+  # session_start via Node module resolution, so a global `ratel` binary is not
+  # required for the public install path. Only attempt a PATH-based start for
+  # dev/backward compatibility when `ratel` is available.
+  if ! command -v ratel >/dev/null 2>&1; then
+    info "No global 'ratel' on PATH; the Pi extension will auto-start the"
+    info "bundled core service when you open a project in Pi."
+    return
+  fi
+
+  info "Starting Ratel service on port $SERVICE_PORT via 'ratel' (PATH fallback)..."
   nohup ratel --serve --port "$SERVICE_PORT" >/dev/null 2>&1 &
   local pid=$!
   # Don't let the shell wait on the backgrounded child.
@@ -147,7 +150,7 @@ start_service() {
   done
 
   warn "Service did not start within 30 seconds."
-  warn "Try starting manually: ratel --serve --port $SERVICE_PORT"
+  warn "The Pi extension will auto-start it on session_start, or run: ratel --serve --port $SERVICE_PORT"
 }
 
 # ── Verify ────────────────────────────────────────────────────────────────────
@@ -199,7 +202,9 @@ main() {
         shift 2
         ;;
       --help|-h)
-        echo "Ratel Factory — Pi Coding Agent Extension Installer"
+        echo "Ratel Factory — Pi Extension Installer (compatibility helper)"
+        echo ""
+        echo "Preferred:  pi install npm:@ratel-factory/pi-extension"
         echo ""
         echo "Usage: bash install-pi.sh [OPTIONS]"
         echo ""
@@ -221,13 +226,14 @@ main() {
   done
 
   echo ""
-  echo "🚀 Ratel Factory — Pi Coding Agent Extension Installer"
+  echo "🚀 Ratel Factory — Pi Extension Installer (compatibility helper)"
+  echo ""
+  echo "  Preferred:  pi install npm:@ratel-factory/pi-extension"
   echo ""
 
   check_prerequisites
   check_pi
-  install_packages
-  activate_extension
+  install_and_activate
   start_service
   verify_installation
 }

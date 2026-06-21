@@ -1,6 +1,6 @@
 {
   "name": "@ratel-factory/pi-extension",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Ratel Factory — native Pi Coding Agent extension. Registers Ratel factory commands, tools, lifecycle hooks, and a bundled skill so Pi users can run Ratel missions through the Pi extension API.",
   "keywords": [
     "pi-package",
@@ -34,7 +34,9 @@
     "dev": "tsx src/index.ts",
     "test": "tsx --test test/**/*.test.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@ratel-factory/core": "^0.2.0"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"

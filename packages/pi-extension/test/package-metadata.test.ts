@@ -17,8 +17,8 @@ describe("package.json — publishability", () => {
     assert.notEqual(pkg.private, true, "private:true blocks publishing");
   });
 
-  it("has version 0.2.0", () => {
-    assert.equal(pkg.version, "0.2.0");
+  it("has version 0.2.1", () => {
+    assert.equal(pkg.version, "0.2.1");
   });
 
   it("has publishConfig access public", () => {
@@ -60,16 +60,14 @@ describe("package.json — publishability", () => {
     assert.ok(peers?.["@earendil-works/pi-coding-agent"], "pi-coding-agent must be a peer dependency");
   });
 
-  it("does not declare a workspace-only @ratel-factory/core dependency", () => {
+  it("declares @ratel-factory/core as a publishable semver runtime dependency", () => {
     const deps = (pkg.dependencies as Record<string, string> | undefined) ?? {};
     const coreRange = deps["@ratel-factory/core"];
+    assert.ok(coreRange, "@ratel-factory/core must be declared as a runtime dependency");
     assert.ok(
-      !coreRange || coreRange === "*",
-      "@ratel-factory/core must not use a workspace-only '*' range as a runtime dependency",
+      /^\^?\d/.test(coreRange),
+      "@ratel-factory/core must be a publishable semver range, not a workspace '*'",
     );
-    if (coreRange) {
-      // If present, it must be a publishable semver range, not "*".
-      assert.ok(/^\^?\d/.test(coreRange), "@ratel-factory/core must be a publishable semver range if present");
-    }
+    assert.notEqual(coreRange, "*", "@ratel-factory/core must not use workspace '*' range");
   });
 });

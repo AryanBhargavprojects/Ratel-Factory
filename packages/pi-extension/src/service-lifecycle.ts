@@ -18,6 +18,7 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { createRequire } from "node:module";
 import { RatelServiceClient } from "./service.js";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,16 @@ export interface ServicePortfile {
   version: string;
 }
 
+/**
+ * Optional override for resolving the bundled Ratel core CLI entry point.
+ *
+ * Defaults to Node module resolution from this extension module, which finds
+ * the `@ratel-factory/core` package installed as a runtime dependency of the
+ * extension (the clean `pi install npm:@ratel-factory/pi-extension` flow).
+ * Return `null` to force the PATH `ratel` fallback.
+ */
+export type ResolveRatelCli = () => string | null;
+
 export interface EnsureServiceOptions {
   /** Absolute project root used to locate `.ratel/service.json`. */
   projectRoot: string;
@@ -54,6 +65,8 @@ export interface EnsureServiceOptions {
   disableAutostart?: boolean;
   /** Max time (ms) to wait for an auto-started service. Default 15000. */
   timeoutMs?: number;
+  /** Override bundled core CLI resolution for tests. */
+  resolveRatelCli?: ResolveRatelCli;
 }
 
 export interface EnsureServiceResult {
@@ -81,6 +94,37 @@ function createLog(logger?: ServiceLogger): (level: "info" | "warning" | "error"
       // Never let logging errors propagate
     }
   };
+}
+
+// ---------------------------------------------------------------------------
+// Bundled core CLI resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Default resolver: locate the bundled Ratel core CLI entry point via Node
+ * module resolution from this extension module. When the extension is
+ * installed with `pi install npm:@ratel-factory/pi-extension`, the
+ * `@ratel-factory/core` runtime dependency is installed alongside it and this
+ * resolves to core's `dist/index.js` (the `ratel` bin entry).
+ *
+ * Returns `null` when the core package cannot be resolved, in which case the
+ * caller falls back to spawning a bare `ratel --serve` from PATH (useful for
+ * dev/global installs and backward compatibility).
+ */
+export const defaultResolveRatelCli: ResolveRatelCli = (): string | null => {
+  try {
+    return createRequire(import.meta.url).resolve("@ratel-factory/core");
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Describe a resolved CLI path for log messages. Centralised so log wording
+ * stays consistent between bundled-core and PATH-fallback paths.
+ */
+function describeSpawnTarget(useBundled: boolean, cliPath: string): string {
+  return useBundled ? `bundled core at ${cliPath}` : `PATH 'ratel' (fallback)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +200,7 @@ export async function ensureRatelService(
   }
 
   await log("info", `Starting Ratel service for project: ${projectRoot}`);
-  return waitForService({ projectRoot, timeoutMs, logger, spawnFn });
+  return waitForService({ projectRoot, timeoutMs, logger, spawnFn, resolveRatelCli: options.resolveRatelCli });
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +212,8 @@ export interface WaitForServiceOptions {
   timeoutMs?: number;
   logger?: ServiceLogger;
   spawnFn?: typeof spawn;
+  /** Override bundled core CLI resolution for tests. */
+  resolveRatelCli?: ResolveRatelCli;
 }
 
 /**
@@ -178,19 +224,30 @@ export interface WaitForServiceOptions {
 export function waitForService(
   options: WaitForServiceOptions,
 ): Promise<EnsureServiceResult> {
-  const { projectRoot, timeoutMs = 15000, logger, spawnFn } = options;
+  const { projectRoot, timeoutMs = 15000, logger, spawnFn, resolveRatelCli } = options;
   const log = createLog(logger);
   const doSpawn = spawnFn ?? spawn;
+  const resolveCli = resolveRatelCli ?? defaultResolveRatelCli;
 
   return new Promise((resolve) => {
     let child: ChildProcess;
     try {
+      const cliPath = resolveCli();
       const spawnOpts: SpawnOptions = {
         cwd: projectRoot,
         stdio: "ignore",
         detached: false,
       };
-      child = doSpawn("ratel", ["--serve"], spawnOpts);
+      if (cliPath) {
+        // Bundled core: run the resolved entry with the current Node binary
+        // so we don't depend on a global `ratel` being on PATH.
+        log("info", `Starting Ratel service via ${describeSpawnTarget(true, cliPath)}`).finally(() => undefined);
+        child = doSpawn(process.execPath, [cliPath, "--serve"], spawnOpts);
+      } else {
+        // Fallback for dev/global installs and backward compatibility.
+        log("info", `Starting Ratel service via ${describeSpawnTarget(false, "ratel")}`).finally(() => undefined);
+        child = doSpawn("ratel", ["--serve"], spawnOpts);
+      }
     } catch (err) {
       log(
         "error",

@@ -14,6 +14,7 @@ import {
   ensureRatelService,
   waitForService,
   cleanupSpawnedService,
+  defaultResolveRatelCli,
   type ServiceLogger,
 } from "../src/service-lifecycle.js";
 
@@ -46,6 +47,25 @@ function spawnEmits(event: string, ...args: unknown[]): typeof import("node:chil
     child.kill = () => {};
     child.killed = false;
     setImmediate(() => child.emit(event, ...args));
+    return child;
+  }) as unknown as typeof import("node:child_process").spawn;
+}
+
+/**
+ * Returns a spawn stub that records the command + args it was called with and
+ * emits the given event (e.g. "exit") after a tick so waitForService settles.
+ */
+function spawnCapturing(
+  captures: { command: string; args: string[] }[],
+  event: string,
+  ...eventArgs: unknown[]
+): typeof import("node:child_process").spawn {
+  return ((command: string, args: string[]) => {
+    captures.push({ command, args });
+    const child = new EventEmitter() as any;
+    child.kill = () => {};
+    child.killed = false;
+    setImmediate(() => child.emit(event, ...eventArgs));
     return child;
   }) as unknown as typeof import("node:child_process").spawn;
 }
@@ -128,6 +148,80 @@ describe("waitForService — spawn failure", () => {
     } finally {
       cleanup(dir);
     }
+  });
+});
+
+describe("waitForService — bundled core resolution", () => {
+  let originalFetch: typeof globalThis.fetch;
+  beforeEach(() => { originalFetch = globalThis.fetch; });
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it("spawns process.execPath with the resolved bundled core path when available", async () => {
+    const dir = tmpProject();
+    const { logger, calls } = makeLogger();
+    const captures: { command: string; args: string[] }[] = [];
+    const fakeCorePath = "/fake/node_modules/@ratel-factory/core/dist/index.js";
+    try {
+      const result = await waitForService({
+        projectRoot: dir,
+        timeoutMs: 2000,
+        logger,
+        spawnFn: spawnCapturing(captures, "exit", 1, "SIGTERM") as any,
+        resolveRatelCli: () => fakeCorePath,
+      });
+      assert.equal(result.client, null);
+      assert.equal(result.child, null);
+      assert.equal(captures.length, 1, "should spawn exactly once");
+      assert.equal(captures[0].command, process.execPath, "should use Node binary");
+      assert.deepEqual(
+        captures[0].args,
+        [fakeCorePath, "--serve"],
+        "should pass [coreEntry, --serve]",
+      );
+      assert.ok(
+        calls.some((c) => c.message.includes("bundled core")),
+        "log should mention bundled core",
+      );
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("falls back to bare 'ratel' when resolver returns null", async () => {
+    const dir = tmpProject();
+    const { logger, calls } = makeLogger();
+    const captures: { command: string; args: string[] }[] = [];
+    try {
+      const result = await waitForService({
+        projectRoot: dir,
+        timeoutMs: 2000,
+        logger,
+        spawnFn: spawnCapturing(captures, "exit", 1, "SIGTERM") as any,
+        resolveRatelCli: () => null,
+      });
+      assert.equal(result.client, null);
+      assert.equal(result.child, null);
+      assert.equal(captures.length, 1, "should spawn exactly once");
+      assert.equal(captures[0].command, "ratel", "should fall back to PATH ratel");
+      assert.deepEqual(captures[0].args, ["--serve"]);
+      assert.ok(
+        calls.some((c) => c.message.includes("fallback")),
+        "log should mention fallback",
+      );
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("defaultResolveRatelCli returns a string or null without throwing", () => {
+    // In the test environment core is a workspace sibling, so resolution may
+    // either succeed (resolving to the core dist entry) or fail; both are
+    // valid. We only assert it never throws and returns the right type.
+    const result = defaultResolveRatelCli();
+    assert.ok(
+      result === null || typeof result === "string",
+      "defaultResolveRatelCli must return string | null",
+    );
   });
 });
 

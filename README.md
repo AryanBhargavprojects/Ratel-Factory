@@ -96,21 +96,19 @@ After installing, open OpenCode in a project and run:
 
 Ratel ships a **first-class native Pi Coding Agent extension** (`@ratel-factory/pi-extension`). This is a separate, Pi-native adapter — it is *not* the OpenCode plugin ported to Pi. It shares the Ratel core HTTP service boundary and semantics, but its package, commands, tools, hooks, and bundled skill are all Pi-native.
 
-```bash
-curl -fsSL https://ratelfactory.dev/install-pi.sh | bash
-```
-
-To pin a specific release instead of npm `latest`:
-
-```bash
-RATEL_VERSION=0.2.0 bash <(curl -fsSL https://ratelfactory.dev/install-pi.sh)
-```
-
-This installer installs `@ratel-factory/core` and `@ratel-factory/pi-extension` from npm, starts the Ratel service, and activates the extension in Pi via:
+The recommended install path is the direct Pi command, which installs the extension and pulls in the Ratel core service dependency automatically:
 
 ```bash
 pi install npm:@ratel-factory/pi-extension
 ```
+
+To pin a specific release:
+
+```bash
+pi install npm:@ratel-factory/pi-extension@0.2.1
+```
+
+`pi install` installs the extension's `dependencies` (including `@ratel-factory/core`) and registers the extension with Pi. You do **not** need to separately `npm install -g @ratel-factory/core`; the extension brings in and starts the core service itself.
 
 After installing, open Pi in a project and run:
 
@@ -120,7 +118,9 @@ After installing, open Pi in a project and run:
 
 The extension registers Pi-native slash commands (`/ratel`, `/ratel-start`, `/ratel-status`, `/ratel-approve`, `/ratel-observatory`), Pi-native tools (`ratel_start_mission`, `ratel_poll_status`, `ratel_get_status`, `ratel_approve_plan`, `ratel_answer_question`, `ratel_reply_to_factory`, `ratel_run_feature_worker`, `ratel_run_validation`, `ratel_ping_agents`), lifecycle hooks (`session_start`, `before_agent_start`, `tool_call`, `session_shutdown`), service discovery/autostart from `.ratel/service.json`, and the bundled `ratel-factory` skill that documents the mission loop.
 
-Use `--dev` to install from a local workspace clone instead of npm:
+The bundled core resolver runs the Ratel service via `node <resolved @ratel-factory/core entry> --serve` using the package installed by `pi install`. A bare `ratel --serve` PATH fallback is kept for local dev/global installs and backward compatibility.
+
+A local dev helper script is available for workspace installs:
 
 ```bash
 bash install/install-pi.sh --dev
