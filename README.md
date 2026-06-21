@@ -62,7 +62,7 @@ Ratel is an **AI Software Factory** — a framework designed for running autonom
 
 ## Installation & Setup
 
-The primary supported end-user path is the **OpenCode adapter**. It installs the Ratel service, the OpenCode plugin, command stubs, and the bundled `ratel-factory` skill.
+Ratel supports two first-class end-user adapters: the **OpenCode adapter** and the **native Pi Coding Agent extension**. Both install the Ratel service and a bundled `ratel-factory` skill. Pick the one matching your agent.
 
 ### 1. Automated Installation (OpenCode)
 
@@ -92,18 +92,41 @@ After installing, open OpenCode in a project and run:
 
 `/ratel` is a health command only: it pings all factory agents and does not start a mission or inspect the codebase.
 
-### 2. Pi SDK (development / direct mode)
+### 2. Pi Coding Agent (native extension)
+
+Ratel ships a **first-class native Pi Coding Agent extension** (`@ratel-factory/pi-extension`). This is a separate, Pi-native adapter — it is *not* the OpenCode plugin ported to Pi. It shares the Ratel core HTTP service boundary and semantics, but its package, commands, tools, hooks, and bundled skill are all Pi-native.
 
 ```bash
 curl -fsSL https://ratelfactory.dev/install-pi.sh | bash
 ```
 
-Once completed, activate the extension inside your Pi session:
+To pin a specific release instead of npm `latest`:
+
 ```bash
-pi install @ratel-factory/pi-extension
+RATEL_VERSION=0.2.0 bash <(curl -fsSL https://ratelfactory.dev/install-pi.sh)
 ```
 
-This registers lifecycle hooks, state restoration, and custom toolsets inside the Pi runtime context. Direct Pi mode is mainly for Ratel adapter/core development.
+This installer installs `@ratel-factory/core` and `@ratel-factory/pi-extension` from npm, starts the Ratel service, and activates the extension in Pi via:
+
+```bash
+pi install npm:@ratel-factory/pi-extension
+```
+
+After installing, open Pi in a project and run:
+
+```text
+/ratel
+```
+
+The extension registers Pi-native slash commands (`/ratel`, `/ratel-start`, `/ratel-status`, `/ratel-approve`, `/ratel-observatory`), Pi-native tools (`ratel_start_mission`, `ratel_poll_status`, `ratel_get_status`, `ratel_approve_plan`, `ratel_answer_question`, `ratel_reply_to_factory`, `ratel_run_feature_worker`, `ratel_run_validation`, `ratel_ping_agents`), lifecycle hooks (`session_start`, `before_agent_start`, `tool_call`, `session_shutdown`), service discovery/autostart from `.ratel/service.json`, and the bundled `ratel-factory` skill that documents the mission loop.
+
+Use `--dev` to install from a local workspace clone instead of npm:
+
+```bash
+bash install/install-pi.sh --dev
+```
+
+Pi mode is the supported path for Ratel users who run the Pi Coding Agent as their primary agent.
 
 ### 3. Manual Source Setup (Development Mode)
 
@@ -498,21 +521,31 @@ Current prepared package version: `@ratel-factory/opencode@0.2.0` with `@ratel-f
 
 ### Pi Extension (`@ratel-factory/pi-extension`)
 
+A native Pi Coding Agent extension (not an OpenCode port). The extension is a thin HTTP adapter — all mission/job/event state lives in the Ratel core service. It ships a bundled `ratel-factory` skill that documents the Pi-native mission loop.
+
 **Commands:**
-- `/ratel` — Toggle factory mode
-- `/ratel-mission` — Show current mission status
+- `/ratel` — Show service health and ping factory agents
+- `/ratel-start <goal>` — Start a new mission
+- `/ratel-status` — Show current mission status (`/ratel-mission` is an alias)
+- `/ratel-approve` — Approve the current mission waiting for approval
 - `/ratel-observatory` — Open Observatory dashboard
 
 **Tools:**
-- `ratel_start_mission` — Start a new mission
-- `ratel_run_worker` — Run a worker for a feature
-- `ratel_run_validator` — Run validation for a milestone
+- `ratel_start_mission` — Start a new mission from a goal
+- `ratel_poll_status` — Compact progress polling with stop conditions (stop reasons, pending questions, assistant messages)
+- `ratel_get_status` — One-off mission status
+- `ratel_approve_plan` — Approve/reject a mission waiting for approval (`ratel_approve_mission` alias)
+- `ratel_answer_question` — Answer a specific pending orchestrator question
+- `ratel_reply_to_factory` — Send a free-form user reply (`ratel_send_message` alias)
+- `ratel_run_feature_worker` — Run a worker for a feature (`ratel_run_worker` alias)
+- `ratel_run_validation` — Run validation for a milestone (`ratel_run_validator` alias)
+- `ratel_ping_agents` — Ping all factory subagent roles
 
 **Lifecycle hooks:**
-- `session_start` — Restore persisted phase state
-- `before_agent_start` — Inject factory context
-- `turn_end` — Track phase transitions based on tool usage
-- `tool_call` — Gate writes during planning phase
+- `session_start` — Resolve project root, discover/autostart the Ratel service from `.ratel/service.json`, restore cached mission/job IDs for UI continuity
+- `before_agent_start` — Inject Ratel factory mode prompt when a mission is active
+- `tool_call` — Gate factory mutating tools against service health
+- `session_shutdown` — Clean up any service the extension spawned this session
 
 ### Service API
 
