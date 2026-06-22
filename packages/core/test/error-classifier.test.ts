@@ -3,6 +3,7 @@ import assert from "node:assert";
 import {
   classifyAgentError,
   isRetryableError,
+  EmptyOutputError,
   type ClassifiedAgentError,
 } from "../src/core/models/error-classifier.js";
 
@@ -142,6 +143,41 @@ describe("error-classifier", () => {
       const classified = classifyAgentError(err);
       assert.strictEqual(classified.retryable, true);
       assert.strictEqual(classified.category, "unknown");
+    });
+
+    it("classifies missing API key/config as adapter_auth_failure (non-retryable)", () => {
+      const err = new Error("Missing API key for provider: anthropic");
+      const classified = classifyAgentError(err);
+      assert.strictEqual(classified.retryable, false);
+      assert.strictEqual(classified.category, "adapter_auth_failure");
+    });
+
+    it("classifies EmptyOutputError as empty_output (retryable)", () => {
+      const err = new EmptyOutputError("worker produced no output after 3000ms");
+      const classified = classifyAgentError(err);
+      assert.strictEqual(classified.retryable, true);
+      assert.strictEqual(classified.category, "empty_output");
+    });
+
+    it("classifies ENOENT / no such file as path_error (non-retryable)", () => {
+      const err = new Error("ENOENT: no such file or directory, open '/tmp/missing.json'");
+      const classified = classifyAgentError(err);
+      assert.strictEqual(classified.retryable, false);
+      assert.strictEqual(classified.category, "path_error");
+    });
+
+    it("classifies 'no such file' message as path_error (non-retryable)", () => {
+      const err = new Error("no such file or directory");
+      const classified = classifyAgentError(err);
+      assert.strictEqual(classified.retryable, false);
+      assert.strictEqual(classified.category, "path_error");
+    });
+
+    it("classifies product blocking issue as product_blocking_issue (non-retryable)", () => {
+      const err = new Error("product blocking issue: requirements contradict each other");
+      const classified = classifyAgentError(err);
+      assert.strictEqual(classified.retryable, false);
+      assert.strictEqual(classified.category, "product_blocking_issue");
     });
   });
 

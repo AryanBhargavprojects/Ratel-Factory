@@ -106,6 +106,14 @@ export interface WorkerResult {
   error?: string;
   /** How the handoff was obtained: tool submission preferred, JSONL fallback, or missing. */
   reportSource?: ReportSource;
+  /**
+   * Classification of the underlying failure when `parseStatus === "failed"`.
+   * `"empty_output"` distinguishes a 0-byte / whitespace-only model response
+   * (infrastructure failure, retryable) from a non-empty malformed response
+   * (`"parse_failure"`). Omitted when parseStatus is "ok" or when the
+   * failure was not specifically classified.
+   */
+  failureCategory?: "empty_output" | "parse_failure";
 }
 
 export interface WorkerRunReceipt {
@@ -246,6 +254,12 @@ export interface UserTestingShardRunResult {
   durationMs: number;
   timedOut: boolean;
   error?: string;
+  /**
+   * Classification of the underlying failure when `parseStatus === "failed"`.
+   * `"empty_output"` indicates a 0-byte model response (infrastructure
+   * failure) rather than a non-empty malformed response (`"parse_failure"`).
+   */
+  failureCategory?: "empty_output" | "parse_failure";
 }
 
 export interface UserTestingReport {
@@ -283,6 +297,37 @@ export interface MissionState {
   features?: Feature[];
   milestones?: Milestone[];
   decisions: Decision[];
+  /** Approval summary, present only when approval.json exists. */
+  approval?: MissionApprovalSummary;
+  /** Feature status rollup, present only when features.json exists. */
+  featureStatus?: MissionFeatureStatusSummary;
+  /** Budget summary, present only when budget.json exists. */
+  budget?: MissionBudgetSummary;
+  /** Last halt reason text, present only when halt-reason.md exists. */
+  haltReason?: string;
+  /** Deterministic, compact recommended next actions for the orchestrator. */
+  recommendedActions?: string[];
+}
+
+/** Compact approval summary projected from approval.json. */
+export interface MissionApprovalSummary {
+  status: string;
+  decidedAt?: string;
+  feedback?: string;
+}
+
+/** Rollup of feature counts by status. */
+export interface MissionFeatureStatusSummary {
+  total: number;
+  byStatus: Record<Feature["status"], number>;
+}
+
+/** Compact budget summary projected from budget.json. */
+export interface MissionBudgetSummary {
+  exhausted?: { reason: string; at: string };
+  used: { costUsd: number; totalTokens: number; agentRuns: number };
+  remaining: { costUsd: number | null; totalTokens: number | null; agentRuns: number | null };
+  limits: { maxCostUsd: number | null; maxTotalTokens: number | null; maxAgentRuns: number | null };
 }
 
 export interface MissionStateFile {

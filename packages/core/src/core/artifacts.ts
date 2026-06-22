@@ -10,6 +10,9 @@ import type {
   MissionState,
   MissionStateFile,
   MissionRequirements,
+  MissionApprovalSummary,
+  MissionFeatureStatusSummary,
+  MissionBudgetSummary,
   ValidationContract,
   ValidationAssertion,
   Feature,
@@ -418,8 +421,180 @@ function parseLegacyDecisionLog(mdRaw: string): Decision[] | undefined {
 }
 
 /**
+ * Read and parse the durable approval artifact (approval.json).
+ * Returns undefined when the artifact is missing or unparseable.
+ */
+export async function readApprovalArtifact(
+  scope: import("./mission/scope.js").MissionScope,
+): Promise<MissionApprovalSummary | undefined> {
+  try {
+    const raw = await readFile(join(getMissionDir(scope), "approval.json"), "utf-8");
+    const parsed = JSON.parse(raw) as {
+      status?: unknown;
+      feedback?: unknown;
+      decidedAt?: unknown;
+    };
+    if (typeof parsed.status !== "string") return undefined;
+    return {
+      status: parsed.status,
+      decidedAt: typeof parsed.decidedAt === "string" ? parsed.decidedAt : undefined,
+      feedback: typeof parsed.feedback === "string" ? parsed.feedback : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Read the halt-reason.md artifact and extract the reason line.
+ * Returns undefined when the artifact is missing.
+ */
+export async function readHaltReason(
+  scope: import("./mission/scope.js").MissionScope,
+): Promise<string | undefined> {
+  const raw = await readArtifact(scope, "halt-reason.md");
+  if (!raw) return undefined;
+  const match = raw.match(/\*\*Reason:\*\*\s*(.+)/i);
+  return match ? match[1].trim() : raw.split("\n").find((l) => l.trim().length > 0 && !l.startsWith("#"))?.trim();
+}
+
+/**
+ * Read budget.json and project a compact budget summary.
+ * Returns undefined when budget.json is missing or unparseable.
+ */
+export async function readBudgetSummary(
+  scope: import("./mission/scope.js").MissionScope,
+): Promise<MissionBudgetSummary | undefined> {
+  try {
+    const raw = await readFile(join(getMissionDir(scope), "budget.json"), "utf-8");
+    const parsed = JSON.parse(raw) as {
+      limits?: {
+        maxCostUsd?: number | null;
+        maxTotalTokens?: number | null;
+        maxAgentRuns?: number | null;
+      };
+      costUsd?: number;
+      totalTokens?: number;
+      agentRuns?: number;
+      startedAt?: string;
+      limits_maxWallClockMinutes?: number | null;
+      exhausted?: { reason: string; at: string };
+    };
+    const limits = parsed.limits ?? {};
+    const costUsd = typeof parsed.costUsd === "number" ? parsed.costUsd : 0;
+    const totalTokens = typeof parsed.totalTokens === "number" ? parsed.totalTokens : 0;
+    const agentRuns = typeof parsed.agentRuns === "number" ? parsed.agentRuns : 0;
+    const maxCostUsd = limits.maxCostUsd ?? null;
+    const maxTotalTokens = limits.maxTotalTokens ?? null;
+    const maxAgentRuns = limits.maxAgentRuns ?? null;
+    return {
+      exhausted: parsed.exhausted,
+      used: { costUsd, totalTokens, agentRuns },
+      remaining: {
+        costUsd: maxCostUsd !== null ? Math.max(0, maxCostUsd - costUsd) : null,
+        totalTokens: maxTotalTokens !== null ? Math.max(0, maxTotalTokens - totalTokens) : null,
+        agentRuns: maxAgentRuns !== null ? Math.max(0, maxAgentRuns - agentRuns) : null,
+      },
+      limits: { maxCostUsd, maxTotalTokens, maxAgentRuns },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Compute a deterministic, compact feature status rollup.
+ */
+function summarizeFeatureStatus(features: Feature[] | undefined): MissionFeatureStatusSummary | undefined {
+  if (!features || features.length === 0) return undefined;
+  const byStatus: Record<Feature["status"], number> = {
+    pending: 0,
+    in_progress: 0,
+    integrated: 0,
+    validated: 0,
+    blocked: 0,
+  };
+  for (const f of features) {
+    byStatus[f.status] += 1;
+  }
+  return { total: features.length, byStatus };
+}
+
+/**
+ * Compute deterministic, compact recommended next actions from mission state.
+ * Order is stable; output is intended for prompt injection.
+ */
+function recommendNextActions(state: MissionState): string[] {
+  const actions: string[] = [];
+
+  if (state.haltReason || state.phase === "halted") {
+    actions.push("Resolve the halt reason before proceeding with any further mission work.");
+    if (state.haltReason) actions.push(`Halt reason: ${state.haltReason}`);
+    return actions;
+  }
+
+  if (state.budget?.exhausted) {
+    actions.push(`Budget exhausted (${state.budget.exhausted.reason}); request a budget increase or halt the mission.`);
+  }
+
+  const approvalStatus = state.approval?.status;
+  if (approvalStatus === "pending") {
+    actions.push("Wait for the user to submit an approval decision.");
+  } else if (approvalStatus === "rejected") {
+    actions.push("Revise the plan per approval feedback and re-request user approval.");
+  } else if (approvalStatus === "approved") {
+    if (state.phase === "approved") {
+      actions.push("Begin execution: spawn workers for pending features.");
+    } else if (state.phase === "execution") {
+      actions.push("Continue execution; run validation once features are integrated.");
+    } else if (state.phase === "completed") {
+      actions.push("Mission completed; no further execution actions required.");
+    } else {
+      actions.push("Approval exists but phase is not execution-ready; transition to execution.");
+    }
+  } else if (!approvalStatus) {
+    if (state.phase === "user_approval") {
+      actions.push("Call wait_for_user_approval to request plan approval.");
+    } else if (
+      state.phase === "intake" ||
+      state.phase === "discovery" ||
+      state.phase === "clarification" ||
+      state.phase === "constraint_analysis" ||
+      state.phase === "validation_contract" ||
+      state.phase === "feature_decomposition"
+    ) {
+      actions.push("Continue discovery and contract work until the plan is ready for user approval.");
+    } else if (state.phase === "execution") {
+      actions.push("Execution phase active but no approval artifact found; request user approval before further execution.");
+    }
+  }
+
+  if (state.featureStatus && state.featureStatus.total > 0) {
+    const pending = state.featureStatus.byStatus.pending ?? 0;
+    const inProgress = state.featureStatus.byStatus.in_progress ?? 0;
+    const blocked = state.featureStatus.byStatus.blocked ?? 0;
+    if (blocked > 0) actions.push(`Unblock ${blocked} blocked feature(s).`);
+    if (state.phase === "execution" || state.phase === "approved") {
+      if (pending > 0) actions.push(`Spawn workers for ${pending} pending feature(s).`);
+    }
+    if (inProgress > 0) actions.push(`Follow up on ${inProgress} in-progress feature(s).`);
+  }
+
+  if (actions.length === 0) {
+    actions.push("No specific recommendation; proceed per the current mission phase.");
+  }
+  return actions;
+}
+
+/**
  * Load the full mission state from all artifacts.
  * Returns a structured object suitable for injection into orchestrator context.
+ *
+ * In addition to the legacy fields, this now projects compact summaries from
+ * approval.json, features.json, budget.json, and halt-reason.md when those
+ * artifacts exist, and computes deterministic recommended next actions.
+ * All added fields are optional and absent when backing artifacts are missing,
+ * so existing callers and tests remain compatible.
  */
 export async function loadMissionState(scope: import("./mission/scope.js").MissionScope): Promise<MissionState> {
   const stateFile = await readState(scope);
@@ -431,7 +606,12 @@ export async function loadMissionState(scope: import("./mission/scope.js").Missi
   const milestones = await readMilestones(scope);
   const decisions = (await readDecisionLog(scope)) ?? [];
 
-  return {
+  const approval = await readApprovalArtifact(scope);
+  const haltReason = await readHaltReason(scope);
+  const budget = await readBudgetSummary(scope);
+  const featureStatus = summarizeFeatureStatus(features);
+
+  const base: MissionState = {
     phase: stateFile?.phase ?? "intake",
     version: stateFile?.version ?? 1,
     updatedAt: stateFile?.updatedAt ?? new Date().toISOString(),
@@ -442,7 +622,13 @@ export async function loadMissionState(scope: import("./mission/scope.js").Missi
     features,
     milestones,
     decisions,
+    approval,
+    haltReason,
+    budget,
+    featureStatus,
   };
+  base.recommendedActions = recommendNextActions(base);
+  return base;
 }
 
 /**
@@ -488,6 +674,42 @@ export function summarizeMissionState(state: MissionState): string {
   if (state.features) {
     lines.push(`\n### Features`);
     lines.push(`${state.features.length} features across ${state.milestones?.length ?? 0} milestones.`);
+    if (state.featureStatus) {
+      const parts = Object.entries(state.featureStatus.byStatus)
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => `${k}=${n}`);
+      if (parts.length > 0) lines.push(`Status: ${parts.join(", ")}`);
+    }
+  }
+
+  if (state.approval) {
+    lines.push(`\n### Approval`);
+    lines.push(`Status: ${state.approval.status}`);
+    if (state.approval.decidedAt) lines.push(`Decided: ${state.approval.decidedAt}`);
+    if (state.approval.feedback) lines.push(`Feedback: ${state.approval.feedback.slice(0, 200)}`);
+  }
+
+  if (state.budget) {
+    lines.push(`\n### Budget`);
+    lines.push(`Used: cost=$${state.budget.used.costUsd.toFixed(4)}, tokens=${state.budget.used.totalTokens}, runs=${state.budget.used.agentRuns}`);
+    const rem: string[] = [];
+    if (state.budget.remaining.costUsd !== null) rem.push(`cost=$${state.budget.remaining.costUsd.toFixed(4)}`);
+    if (state.budget.remaining.totalTokens !== null) rem.push(`tokens=${state.budget.remaining.totalTokens}`);
+    if (state.budget.remaining.agentRuns !== null) rem.push(`runs=${state.budget.remaining.agentRuns}`);
+    if (rem.length > 0) lines.push(`Remaining: ${rem.join(", ")}`);
+    if (state.budget.exhausted) lines.push(`Exhausted: ${state.budget.exhausted.reason} at ${state.budget.exhausted.at}`);
+  }
+
+  if (state.haltReason) {
+    lines.push(`\n### Halt Reason`);
+    lines.push(state.haltReason.slice(0, 400));
+  }
+
+  if (state.recommendedActions && state.recommendedActions.length > 0) {
+    lines.push(`\n### Recommended Next Actions`);
+    for (const action of state.recommendedActions.slice(0, 8)) {
+      lines.push(`- ${action}`);
+    }
   }
 
   if (state.decisions.length > 0) {

@@ -16,7 +16,7 @@
 import type { MissionScope } from "../mission/scope.js";
 import { getMissionDir } from "../mission/scope.js";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface ParseResult<T> {
   /** "ok" if a valid JSON object matching the expected shape was found. */
@@ -128,7 +128,10 @@ export async function writeRawOutput(
   filename: string,
   content: string,
 ): Promise<void> {
-  const outDir = join(getMissionDir(scope), dir);
-  await mkdir(outDir, { recursive: true });
-  await writeFile(join(outDir, filename), content, "utf-8");
+  // The filename may itself contain path separators (e.g. callers pass
+  // `user-testing-shards/<runId>/<shard>.raw.txt` as the filename). Create the
+  // FULL parent directory tree of the final file path, not just the top dir.
+  const outPath = join(getMissionDir(scope), dir, filename);
+  await mkdir(dirname(outPath), { recursive: true });
+  await writeFile(outPath, content, "utf-8");
 }

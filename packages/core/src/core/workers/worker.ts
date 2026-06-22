@@ -7,7 +7,6 @@ import {
   DefaultResourceLoader,
   getAgentDir,
   defineTool,
-  type AgentSession,
   type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
@@ -25,31 +24,18 @@ import { createWorkerSessionSettings } from "./worker-settings.js";
 import type { WorkerWorkspaceResult } from "../mission/worker-workspace.js";
 import { createReportReceiver, persistSubmittedReport } from "../report-submission.js";
 import type { MissionScope } from "../mission/scope.js";
+import { collectResponseWithRetry } from "../models/session-runner.js";
+import { EmptyOutputError } from "../models/error-classifier.js";
 
 /**
  * Collect the full text response from a session after prompting.
+ *
+ * NOTE: The shared `collectResponse` / `collectResponseWithRetry` helpers in
+ * `models/session-runner.ts` are now used directly by spawn functions below.
+ * They classify a 0-byte / whitespace-only response as a retryable
+ * `EmptyOutputError` (category `empty_output`) and auto-retry once, so an
+ * empty worker run is no longer misclassified as a parse failure.
  */
-async function collectResponse(session: AgentSession, prompt: string): Promise<string> {
-  let response = "";
-  const unsubscribe = session.subscribe((event) => {
-    if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent.type === "text_delta"
-    ) {
-      response += event.assistantMessageEvent.delta;
-    }
-  });
-
-  try {
-    // AgentSession.prompt() waits for the full run to finish. Subscribe BEFORE
-    // calling it or we miss every text_delta and falsely produce an empty handoff.
-    await session.prompt(prompt);
-  } finally {
-    unsubscribe();
-  }
-
-  return response;
-}
 
 /**
  * Type guard: a parsed object is a structurally valid WorkerHandoff.
@@ -274,9 +260,15 @@ Implement this feature using public-interface TDD. Keep scope to the acceptance 
   );
   const WORKER_TIMEOUT_MS = effectiveTimeoutMinutes * 60 * 1000;
   let response: string;
+  let emptyOutput = false;
+  // Guard: if the timeout wins the race, the still-pending collect promise
+  // may later reject (EmptyOutputError). Attach a no-op catch to avoid an
+  // unhandledRejection — the timeout branch owns the failure in that case.
+  const collectPromise = collectResponseWithRetry(session, prompt);
+  collectPromise.catch(() => {});
   try {
     response = await Promise.race([
-      collectResponse(session, prompt),
+      collectPromise,
       new Promise<string>((_, reject) => {
         setTimeout(() => {
           reject(new Error(`Worker timeout after ${WORKER_TIMEOUT_MS}ms`));
@@ -284,29 +276,76 @@ Implement this feature using public-interface TDD. Keep scope to the acceptance 
       }),
     ]);
   } catch (err) {
-    // Timeout — return a structured failure handoff so the orchestrator
-    // can decide whether to retry, skip, or halt.
-    const timeoutNote = err instanceof Error ? err.message : "Worker timed out";
-    const handoffResult: import("../utils/jsonl.js").ParseResult <WorkerHandoff> = {
-      parseStatus: "failed",
-      data: {
+    // Empty output after retry — classify as `empty_output` (infrastructure
+    // failure), NOT parse_failure. The orchestrator sees failureCategory and
+    // parseStatus: "failed" and decides whether to retry/skip/halt.
+    if (err instanceof EmptyOutputError) {
+      emptyOutput = true;
+      response = "";
+    } else {
+      // Timeout — return a structured failure handoff so the orchestrator
+      // can decide whether to retry, skip, or halt.
+      const timeoutNote = err instanceof Error ? err.message : "Worker timed out";
+      const handoffResult: import("../utils/jsonl.js").ParseResult <WorkerHandoff> = {
+        parseStatus: "failed",
+        data: {
+          featureId: feature.id,
+          completedAt: new Date().toISOString(),
+          completed: [],
+          leftUndone: ["Worker timed out — the task may be too large for one feature."],
+          commandsRun: [],
+          issuesDiscovered: [{
+            description: timeoutNote,
+            severity: "high",
+          }],
+          proceduresAbided: false,
+          summary: `Worker aborted after ${WORKER_TIMEOUT_MS}ms. Consider splitting this feature into smaller pieces.`,
+        },
+        rawLine: null,
+        fullText: timeoutNote,
+      };
+
+      const durationMs = Date.now() - startTime;
+      if (agentSpanId) {
+        logger?.agentSpanEnd("worker", agentSpanId, {
+          parseStatus: "failed",
+          durationMs,
+          featureId: feature.id,
+        });
+      }
+      unobserve();
+      session.dispose();
+      return {
         featureId: feature.id,
-        completedAt: new Date().toISOString(),
-        completed: [],
-        leftUndone: ["Worker timed out — the task may be too large for one feature."],
-        commandsRun: [],
-        issuesDiscovered: [{
-          description: timeoutNote,
-          severity: "high",
-        }],
-        proceduresAbided: false,
-        summary: `Worker aborted after ${WORKER_TIMEOUT_MS}ms. Consider splitting this feature into smaller pieces.`,
-      },
-      rawLine: null,
-      fullText: timeoutNote,
+        status: "unknown",
+        handoff: handoffResult.data!,
+        parseStatus: "failed",
+        rawResponse: timeoutNote,
+      };
+    }
+  }
+
+  // Empty output after retry: build a structured failure handoff classified
+  // as `empty_output` so the orchestrator can distinguish it from a
+  // non-empty malformed (parse_failure) handoff.
+  if (emptyOutput) {
+    const emptyNote = "Worker produced no text output after retry (empty_output).";
+    const handoff: WorkerHandoff = {
+      featureId: feature.id,
+      completedAt: new Date().toISOString(),
+      completed: [],
+      leftUndone: [emptyNote],
+      commandsRun: [],
+      issuesDiscovered: [{
+        description: emptyNote,
+        severity: "high",
+      }],
+      proceduresAbided: false,
+      summary: emptyNote,
     };
 
     const durationMs = Date.now() - startTime;
+    unobserve();
     if (agentSpanId) {
       logger?.agentSpanEnd("worker", agentSpanId, {
         parseStatus: "failed",
@@ -314,14 +353,14 @@ Implement this feature using public-interface TDD. Keep scope to the acceptance 
         featureId: feature.id,
       });
     }
-    unobserve();
     session.dispose();
     return {
       featureId: feature.id,
       status: "unknown",
-      handoff: handoffResult.data!,
+      handoff,
       parseStatus: "failed",
-      rawResponse: timeoutNote,
+      rawResponse: "",
+      failureCategory: "empty_output",
     };
   }
 

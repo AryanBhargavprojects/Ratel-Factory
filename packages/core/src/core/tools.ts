@@ -74,6 +74,9 @@ import { runUserTestingCoordinator } from "./mission/user-testing-coordinator.js
 import { getCurrentDashboardUrl } from "../observatory/server.js";
 import { evaluateMilestoneValidation, applyMilestoneValidation, markMissionCompleted } from "./mission/validation-finalization.js";
 import type { MissionExecutionContext } from "./mission/execution-context.js";
+import { checkExecutionAuthorization, type ExecutionGateResult } from "./mission/execution-gate.js";
+import { runModelPreflight, type ModelPreflightDeps, type ModelPreflightResult, type PreflightProblemCode } from "./mission/model-preflight.js";
+import { EmptyOutputError } from "./models/error-classifier.js";
 
 /**
  * Type guard: a parsed object is a structurally valid ScrutinyReport.
@@ -737,6 +740,24 @@ export function runValidationTool(context: MissionExecutionContext) {
       const startTime = Date.now();
       context.logger.toolCall("run_validation", { milestoneId: params.milestoneId });
 
+      // ── Wave 3: hard phase-transition enforcement ──
+      // 1. Execution authorization gate — refuse before any expensive work.
+      const gate = await checkExecutionAuthorization(context.scope);
+      if (!gate.authorized) {
+        const refusal = authorizationRefusalResult("run_validation", gate);
+        context.logger.toolResult("run_validation", { refused: true, gate: "execution_authorization", reason: gate.reason });
+        return refusal;
+      }
+
+      // 2. Model/credential preflight — after authorization, before agent spawn.
+      //    Never consumes tokens; never spawns a validator.
+      const modelPreflight = await runModelPreflight(context.scope.projectRoot, context.preflightDeps);
+      if (!modelPreflight.ok) {
+        const refusal = preflightRefusalResult("run_validation", modelPreflight);
+        context.logger.toolResult("run_validation", { refused: true, gate: "model_preflight", noTokensConsumed: true });
+        return refusal;
+      }
+
       let contentText = "";
       let details: Record<string, unknown> = {};
 
@@ -791,15 +812,30 @@ export function runValidationTool(context: MissionExecutionContext) {
         } else {
           // 3. Run Scrutiny Validator
           const validatorModelConfig = await getModelConfig(context.scope.projectRoot);
-          const scrutinyReportRaw = await spawnScrutinyValidator(
-            params.milestoneId,
-            milestoneFeatures.map((f) => f.id),
-            context.scope.projectRoot,
-            context.logger,
-            context.scope,
-            validatorModelConfig.validator ?? undefined,
-            context.budget,
-          );
+          let scrutinyReportRaw: string;
+          let emptyOutput = false;
+          try {
+            scrutinyReportRaw = await spawnScrutinyValidator(
+              params.milestoneId,
+              milestoneFeatures.map((f) => f.id),
+              context.scope.projectRoot,
+              context.logger,
+              context.scope,
+              validatorModelConfig.validator ?? undefined,
+              context.budget,
+            );
+          } catch (err) {
+            // 0-byte output after retry: classify as `empty_output`
+            // (infrastructure failure), NOT parse_failure. Surface it as a
+            // parseStatus: "failed" result with explicit classification so
+            // the orchestrator can distinguish it from a malformed response.
+            if (err instanceof EmptyOutputError) {
+              emptyOutput = true;
+              scrutinyReportRaw = "";
+            } else {
+              throw err;
+            }
+          }
 
         // 3. ALWAYS persist raw validator output for audit / fallback inspection.
         const rawFilename = `scrutiny-${params.milestoneId}-${Date.now()}.raw.txt`;
@@ -845,7 +881,9 @@ export function runValidationTool(context: MissionExecutionContext) {
             ? recovery?.kind === "fix_features_required"
               ? `**Blocking issues found:** ${recovery.blockingIssueIds.length}. This is recoverable validation feedback, not a tooling halt. Create same-milestone fix features from details.recovery.suggestedFixFeatures, run workers serially, then rerun validation.`
               : `**Issues found:** ${issueCount}. No blocking recovery work required. Read details.report for non-blocking findings.`
-            : `**WARNING:** Validator output could not be parsed as JSONL. The raw text is preserved at the path above. Do NOT infer success — call halt_mission() and surface the raw text to the user.`,
+            : emptyOutput
+              ? `**WARNING:** Validator produced no text output after retry (empty_output). This is an infrastructure failure, not a parse error. Do NOT infer success — call halt_mission() and surface the empty_output classification to the user.`
+              : `**WARNING:** Validator output could not be parsed as JSONL. The raw text is preserved at the path above. Do NOT infer success — call halt_mission() and surface the raw text to the user.`,
         ].join("\n");
 
         details = {
@@ -853,6 +891,7 @@ export function runValidationTool(context: MissionExecutionContext) {
           rawFilename,
           report: parseResult.data, // null if parse failed
           recovery,
+          ...(emptyOutput ? { failureCategory: "empty_output" as const } : {}),
         };
         }
       }
@@ -904,6 +943,34 @@ export function runWorkerTool(context: MissionExecutionContext) {
     execute: async (_toolCallId, params) => {
       const startTime = Date.now();
       context.logger.toolCall("run_worker", { featureId: params.featureId });
+
+      // ── Wave 3: hard phase-transition enforcement ──
+      // 1. Execution authorization gate — refuse before any expensive work.
+      const gate = await checkExecutionAuthorization(context.scope);
+      if (!gate.authorized) {
+        const refusal = authorizationRefusalResult("run_worker", gate);
+        context.logger.toolResult("run_worker", { refused: true, gate: "execution_authorization", reason: gate.reason });
+        return refusal;
+      }
+
+      // 2. Model/credential preflight — after authorization, before agent spawn.
+      //    Never consumes tokens; never spawns a worker.
+      const modelPreflight = await runModelPreflight(context.scope.projectRoot, context.preflightDeps);
+      if (!modelPreflight.ok) {
+        const refusal = preflightRefusalResult("run_worker", modelPreflight);
+        context.logger.toolResult("run_worker", { refused: true, gate: "model_preflight", noTokensConsumed: true });
+        return refusal;
+      }
+
+      // 3. Conservative pre-run budget estimate/refusal — refuse to start a
+      //    worker the mission cannot afford to validate. Idempotent; never
+      //    mutates budget state.
+      const budgetCheck = await checkWorkerRunBudget(context.budget);
+      if (budgetCheck.refuse) {
+        const refusal = budgetRefusalResult("run_worker", budgetCheck);
+        context.logger.toolResult("run_worker", { refused: true, gate: "budget_estimate", category: budgetCheck.category });
+        return refusal;
+      }
 
       let contentText = "";
       let details: Record<string, unknown> = {};
@@ -1066,7 +1133,9 @@ export function runWorkerTool(context: MissionExecutionContext) {
 
           if (result.parseStatus === "failed") {
             contentText +=
-              "\n\n**WARNING:** Worker handoff could not be parsed as JSONL. Inspect the raw response and the worker prompt. Do NOT infer success.";
+              result.failureCategory === "empty_output"
+                ? "\n\n**WARNING:** Worker produced no text output after retry (empty_output). This is an infrastructure failure, not a parse error. Do NOT infer success."
+                : "\n\n**WARNING:** Worker handoff could not be parsed as JSONL. Inspect the raw response and the worker prompt. Do NOT infer success.";
           }
 
           details = {
@@ -1081,6 +1150,7 @@ export function runWorkerTool(context: MissionExecutionContext) {
             },
             workspace,
             workspaceFinalization,
+            ...(result.failureCategory ? { failureCategory: result.failureCategory } : {}),
           };
           }
         }
@@ -1121,6 +1191,24 @@ export function runUserTestingTool(context: MissionExecutionContext) {
     execute: async (_toolCallId, params) => {
       const startTime = Date.now();
       context.logger.toolCall("run_user_testing", { milestoneId: params.milestoneId });
+
+      // ── Wave 3: hard phase-transition enforcement ──
+      // 1. Execution authorization gate — refuse before any expensive work.
+      const gate = await checkExecutionAuthorization(context.scope);
+      if (!gate.authorized) {
+        const refusal = authorizationRefusalResult("run_user_testing", gate);
+        context.logger.toolResult("run_user_testing", { refused: true, gate: "execution_authorization", reason: gate.reason });
+        return refusal;
+      }
+
+      // 2. Model/credential preflight — after authorization, before agent spawn.
+      //    Never consumes tokens; never spawns a user-testing validator.
+      const modelPreflight = await runModelPreflight(context.scope.projectRoot, context.preflightDeps);
+      if (!modelPreflight.ok) {
+        const refusal = preflightRefusalResult("run_user_testing", modelPreflight);
+        context.logger.toolResult("run_user_testing", { refused: true, gate: "model_preflight", noTokensConsumed: true });
+        return refusal;
+      }
 
       const milestoneFeatures = await getIntegratedFeaturesForMilestone(context.scope, params.milestoneId);
 
@@ -1523,6 +1611,316 @@ export function pingAgentsTool(context: MissionExecutionContext) {
       };
     },
   });
+}
+
+/**
+ * Budget visibility tool. Exposes the current mission budget state, remaining
+ * headroom, and a coarse risk level. Visibility only — does NOT reserve or
+ * refuse budget (reservation/refusal is a later wave).
+ */
+export function getBudgetStatusTool(context: MissionExecutionContext) {
+  return defineTool({
+    name: "get_budget_status",
+    label: "Get Budget Status",
+    description:
+      "Returns the current mission budget state, remaining headroom for each metric " +
+      "(cost, total tokens, wall-clock, agent runs), per-metric used fraction, and a coarse " +
+      "risk level (ok | warning | critical | exhausted). Visibility only; does not reserve " +
+      "or refuse budget. Use this to decide whether to start a costly step.",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, _params) => {
+      const state = await context.budget.getState();
+      const remaining = await context.budget.remaining();
+      const usedFraction = computeBudgetUsedFraction(state);
+      const risk = computeBudgetRiskLevel(state, usedFraction);
+
+      const lines: string[] = [
+        `## Budget Status: ${risk.toUpperCase()}`,
+        "",
+        `| Metric | Used | Limit | Remaining | Used % |`,
+        `|---|---:|---:|---:|---:|`,
+        formatBudgetMetricRow("costUsd", state.costUsd, state.limits.maxCostUsd, remaining.costUsd, usedFraction.costUsd, "$"),
+        formatBudgetMetricRow("totalTokens", state.totalTokens, state.limits.maxTotalTokens, remaining.totalTokens, usedFraction.totalTokens),
+        formatBudgetMetricRow("agentRuns", state.agentRuns, state.limits.maxAgentRuns, remaining.agentRuns, usedFraction.agentRuns),
+        formatBudgetMetricRow("wallClockMin", wallClockElapsedMinutes(state), state.limits.maxWallClockMinutes, remaining.wallClockMs != null ? remaining.wallClockMs / 60000 : null, usedFraction.wallClock),
+        "",
+      ];
+      if (state.exhausted) {
+        lines.push(`**Exhausted:** ${state.exhausted.reason} at ${state.exhausted.at}`);
+      }
+
+      context.logger.toolCall("get_budget_status", {});
+      context.logger.toolResult("get_budget_status", { risk });
+
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        details: {
+          state,
+          remaining,
+          usedFraction,
+          risk,
+        },
+      };
+    },
+  });
+}
+
+/** Compute the used fraction (0..1) for each budget metric that has a limit. */
+function computeBudgetUsedFraction(state: import("./budget/types.js").MissionBudgetState) {
+  const elapsedMin = wallClockElapsedMinutes(state);
+  return {
+    costUsd: fraction(state.costUsd, state.limits.maxCostUsd),
+    totalTokens: fraction(state.totalTokens, state.limits.maxTotalTokens),
+    agentRuns: fraction(state.agentRuns, state.limits.maxAgentRuns),
+    wallClock: fraction(elapsedMin, state.limits.maxWallClockMinutes),
+  };
+}
+
+/** Coarse risk level from exhausted flag + max used fraction across metrics. */
+function computeBudgetRiskLevel(
+  state: import("./budget/types.js").MissionBudgetState,
+  usedFraction: ReturnType<typeof computeBudgetUsedFraction>,
+): "ok" | "warning" | "critical" | "exhausted" {
+  if (state.exhausted) return "exhausted";
+  const fractions = [
+    usedFraction.costUsd,
+    usedFraction.totalTokens,
+    usedFraction.agentRuns,
+    usedFraction.wallClock,
+  ].filter((f): f is number => f !== null);
+  const maxFraction = fractions.length > 0 ? Math.max(...fractions) : 0;
+  if (maxFraction >= 0.9) return "critical";
+  if (maxFraction >= 0.75) return "warning";
+  return "ok";
+}
+
+function fraction(used: number, limit: number | null): number | null {
+  if (limit === null || limit <= 0) return null;
+  return used / limit;
+}
+
+function wallClockElapsedMinutes(state: import("./budget/types.js").MissionBudgetState): number {
+  return (Date.now() - new Date(state.startedAt).getTime()) / 1000 / 60;
+}
+
+function formatBudgetMetricRow(
+  name: string,
+  used: number,
+  limit: number | null,
+  remaining: number | null,
+  usedFrac: number | null,
+  prefix = "",
+): string {
+  const fmt = (n: number | null) => (n === null ? "—" : n.toFixed(n >= 100 ? 0 : 2));
+  const pct = usedFrac === null ? "—" : `${(usedFrac * 100).toFixed(0)}%`;
+  return `| ${name} | ${prefix}${fmt(used)} | ${prefix}${fmt(limit)} | ${prefix}${fmt(remaining)} | ${pct} |`;
+}
+
+// ─── Wave 3: execution authorization / preflight / budget refusal helpers ───
+
+/**
+ * Conservative flat estimate of the budget headroom a single `run_worker` call
+ * needs before it is safe to start. The estimate covers worker + validation
+ * (scrutiny + code reviews + at least one user-testing shard) so that a
+ * mission does not begin a worker it cannot afford to validate.
+ *
+ * This is deliberately a deterministic, conservative flat estimate — not a
+ * mutable reservation — to avoid breaking BudgetManager idempotency.
+ */
+const WORKER_RUN_BUDGET_ESTIMATE = {
+  estimatedAgentRuns: 4, // 1 worker + ~3 validation (scrutiny + reviews + ut shard)
+  estimatedCostUsd: 5,
+  estimatedTotalTokens: 500_000,
+} as const;
+
+type BudgetRemaining = {
+  costUsd: number | null;
+  totalTokens: number | null;
+  agentRuns: number | null;
+  wallClockMs: number | null;
+};
+
+/** Result of the pre-run budget estimate/refusal for `run_worker`. */
+interface WorkerBudgetCheck {
+  refuse: boolean;
+  category?: "budget_exhausted" | "budget_risk";
+  reason?: string;
+  estimate: typeof WORKER_RUN_BUDGET_ESTIMATE;
+  remaining: BudgetRemaining;
+}
+
+/**
+ * Conservative pre-run budget estimate/refusal for `run_worker`.
+ * Refuses to start when the remaining headroom cannot cover the worker +
+ * validation estimate. Uses `budget_exhausted` when the budget is already
+ * exhausted or a metric has no remaining headroom, otherwise `budget_risk`.
+ * Never mutates budget state — idempotent.
+ */
+async function checkWorkerRunBudget(
+  budget: import("./budget/budget-manager.js").BudgetManager,
+): Promise<WorkerBudgetCheck> {
+  const state = await budget.getState();
+  const remaining = await budget.remaining();
+  const estimate = WORKER_RUN_BUDGET_ESTIMATE;
+
+  if (state.exhausted) {
+    return {
+      refuse: true,
+      category: "budget_exhausted",
+      reason: state.exhausted.reason,
+      estimate,
+      remaining,
+    };
+  }
+
+  const checks: Array<{ metric: keyof BudgetRemaining; rem: number | null; need: number }> = [
+    { metric: "agentRuns", rem: remaining.agentRuns, need: estimate.estimatedAgentRuns },
+    { metric: "costUsd", rem: remaining.costUsd, need: estimate.estimatedCostUsd },
+    { metric: "totalTokens", rem: remaining.totalTokens, need: estimate.estimatedTotalTokens },
+  ];
+
+  for (const { metric, rem, need } of checks) {
+    if (rem !== null && rem < need) {
+      return {
+        refuse: true,
+        category: rem <= 0 ? "budget_exhausted" : "budget_risk",
+        reason: `Insufficient ${String(metric)} headroom for worker+validation estimate (need ${need}, have ${rem}).`,
+        estimate,
+        remaining,
+      };
+    }
+  }
+
+  return { refuse: false, estimate, remaining };
+}
+
+/** Map a preflight problem code to the failure surface category. */
+function preflightFailureCategory(
+  problems: { code: PreflightProblemCode }[],
+): PreflightProblemCode {
+  if (problems.some((p) => p.code === "adapter_auth_failure")) return "adapter_auth_failure";
+  if (problems.some((p) => p.code === "missing_config")) return "missing_config";
+  if (problems.some((p) => p.code === "unresolved_model")) return "unresolved_model";
+  return "missing_config";
+}
+
+/** Build a structured authorization-refusal tool result. */
+function authorizationRefusalResult(
+  toolName: string,
+  gate: ExecutionGateResult,
+): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } {
+  const approvalHint =
+    gate.reason === "approval_pending" || gate.reason === "missing_approval"
+      ? "Call wait_for_user_approval() (or return to the approval step) so the user can approve the plan before any execution tools run."
+      : gate.reason === "approval_rejected"
+        ? "The user rejected the plan. Revise the plan and re-request approval via wait_for_user_approval(); do not run execution tools until approval is granted."
+        : gate.reason === "wrong_phase"
+          ? "Return the mission to the approval/execution phase before running execution tools."
+          : "Ensure durable mission state exists and the mission is approved before running execution tools.";
+  const text = [
+    `## ${toolName} refused: execution not authorized`,
+    "",
+    `**Reason:** ${gate.reason ?? "unknown"}`,
+    gate.phase ? `**Current phase:** ${gate.phase}` : "**Current phase:** (no durable state)",
+    gate.approvalStatus ? `**Approval status:** ${gate.approvalStatus}` : "**Approval status:** (no approval artifact)",
+    "",
+    gate.message,
+    "",
+    approvalHint,
+  ].join("\n");
+  return {
+    content: [{ type: "text", text }],
+    details: {
+      refused: true,
+      gate: "execution_authorization",
+      reason: gate.reason,
+      phase: gate.phase,
+      approvalStatus: gate.approvalStatus,
+      message: gate.message,
+      instruction: approvalHint,
+    },
+  };
+}
+
+/** Build a structured preflight-failure tool result. No tokens consumed. */
+function preflightRefusalResult(
+  toolName: string,
+  preflight: ModelPreflightResult,
+): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } {
+  const category = preflightFailureCategory(preflight.problems);
+  const problemLines = preflight.problems.map(
+    (p) => `- [${p.role}] ${p.code}: ${p.message}${p.model ? ` (model: ${p.model})` : ""}`,
+  );
+  const text = [
+    `## ${toolName} refused: model/credential preflight failed`,
+    "",
+    `**Category:** ${category}`,
+    `**No tokens consumed:** true (no worker/validator/user-testing agent was spawned)`,
+    "",
+    "Preflight problems:",
+    ...problemLines,
+    "",
+    category === "adapter_auth_failure"
+      ? "Configure API credentials for the configured provider(s) in ~/.pi/agent/auth.json or environment variables, then retry."
+      : category === "unresolved_model"
+        ? "The configured model slug could not be resolved in the registry. Use list_models to inspect available models and set_model to fix the configuration."
+        : "No usable model is configured for one or more agent roles. Use set_model to configure a model with valid credentials.",
+  ].join("\n");
+  return {
+    content: [{ type: "text", text }],
+    details: {
+      refused: true,
+      gate: "model_preflight",
+      preflightFailed: true,
+      category,
+      noTokensConsumed: true,
+      preflight,
+      instruction:
+        category === "adapter_auth_failure"
+          ? "Configure API credentials, then retry."
+          : "Fix the model configuration, then retry.",
+    },
+  };
+}
+
+/** Build a structured budget-refusal tool result for `run_worker`. */
+function budgetRefusalResult(
+  toolName: string,
+  check: WorkerBudgetCheck,
+): { content: { type: "text"; text: string }[]; details: Record<string, unknown> } {
+  const fmt = (n: number | null) => (n === null ? "—" : n.toFixed(n >= 100 ? 0 : 2));
+  const text = [
+    `## ${toolName} refused: insufficient budget headroom`,
+    "",
+    `**Category:** ${check.category}`,
+    `**Reason:** ${check.reason ?? "Remaining budget cannot cover the worker+validation estimate."}`,
+    "",
+    "Conservative estimate (worker + validation):",
+    `- Agent runs: ${check.estimate.estimatedAgentRuns}`,
+    `- Cost (USD): ${check.estimate.estimatedCostUsd}`,
+    `- Total tokens: ${check.estimate.estimatedTotalTokens}`,
+    "",
+    "Remaining headroom:",
+    `- Agent runs: ${fmt(check.remaining.agentRuns)}`,
+    `- Cost (USD): ${fmt(check.remaining.costUsd)}`,
+    `- Total tokens: ${fmt(check.remaining.totalTokens)}`,
+    "",
+    "Would you like to continue anyway, increase the mission budget, or set a new project limit for the rest of this mission? " +
+      "Use get_budget_status to inspect the full budget state, then ask the user how to proceed before retrying run_worker.",
+  ].join("\n");
+  return {
+    content: [{ type: "text", text }],
+    details: {
+      refused: true,
+      gate: "budget_estimate",
+      category: check.category,
+      reason: check.reason,
+      estimate: check.estimate,
+      remaining: check.remaining,
+      instruction:
+        "Ask the user whether to continue, increase the mission budget, or set a new project limit before retrying run_worker.",
+    },
+  };
 }
 
 /**
@@ -2198,6 +2596,7 @@ export function createOrchestratorTools(context: MissionExecutionContext) {
     setModelTool(context),
     listModelsTool(context),
     pingAgentsTool(context),
+    getBudgetStatusTool(context),
     ensureSkillsInstalledTool(context),
     getFeatureComplexityTool(context),
     waitForUserApprovalTool(context),

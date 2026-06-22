@@ -186,6 +186,7 @@ export class OrchestratorAgent {
       "set_model",
       "list_models",
       "ping_agents",
+      "get_budget_status",
       "ensure_skills_installed",
       "get_feature_complexity",
       "wait_for_user_approval",

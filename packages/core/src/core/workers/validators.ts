@@ -6,7 +6,6 @@ import {
   ModelRegistry,
   DefaultResourceLoader,
   getAgentDir,
-  type AgentSession,
   defineTool,
 } from "@earendil-works/pi-coding-agent";
 import { resolveModel } from "../config.js";
@@ -22,33 +21,20 @@ import { observeAgentSession } from "../observability/session-events.js";
 import { createReportReceiver, persistSubmittedReport } from "../report-submission.js";
 import type { ScrutinyReport, UserTestingShardReport } from "../types.js";
 import type { MissionScope } from "../mission/scope.js";
+import { collectResponseWithRetry } from "../models/session-runner.js";
+import { EmptyOutputError } from "../models/error-classifier.js";
 
 // resolveModel moved to src/config.ts
 
 /**
  * Collect the full text response from a session after prompting.
+ *
+ * NOTE: The shared `collectResponse` / `collectResponseWithRetry` helpers in
+ * `models/session-runner.ts` are now used directly by the spawn functions
+ * below. They classify a 0-byte / whitespace-only response as a retryable
+ * `EmptyOutputError` (category `empty_output`) and auto-retry once, so an
+ * empty validator run is no longer misclassified as a parse failure.
  */
-async function collectResponse(session: AgentSession, prompt: string): Promise<string> {
-  let response = "";
-  const unsubscribe = session.subscribe((event) => {
-    if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent.type === "text_delta"
-    ) {
-      response += event.assistantMessageEvent.delta;
-    }
-  });
-
-  try {
-    // AgentSession.prompt() waits for the full run to finish. Subscribe BEFORE
-    // calling it or we miss every text_delta and falsely report an empty response.
-    await session.prompt(prompt);
-  } finally {
-    unsubscribe();
-  }
-
-  return response;
-}
 
 /**
  * Spawn a Code Review Subagent for a single feature.
@@ -133,7 +119,17 @@ Read the files above. Review them with fresh, adversarial eyes. Return ONLY the 
 
   let response = "";
   try {
-    response = await collectResponse(session, prompt);
+    response = await collectResponseWithRetry(session, prompt);
+  } catch (err) {
+    // Empty output after retry — degrade gracefully by returning a marker
+    // string so the scrutiny validator sees an explicit empty_output note
+    // rather than an empty review. Classified as `empty_output` (not
+    // parse_failure): the subagent produced no text at all.
+    if (err instanceof EmptyOutputError) {
+      response = "[code review subagent produced no output after retry (empty_output)]";
+    } else {
+      throw err;
+    }
   } finally {
     unobserve();
     const durationMs = Date.now() - startTime;
@@ -316,7 +312,7 @@ export async function spawnScrutinyValidator(
 
   let response = "";
   try {
-    response = await collectResponse(session, prompt);
+    response = await collectResponseWithRetry(session, prompt);
   } finally {
     unobserve();
     const durationMs = Date.now() - startTime;
@@ -414,7 +410,7 @@ export async function spawnUserTestingValidator(
 
   let response = "";
   try {
-    response = await collectResponse(session, prompt);
+    response = await collectResponseWithRetry(session, prompt);
   } finally {
     unobserve();
     const durationMs = Date.now() - startTime;
@@ -560,7 +556,7 @@ export async function spawnUserTestingShardAgent(
 
   let response = "";
   try {
-    response = await collectResponse(session, prompt);
+    response = await collectResponseWithRetry(session, prompt);
   } finally {
     unobserve();
     const durationMs = Date.now() - startTime;
