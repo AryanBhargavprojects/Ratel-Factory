@@ -707,7 +707,8 @@
 
     // Three-column Observatory grid references (Orchestration / Worker / Validator).
     // Required by processEvents() and pollDiff(); omitting these caused
-    // `Can't find variable: $paneOrchestration` which blanked all panes.
+    // `ReferenceError: $paneOrchestration is not defined` / `$bodyWorkerDiff is not defined`
+    // which blanked the panes even when /api/events returned data.
     const $paneOrchestration = document.getElementById('pane-orchestration');
     const $bodyOrchestration = document.getElementById('body-orchestration');
     const $paneWorker = document.getElementById('pane-worker');
