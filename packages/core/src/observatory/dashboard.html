@@ -686,6 +686,21 @@
     const $btnReviewReject = document.getElementById('btn-review-reject');
     const $btnReviewApprove = document.getElementById('btn-review-approve');
 
+    // Three-column Observatory grid references (Orchestration / Worker / Validator).
+    // Required by processEvents() and pollDiff(); omitting these caused
+    // `ReferenceError: $paneOrchestration is not defined` / `$bodyWorkerDiff is not defined`
+    // which blanked the panes even when /api/events returned data.
+    const $paneOrchestration = document.getElementById('pane-orchestration');
+    const $bodyOrchestration = document.getElementById('body-orchestration');
+    const $paneWorker = document.getElementById('pane-worker');
+    const $badgeWorker = document.getElementById('badge-worker');
+    const $bodyWorker = document.getElementById('body-worker');
+    const $containerWorkerDiff = document.getElementById('container-worker-diff');
+    const $bodyWorkerDiff = document.getElementById('body-worker-diff');
+    const $paneValidator = document.getElementById('pane-validator');
+    const $badgeValidator = document.getElementById('badge-validator');
+    const $bodyValidator = document.getElementById('body-validator');
+
     let rawContractMd = "";
 
     // Toggle Checklist Dialog Popup
