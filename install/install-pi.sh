@@ -1,39 +1,40 @@
 #!/usr/bin/env bash
 #
-# Ratel Factory — Pi Extension Installer (compatibility helper)
+# Ratel Factory — Pi Extension Installer / Helper
 #
 # Preferred install path is the direct Pi command:
 #   pi install npm:@ratel-factory/pi-extension
 # which pulls in @ratel-factory/core automatically as a dependency of the
-# extension and activates the extension inside Pi.
+# extension and activates the extension inside Pi. The Pi extension runs the
+# Ratel orchestrator in-process — there is no separate daemon, no HTTP service
+# boundary, and no `ratel --serve` to start.
 #
-# This script exists for users who still curl-install Ratel. When run, it
-# invokes the canonical `pi install npm:@ratel-factory/pi-extension` command
-# for you (no separate global `npm install -g @ratel-factory/core` needed).
-# In --dev mode it installs from a local workspace clone instead.
+# This script exists as a convenience wrapper for users who prefer an
+# install-script flow. When run, it invokes the canonical
+# `pi install npm:@ratel-factory/pi-extension` command for you. In --dev mode
+# it builds the local workspace packages and installs the local extension
+# build into Pi by path (for development only — it does not globally install
+# core or start any service).
 #
 # This is the Pi-native path. It is NOT the OpenCode adapter. Use
 # install-opencode.sh for OpenCode.
 #
 # Usage:
 #   bash install/install-pi.sh
-#   RATEL_VERSION=0.2.1 bash install/install-pi.sh
+#   RATEL_VERSION=0.2.2 bash install/install-pi.sh
 #
 # Flags:
 #   --dev      Install from local workspace instead of npm (for development)
-#   --port     Override the Ratel service port (default: 8765)
 #   --help     Show this help
 #
 # Environment variables:
 #   RATEL_VERSION        Package version to install (default: latest)
-#   RATEL_SERVICE_PORT   Service port (default: 8765)
 
 set -euo pipefail
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 VERSION="${RATEL_VERSION:-latest}"
-SERVICE_PORT="${RATEL_SERVICE_PORT:-8765}"
 DEV_MODE=false
 EXTENSION_NAME="@ratel-factory/pi-extension"
 
@@ -93,15 +94,12 @@ install_and_activate() {
     # Build local packages so the path install resolves to compiled dist.
     (cd packages/core && npm run build >/dev/null 2>&1) || warn "core build failed; continuing"
     (cd packages/pi-extension && npm run build >/dev/null 2>&1) || warn "pi-extension build failed; continuing"
-    # Install core globally so the bundled resolver can find it via node module
-    # resolution from the dev-installed extension (dev path).
-    npm install -g "./packages/core"
     # Install the local extension into Pi by path so developers test their build.
+    # The extension declares @ratel-factory/core as a dependency; during local
+    # development it resolves core from the workspace via npm/dedupe, so no
+    # separate global install or service start is needed.
     local ext_dir
-    ext_dir="$(npm root -g)/$EXTENSION_NAME"
-    if [ ! -d "$ext_dir" ]; then
-      ext_dir="$(pwd)/packages/pi-extension"
-    fi
+    ext_dir="$(pwd)/packages/pi-extension"
     pi install "$ext_dir" || error "Could not install local extension into Pi. Run: pi install $ext_dir"
   else
     info "Running: pi install npm:${EXTENSION_NAME}@${VERSION}"
@@ -112,77 +110,30 @@ install_and_activate() {
   info "Ratel Pi extension installed ✓"
 }
 
-# ── Start Service ────────────────────────────────────────────────────────────
+# ── Next Steps ────────────────────────────────────────────────────────────────
 
-start_service() {
-  info "Checking for a running Ratel service on port $SERVICE_PORT..."
-
-  if curl -s "http://localhost:$SERVICE_PORT/health" >/dev/null 2>&1; then
-    info "Ratel service already running on port $SERVICE_PORT ✓"
-    return
-  fi
-
-  # The Pi extension auto-starts the bundled @ratel-factory/core service on
-  # session_start via Node module resolution, so a global `ratel` binary is not
-  # required for the public install path. Only attempt a PATH-based start for
-  # dev/backward compatibility when `ratel` is available.
-  if ! command -v ratel >/dev/null 2>&1; then
-    info "No global 'ratel' on PATH; the Pi extension will auto-start the"
-    info "bundled core service when you open a project in Pi."
-    return
-  fi
-
-  info "Starting Ratel service on port $SERVICE_PORT via 'ratel' (PATH fallback)..."
-  nohup ratel --serve --port "$SERVICE_PORT" >/dev/null 2>&1 &
-  local pid=$!
-  # Don't let the shell wait on the backgrounded child.
-  disown "$pid" 2>/dev/null || true
-
-  local attempts=0
-  while [ $attempts -lt 30 ]; do
-    if curl -s "http://localhost:$SERVICE_PORT/health" >/dev/null 2>&1; then
-      info "Ratel service started ✓"
-      info "Dashboard: http://localhost:$SERVICE_PORT (or fallback port)"
-      return
-    fi
-    sleep 1
-    attempts=$((attempts + 1))
-  done
-
-  warn "Service did not start within 30 seconds."
-  warn "The Pi extension will auto-start it on session_start, or run: ratel --serve --port $SERVICE_PORT"
-}
-
-# ── Verify ────────────────────────────────────────────────────────────────────
-
-verify_installation() {
-  info "Verifying installation..."
-
-  if curl -s "http://localhost:$SERVICE_PORT/health" >/dev/null 2>&1; then
-    info "Service health check ✓"
-  else
-    warn "Service health check failed. The service may still be starting."
-  fi
-
+print_next_steps() {
   info ""
   info "=== Ratel Factory — Pi Extension Installed ==="
   info ""
-  info "Ratel service: http://localhost:$SERVICE_PORT"
+  info "The Pi extension runs the Ratel orchestrator in-process. No separate"
+  info "daemon or HTTP service is started."
   info ""
   info "Pi slash commands:"
-  info "  /ratel             — show service health & ping factory agents"
+  info "  /ratel             — show in-process availability & ping factory roles"
   info "  /ratel-start <goal>— start a new mission"
   info "  /ratel-status      — show current mission status"
   info "  /ratel-approve     — approve the current mission"
-  info "  /ratel-observatory — open the dashboard"
+  info "  /ratel-observatory — show the dashboard / local mission directory"
   info ""
   info "Pi tools (the LLM can call these):"
   info "  ratel_start_mission, ratel_poll_status, ratel_get_status,"
   info "  ratel_approve_plan, ratel_answer_question, ratel_reply_to_factory,"
   info "  ratel_run_feature_worker, ratel_run_validation, ratel_ping_agents"
   info ""
-  info "To start the service manually:"
-  info "  ratel --serve --port $SERVICE_PORT"
+  info "Things to try:"
+  info "  - Open Pi in a project and run /ratel"
+  info "  - Start a mission: /ratel-start <your goal>"
   info ""
   info "Bundled skill: ratel-factory (describes the mission loop)."
   info ""
@@ -197,12 +148,8 @@ main() {
         DEV_MODE=true
         shift
         ;;
-      --port)
-        SERVICE_PORT="$2"
-        shift 2
-        ;;
       --help|-h)
-        echo "Ratel Factory — Pi Extension Installer (compatibility helper)"
+        echo "Ratel Factory — Pi Extension Installer / Helper"
         echo ""
         echo "Preferred:  pi install npm:@ratel-factory/pi-extension"
         echo ""
@@ -210,12 +157,10 @@ main() {
         echo ""
         echo "Options:"
         echo "  --dev       Install from local workspace (for development)"
-        echo "  --port      Override the Ratel service port (default: 8765)"
         echo "  --help, -h  Show this help"
         echo ""
         echo "Environment variables:"
         echo "  RATEL_VERSION        Package version to install (default: latest)"
-        echo "  RATEL_SERVICE_PORT   Service port (default: 8765)"
         echo ""
         exit 0
         ;;
@@ -226,7 +171,7 @@ main() {
   done
 
   echo ""
-  echo "🚀 Ratel Factory — Pi Extension Installer (compatibility helper)"
+  echo "🚀 Ratel Factory — Pi Extension Installer / Helper"
   echo ""
   echo "  Preferred:  pi install npm:@ratel-factory/pi-extension"
   echo ""
@@ -234,8 +179,7 @@ main() {
   check_prerequisites
   check_pi
   install_and_activate
-  start_service
-  verify_installation
+  print_next_steps
 }
 
 main "$@"

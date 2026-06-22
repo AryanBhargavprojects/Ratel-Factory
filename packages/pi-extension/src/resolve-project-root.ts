@@ -4,8 +4,9 @@
  * Pi sessions run inside a project working directory exposed via
  * `ctx.cwd`. In rare cases (e.g. headless/RPC invocations or misconfigured
  * shells) that value can be empty or a filesystem root. This helper picks a
- * sensible project root and normalizes it to an absolute path so the Ratel
- * service discovers `.ratel/service.json` in the right place.
+ * sensible project root and normalizes it to an absolute path so the
+ * in-process Ratel core reads/writes its local `.ratel/` state in the right
+ * place.
  */
 
 import { resolve } from "node:path";

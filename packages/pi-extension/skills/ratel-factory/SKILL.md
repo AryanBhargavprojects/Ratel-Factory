@@ -5,9 +5,9 @@ description: Ratel AI Software Factory integration for the Pi Coding Agent. Use 
 
 # Ratel Factory (Pi Coding Agent Extension)
 
-You are running inside the **Pi Coding Agent** with the **Ratel Factory** native extension (`@ratel-factory/pi-extension`) installed. Ratel is an AI Software Factory that orchestrates specialised LLM agents to plan, implement, and validate software missions while keeping all durable state in the Ratel core service.
+You are running inside the **Pi Coding Agent** with the **Ratel Factory** native extension (`@ratel-factory/pi-extension`) installed. Ratel is an AI Software Factory that orchestrates specialised LLM agents to plan, implement, and validate software missions while keeping all durable state on disk.
 
-This extension is a **thin adapter**. It registers Pi-native commands, tools, and lifecycle hooks. **All mission/job/event state is owned by the Ratel core service** over HTTP — the extension never reads or writes mission files directly. Durable state lives under `.ratel/missions/<missionId>/` in the project, managed exclusively by the service.
+This extension is a **thin adapter**. It registers Pi-native commands, tools, and lifecycle hooks. The Ratel orchestrator runs **in-process** inside the Pi session via `@ratel-factory/core` — there is no separate daemon and no out-of-band process to start. All durable mission/job/event state lives under `.ratel/missions/<missionId>/` in the project, read and written directly through core's mission/event helpers.
 
 ## When to use this skill
 
@@ -34,7 +34,7 @@ Use the Ratel tools/commands when the user wants to:
 
 ## Pi slash commands
 
-- `/ratel` — show service health and ping factory agents.
+- `/ratel` — show in-process factory availability and ping factory agents.
 - `/ratel-start <goal>` — start a new mission from a goal.
 - `/ratel-status` — show the current mission's compact status (`/ratel-mission` is an alias).
 - `/ratel-approve` — approve the current mission waiting for approval.
@@ -56,7 +56,7 @@ Canonical tools (use these names):
 | `ratel_run_validation` | Run validation for a milestone. |
 | `ratel_ping_agents` | Ping all factory subagent roles. |
 
-Compatibility aliases (older names that delegate to the same HTTP calls):
+Compatibility aliases (older names that delegate to the same in-process logic):
 
 | Alias | Canonical |
 |---|---|
@@ -76,15 +76,14 @@ Compatibility aliases (older names that delegate to the same HTTP calls):
 
 The compact response includes: `missionId`, `stopReason`, `approvalNeeded`, `latestStatus`, `eventsSeen`, `nextAfter`, `elapsedSeconds`, `intervalSeconds`, `timeoutSeconds`, `matchedEvents` (last 5), and optional `assistantMessage` / `pendingQuestion`. It never includes the raw full event array.
 
-## Service discovery & autostart
+## In-process runtime
 
-On session start the extension reads `.ratel/service.json` in the project root. If a healthy service is found, it reuses it. Otherwise it spawns `ratel --serve` for the project and polls until ready. The spawned child is cleaned up on session shutdown; user-owned discovered services are left running.
+On session start the extension resolves the project root and constructs a `RatelRuntime` that drives `@ratel-factory/core`'s orchestrator directly inside the Pi session. There is no separate daemon to start, discover, or keep healthy. The runtime restores any persisted current-mission id from `.ratel/current-mission.json` for UI continuity and disposes the orchestrator on session shutdown.
 
-If the service is unreachable, mutating tools (`ratel_start_mission`, `ratel_run_feature_worker`, `ratel_run_validation`) are blocked with a helpful reason. Run `ratel --serve` or restart your Pi session.
+Mutating tools (`ratel_start_mission`, `ratel_run_feature_worker`, `ratel_run_validation`) call into the in-process orchestrator directly and are never blocked by a missing external process.
 
 ## Constraints
 
-- **No orchestration in the extension.** The Ratel core service is authoritative.
-- **No manual worktrees/branches.** The service manages workspace isolation under `.ratel/missions/<missionId>/`.
-- **Do not** mark a feature complete unless the service reports workspace finalization is merged or skipped.
+- **No manual worktrees/branches.** Core manages workspace isolation under `.ratel/missions/<missionId>/`.
+- **Do not** mark a feature complete unless the orchestrator reports workspace finalization is merged or skipped.
 - Prefer `ratel_poll_status` over repeated `ratel_get_status` calls to keep Pi context lean.

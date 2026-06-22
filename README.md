@@ -62,7 +62,7 @@ Ratel is an **AI Software Factory** — a framework designed for running autonom
 
 ## Installation & Setup
 
-Ratel supports two first-class end-user adapters: the **OpenCode adapter** and the **native Pi Coding Agent extension**. Both install the Ratel service and a bundled `ratel-factory` skill. Pick the one matching your agent.
+Ratel supports two first-class end-user adapters: the **OpenCode adapter** (service-backed — runs `@ratel-factory/core` as a standalone HTTP service) and the **native Pi Coding Agent extension** (in-process — imports and runs `@ratel-factory/core` directly inside the Pi session, with no separate daemon). Both ship a bundled `ratel-factory` skill. Pick the one matching your agent.
 
 ### 1. Automated Installation (OpenCode)
 
@@ -94,9 +94,9 @@ After installing, open OpenCode in a project and run:
 
 ### 2. Pi Coding Agent (native extension)
 
-Ratel ships a **first-class native Pi Coding Agent extension** (`@ratel-factory/pi-extension`). This is a separate, Pi-native adapter — it is *not* the OpenCode plugin ported to Pi. It shares the Ratel core HTTP service boundary and semantics, but its package, commands, tools, hooks, and bundled skill are all Pi-native.
+Ratel ships a **first-class native Pi Coding Agent extension** (`@ratel-factory/pi-extension`). This is a separate, Pi-native adapter — it is *not* the OpenCode plugin ported to Pi. Unlike the OpenCode adapter (which is service-backed), the Pi extension imports and uses `@ratel-factory/core` **in-process**: the orchestrator runs inside the Pi session itself. There is no separate daemon, no out-of-band process, no HTTP service boundary, no service discovery/autostart, no `.ratel/service.json`, and no `ratel --serve` to start. All mission/job/event state is durable under `.ratel/missions/<missionId>/` via core's mission/event helpers.
 
-The recommended install path is the direct Pi command, which installs the extension and pulls in the Ratel core service dependency automatically:
+The recommended install path is the direct Pi command, which installs the extension and pulls in `@ratel-factory/core` as a dependency automatically:
 
 ```bash
 pi install npm:@ratel-factory/pi-extension
@@ -105,10 +105,10 @@ pi install npm:@ratel-factory/pi-extension
 To pin a specific release:
 
 ```bash
-pi install npm:@ratel-factory/pi-extension@0.2.1
+pi install npm:@ratel-factory/pi-extension@0.2.2
 ```
 
-`pi install` installs the extension's `dependencies` (including `@ratel-factory/core`) and registers the extension with Pi. You do **not** need to separately `npm install -g @ratel-factory/core`; the extension brings in and starts the core service itself.
+`pi install` installs the extension's `dependencies` (including `@ratel-factory/core`) and registers the extension with Pi. You do **not** need to separately `npm install -g @ratel-factory/core`, and no service is started — the extension loads core in-process when a Pi session starts.
 
 After installing, open Pi in a project and run:
 
@@ -116,9 +116,7 @@ After installing, open Pi in a project and run:
 /ratel
 ```
 
-The extension registers Pi-native slash commands (`/ratel`, `/ratel-start`, `/ratel-status`, `/ratel-approve`, `/ratel-observatory`), Pi-native tools (`ratel_start_mission`, `ratel_poll_status`, `ratel_get_status`, `ratel_approve_plan`, `ratel_answer_question`, `ratel_reply_to_factory`, `ratel_run_feature_worker`, `ratel_run_validation`, `ratel_ping_agents`), lifecycle hooks (`session_start`, `before_agent_start`, `tool_call`, `session_shutdown`), service discovery/autostart from `.ratel/service.json`, and the bundled `ratel-factory` skill that documents the mission loop.
-
-The bundled core resolver runs the Ratel service via `node <resolved @ratel-factory/core entry> --serve` using the package installed by `pi install`. A bare `ratel --serve` PATH fallback is kept for local dev/global installs and backward compatibility.
+The extension registers Pi-native slash commands (`/ratel`, `/ratel-start`, `/ratel-status`, `/ratel-approve`, `/ratel-observatory`), Pi-native tools (`ratel_start_mission`, `ratel_poll_status`, `ratel_get_status`, `ratel_approve_plan`, `ratel_answer_question`, `ratel_reply_to_factory`, `ratel_run_feature_worker`, `ratel_run_validation`, `ratel_ping_agents`), lifecycle hooks (`session_start`, `before_agent_start`, `session_shutdown`), and the bundled `ratel-factory` skill that documents the mission loop.
 
 A local dev helper script is available for workspace installs:
 
@@ -163,18 +161,19 @@ bash install/install-opencode.sh --dev
 
 ## Architecture
 
-Ratel separates client-side platform hooks (Adapters) from factory scheduling and orchestration logic (Core), running either as a standalone service or in direct in-process mode.
+Ratel separates client-side platform hooks (Adapters) from factory scheduling and orchestration logic (Core). Core can run either as a standalone HTTP service (the OpenCode adapter path) or in-process inside the agent (the Pi extension path and direct/headless mode).
 
 ### Canonical Core Package
 
 There is **one canonical core**: `@ratel-factory/core`. All factory logic lives in `packages/core/src/`.
 
-- **Core Service** (`@ratel-factory/core`) — runs as a standalone HTTP service. All state lives here.
-- **Adapters** are thin HTTP clients that register tools/commands with the agent's extension API.
-- **Direct mode** — `src/adapters/pi-sdk/main.ts` runs the core in-process without the HTTP layer (for development).
+- **Core Service** (`@ratel-factory/core`) — can run as a standalone HTTP service (used by the OpenCode adapter). All state lives here.
+- **OpenCode adapter** is a service-backed thin HTTP client that registers tools/commands with the OpenCode plugin API and talks to core over HTTP.
+- **Pi extension** imports and runs `@ratel-factory/core` **in-process** inside the Pi session — no HTTP layer, no separate daemon, no `ratel --serve`.
+- **Direct mode** — `src/adapters/pi-sdk/main.ts` also runs the core in-process without the HTTP layer (for headless/development use).
 - **Legacy source** (`src/core/`, `src/observatory/`) is a deprecated path that has been ported into `packages/core/src/`. The architecture guard (`npm run check:canonical-core`) blocks any resurrection.
 
-**Key rule:** The service is authoritative. Adapters may cache UI state for display purposes, but all durable mission and job state lives in the service.
+**Key rule:** Core is authoritative. In service mode the service owns all durable mission and job state; in in-process mode (Pi extension / direct mode) the core instance running in the process owns it. Adapters may cache UI state for display purposes only.
 
 ```mermaid
 graph TD
@@ -194,13 +193,13 @@ graph TD
 ```
 
 ```
-User (OpenCode or Pi SDK)
+User (OpenCode or Pi)
   ↓
-Adapter (thin wrapper — no orchestration logic)
-  │   • OpenCode Plugin: /ratel commands, ratel_start_mission tool
-  │   • Pi Extension: lifecycle hooks, phase management, tools
+Adapter (no orchestration logic)
+  │   • OpenCode Plugin (service-backed): /ratel commands, ratel_start_mission tool → core over HTTP
+  │   • Pi Extension (in-process): lifecycle hooks, tools → imports @ratel-factory/core directly
   ↓
-Ratel Service (HTTP API)
+Ratel Core (HTTP service for OpenCode; in-process for Pi extension)
   │   • Mission management
   │   • Worker spawning
   │   • Validation
@@ -219,13 +218,13 @@ Orchestrator (mission planning, user interaction, phase transitions)
 
 ### Adapter Architecture
 
-Ratel uses a **service-first** architecture:
+Ratel supports two adapter modes:
 
-- **Core Service** (`@ratel-factory/core`) — runs as a standalone HTTP service. All state lives here.
-- **Adapters** are thin HTTP clients that register tools/commands with the agent's extension API.
-- **Direct mode** — `src/adapters/pi-sdk/main.ts` runs the core in-process without the HTTP layer (for development).
+- **OpenCode adapter (service-backed)** — `@ratel-factory/core` runs as a standalone HTTP service; the OpenCode plugin is a thin HTTP client that registers tools/commands with the OpenCode plugin API.
+- **Pi extension (in-process)** — `@ratel-factory/core` is imported and run directly inside the Pi session. No HTTP layer, no separate daemon, no `ratel --serve`.
+- **Direct mode** — `src/adapters/pi-sdk/main.ts` runs the core in-process without the HTTP layer (for headless/development use).
 
-**Key rule:** The service is authoritative. Adapters may cache UI state for display purposes, but all durable mission and job state lives in the service.
+**Key rule:** Core is authoritative. In service mode the service owns all durable mission and job state; in in-process mode the core instance running in the process owns it. Adapters may cache UI state for display purposes only.
 
 ### Key Components
 
@@ -416,13 +415,16 @@ ratel/
 │   │   ├── skills/               # Bundled OpenCode skill
 │   │   └── package.json
 │   │
-│   ├── pi-extension/             # @ratel-factory/pi-extension — Pi extension
+│   ├── pi-extension/             # @ratel-factory/pi-extension — Pi extension (in-process)
 │   │   ├── src/
 │   │   │   ├── extension.ts      # Extension entry
-│   │   │   ├── service.ts        # HTTP client
+│   │   │   ├── runtime.ts        # In-process core runtime (no HTTP, no daemon)
+│   │   │   ├── events.ts         # Local events.jsonl polling helpers
+│   │   │   ├── polling.ts        # Mission poll/stop-condition helpers
 │   │   │   ├── tool-scope.ts     # Phase management
 │   │   │   ├── commands.ts       # Command handlers
-│   │   │   └── prompts.ts        # Prompts
+│   │   │   ├── resolve-project-root.ts # Pi cwd resolver
+│   │   │   ├── prompts.ts        # Prompts
 │   │   └── package.json
 │   │
 │   └── pi-sdk/                   # Pi SDK direct mode (native/headless)
@@ -521,10 +523,10 @@ Current prepared package version: `@ratel-factory/opencode@0.2.0` with `@ratel-f
 
 ### Pi Extension (`@ratel-factory/pi-extension`)
 
-A native Pi Coding Agent extension (not an OpenCode port). The extension is a thin HTTP adapter — all mission/job/event state lives in the Ratel core service. It ships a bundled `ratel-factory` skill that documents the Pi-native mission loop.
+A native Pi Coding Agent extension (not an OpenCode port). The extension runs `@ratel-factory/core` **in-process** — it imports core directly and drives the orchestrator inside the Pi session. There is no HTTP service boundary, no separate daemon, no service discovery, no `.ratel/service.json`, and no `ratel --serve`. All mission/job/event state is durable under `.ratel/missions/<missionId>/` via core's mission/event helpers. It ships a bundled `ratel-factory` skill that documents the Pi-native mission loop.
 
 **Commands:**
-- `/ratel` — Show service health and ping factory agents
+- `/ratel` — Show in-process Ratel availability and ping factory roles
 - `/ratel-start <goal>` — Start a new mission
 - `/ratel-status` — Show current mission status (`/ratel-mission` is an alias)
 - `/ratel-approve` — Approve the current mission waiting for approval
@@ -542,12 +544,13 @@ A native Pi Coding Agent extension (not an OpenCode port). The extension is a th
 - `ratel_ping_agents` — Ping all factory subagent roles
 
 **Lifecycle hooks:**
-- `session_start` — Resolve project root, discover/autostart the Ratel service from `.ratel/service.json`, restore cached mission/job IDs for UI continuity
+- `session_start` — Resolve project root, construct the in-process runtime, restore cached mission ID for UI continuity
 - `before_agent_start` — Inject Ratel factory mode prompt when a mission is active
-- `tool_call` — Gate factory mutating tools against service health
-- `session_shutdown` — Clean up any service the extension spawned this session
+- `session_shutdown` — Dispose the in-process runtime for this session
 
-### Service API
+### Service API (OpenCode / direct core service mode)
+
+This HTTP API applies to the **service-backed** path only — the OpenCode adapter, or running `@ratel-factory/core` as a standalone service directly. The **Pi extension does not use this API**: it imports and runs core in-process, so there is no HTTP boundary to call. (Mission state is still durable under `.ratel/missions/<missionId>/` in both modes.)
 
 All requests return immediately with a job ID. Clients poll `GET /api/v1/missions/:missionId/jobs/:jobId` or consume the SSE stream (`GET /api/v1/missions/:missionId/events/stream`) for real-time updates.
 

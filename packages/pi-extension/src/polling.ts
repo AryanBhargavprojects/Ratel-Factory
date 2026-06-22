@@ -7,7 +7,7 @@
  * questions, and assistant-message previews — never raw event dumps.
  */
 
-import type { RatelEvent } from "./service.js";
+import type { RatelEvent } from "./events.js";
 
 // ---------------------------------------------------------------------------
 // Types

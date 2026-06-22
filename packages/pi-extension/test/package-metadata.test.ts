@@ -17,8 +17,8 @@ describe("package.json — publishability", () => {
     assert.notEqual(pkg.private, true, "private:true blocks publishing");
   });
 
-  it("has version 0.2.1", () => {
-    assert.equal(pkg.version, "0.2.1");
+  it("has version 0.2.2", () => {
+    assert.equal(pkg.version, "0.2.2");
   });
 
   it("has publishConfig access public", () => {

@@ -2,12 +2,16 @@
  * Tests for extension registration against a mock Pi ExtensionAPI.
  *
  * Verifies that the factory registers the expected commands, tools, and
- * lifecycle hooks without performing any real service work. Service autostart
- * is disabled via env so session_start does not spawn processes.
+ * lifecycle hooks without performing any real orchestrator work, and that no
+ * user-facing tool/registration text references the old HTTP-service design
+ * (`ratel --serve`, HTTP service, service unavailable, etc.).
  */
 
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 interface MockTool {
   name: string;
@@ -91,17 +95,21 @@ const EXPECTED_COMMANDS = [
   "ratel-observatory",
 ];
 
-describe("RatelExtension — registration", () => {
-  let originalEnv: string | undefined;
-  beforeEach(() => {
-    originalEnv = process.env.RATEL_PI_DISABLE_SERVICE_AUTOSTART;
-    process.env.RATEL_PI_DISABLE_SERVICE_AUTOSTART = "1";
-  });
-  afterEach(() => {
-    if (originalEnv === undefined) delete process.env.RATEL_PI_DISABLE_SERVICE_AUTOSTART;
-    else process.env.RATEL_PI_DISABLE_SERVICE_AUTOSTART = originalEnv;
-  });
+const EXPECTED_HOOKS = ["session_start", "before_agent_start", "session_shutdown"];
 
+// Phrases that must NOT appear in any user-facing tool description/guideline
+// or command description now that the extension is in-process.
+const FORBIDDEN_PHRASES = [
+  /ratel --serve/i,
+  /HTTP service/i,
+  /Ratel service is not available/i,
+  /service unavailable/i,
+  /RatelServiceClient/i,
+  /portfile/i,
+  /connect to the Ratel service/i,
+];
+
+describe("RatelExtension — registration", () => {
   it("registers all expected tools with Pi-style metadata", async () => {
     const { default: RatelExtension } = await import("../src/extension.js");
     const pi = createMockPi();
@@ -137,53 +145,84 @@ describe("RatelExtension — registration", () => {
     }
   });
 
-  it("registers session_start, before_agent_start, tool_call, session_shutdown hooks", async () => {
+  it("registers session_start, before_agent_start, session_shutdown hooks", async () => {
     const { default: RatelExtension } = await import("../src/extension.js");
     const pi = createMockPi();
     RatelExtension(pi);
 
     const events = pi._handlers.map((h: MockHandler) => h.event);
-    assert.ok(events.includes("session_start"));
-    assert.ok(events.includes("before_agent_start"));
-    assert.ok(events.includes("tool_call"));
-    assert.ok(events.includes("session_shutdown"));
+    for (const ev of EXPECTED_HOOKS) {
+      assert.ok(events.includes(ev), `must register ${ev} hook`);
+    }
+    // The old tool_call health-gate must NOT be registered.
+    assert.ok(!events.includes("tool_call"), "tool_call health gate must be removed");
   });
 
-  it("tools return a service-unavailable message when no service is connected", async () => {
+  it("no tool description/guideline or command description contains forbidden service-era phrases", async () => {
+    const { default: RatelExtension } = await import("../src/extension.js");
+    const pi = createMockPi();
+    RatelExtension(pi);
+
+    const surfaces: string[] = [];
+    for (const tool of pi._tools.values()) {
+      surfaces.push(tool.description);
+      surfaces.push(tool.promptSnippet ?? "");
+      for (const g of tool.promptGuidelines ?? []) surfaces.push(g);
+    }
+    for (const cmd of pi._commands.values()) {
+      surfaces.push(cmd.description ?? "");
+    }
+
+    for (const surface of surfaces) {
+      for (const forbidden of FORBIDDEN_PHRASES) {
+        assert.ok(
+          !forbidden.test(surface),
+          `forbidden phrase ${forbidden} found in: ${surface}`,
+        );
+      }
+    }
+  });
+
+  it("tools return a no-active-mission message (never service unavailable) when no mission is active", async () => {
     const { default: RatelExtension } = await import("../src/extension.js");
     const pi = createMockPi();
     RatelExtension(pi);
 
     const startTool = pi._tools.get("ratel_start_mission");
-    const result = await startTool!.execute("callId", { goal: "g" }, undefined, undefined, makeMockCtx());
+    // startMission with empty goal returns an error result, not a crash.
+    const result = await startTool!.execute("callId", { goal: "" }, undefined, undefined, makeMockCtx());
     const text = (result as { content: Array<{ text: string }> }).content[0].text;
-    assert.match(text, /not available/i);
+    assert.match(text, /goal is required/i);
+
+    const getStatus = pi._tools.get("ratel_get_status");
+    const statusResult = await getStatus!.execute("callId", { missionId: "mis_test" }, undefined, undefined, makeMockCtx());
+    const statusText = (statusResult as { content: Array<{ text: string }> }).content[0].text;
+    // Must not reference service unavailability.
+    assert.ok(!/ratel --serve/i.test(statusText), "must not say ratel --serve");
+    assert.ok(!/service unavailable/i.test(statusText), "must not say service unavailable");
   });
 
-  it("ratel_poll_status short-circuits with service-unavailable when no service is connected", async () => {
-    const { default: RatelExtension } = await import("../src/extension.js");
-    const pi = createMockPi();
-    RatelExtension(pi);
-
-    const poll = pi._tools.get("ratel_poll_status");
-    const result = await poll!.execute("callId", {}, undefined, undefined, makeMockCtx());
-    const text = (result as { content: Array<{ text: string }> }).content[0].text;
-    assert.match(text, /not available/i);
-  });
-
-  it("session_start does not throw with a mock ctx and autostart disabled", async () => {
+  it("session_start does not throw with a mock ctx", async () => {
     const { default: RatelExtension } = await import("../src/extension.js");
     const pi = createMockPi();
     RatelExtension(pi);
 
     const startHandler = pi._handlers.find((h: MockHandler) => h.event === "session_start")!;
-    await startHandler.fn({ reason: "startup" }, makeMockCtx());
-    // No assertion needed — reaching here without throwing is the contract.
+    // Use a real temp dir so runtime fs helpers do not throw on the mock cwd.
+    const os = await import("node:os");
+    const fs = await import("node:fs");
+    const tmp = fs.mkdtempSync(join(os.tmpdir(), "ratel-pi-ext-"));
+    try {
+      await startHandler.fn({ reason: "startup" }, makeMockCtx({ cwd: tmp }));
+      // No assertion needed — reaching here without throwing is the contract.
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
-describe("prompts — Pi-native and no legacy .missions/current", () => {
-  it("factory mode prompt references .ratel/missions/<missionId>/ and Pi extension", async () => {
+describe("prompts — in-process, no service-era wording", () => {
+  it("factory mode prompt references .ratel/missions/<missionId>/ and in-process Pi extension", async () => {
     const { getFactoryModePrompt } = await import("../src/prompts.js");
     const p = getFactoryModePrompt();
     assert.ok(p.includes(".ratel/missions/<missionId>/"), "must reference durable .ratel state");
@@ -192,6 +231,57 @@ describe("prompts — Pi-native and no legacy .missions/current", () => {
     assert.ok(p.includes("ratel_approve_plan"));
     assert.ok(p.includes("ratel_reply_to_factory"));
     assert.ok(p.includes("ratel_answer_question"));
-    assert.ok(p.toLowerCase().includes("pi extension") || p.toLowerCase().includes("pi-native"));
+    assert.ok(p.toLowerCase().includes("in-process"));
+    assert.ok(!/ratel --serve/i.test(p), "must not reference ratel --serve");
+    assert.ok(!/HTTP service/i.test(p), "must not reference HTTP service");
+  });
+});
+
+describe("source grep — no service-era imports or user-facing constants", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const srcDir = join(here, "..", "src");
+
+  const SRC_FILES = [
+    "index.ts",
+    "extension.ts",
+    "commands.ts",
+    "runtime.ts",
+    "events.ts",
+    "polling.ts",
+    "prompts.ts",
+    "resolve-project-root.ts",
+    "tool-scope.ts",
+  ];
+
+  it("no src file imports ./service.js or ./service-lifecycle.js", () => {
+    for (const f of SRC_FILES) {
+      const content = readFileSync(join(srcDir, f), "utf-8");
+      assert.ok(
+        !/from\s+["']\.\/service\.js["']/.test(content),
+        `${f} must not import ./service.js`,
+      );
+      assert.ok(
+        !/from\s+["']\.\/service-lifecycle\.js["']/.test(content),
+        `${f} must not import ./service-lifecycle.js`,
+      );
+    }
+  });
+
+  it("no src file mentions `ratel --serve` or RatelServiceClient in user-facing constants", () => {
+    for (const f of SRC_FILES) {
+      const content = readFileSync(join(srcDir, f), "utf-8");
+      assert.ok(
+        !/ratel --serve/i.test(content),
+        `${f} must not mention ratel --serve`,
+      );
+      assert.ok(
+        !/RatelServiceClient/.test(content),
+        `${f} must not reference RatelServiceClient`,
+      );
+      assert.ok(
+        !/RatelServiceError/.test(content),
+        `${f} must not reference RatelServiceError`,
+      );
+    }
   });
 });

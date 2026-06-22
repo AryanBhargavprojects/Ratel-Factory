@@ -490,6 +490,18 @@
           Running
         </span>
       </div>
+      <div class="status-item" title="Events loaded by this dashboard instance">
+        <span class="status-label">Events</span>
+        <span id="stat-events" class="status-value">0</span>
+      </div>
+      <div class="status-item" title="Mission source for this dashboard instance">
+        <span class="status-label">Mission</span>
+        <span id="stat-mission" class="status-value">current</span>
+      </div>
+      <div class="status-item" title="Most recent event loaded by this dashboard instance">
+        <span class="status-label">Latest</span>
+        <span id="stat-latest" class="status-value">—</span>
+      </div>
       <button id="btn-plan">
         [+] Plan Checklist
       </button>
@@ -532,8 +544,8 @@
     <!-- 1. ORCHESTRATION COLUMN -->
     <div class="console-pane" id="pane-orchestration">
       <div class="console-header">
-        <div class="console-title">◈ ORCHESTRATION</div>
-        <div class="console-status-badge">Root Agent</div>
+        <div class="console-title">◈ ALL FACTORY LOGS</div>
+        <div class="console-status-badge">Complete Feed</div>
       </div>
       <div class="console-body" id="body-orchestration">
         <!-- Live stream content populated here -->
@@ -644,12 +656,16 @@
   <script>
     'use strict';
 
+    const MAX_RENDERED_EVENTS = 500;
+
     // State representation
     const state = {
       events: [],
-      lastEventCount: 0,
+      lastEventCount: -1,
       activeWorkerSpan: null,
       activeValidatorSpan: null,
+      allWorkerSpans: new Set(),
+      allValidatorSpans: new Set(),
       planExpanded: false
     };
 
@@ -672,6 +688,9 @@
     const $originalFeatureSection = document.getElementById('original-feature-section');
     const $goalTextMarquee = document.getElementById('goal-text-marquee');
     const $statPhase = document.getElementById('stat-phase');
+    const $statEvents = document.getElementById('stat-events');
+    const $statMission = document.getElementById('stat-mission');
+    const $statLatest = document.getElementById('stat-latest');
     const $planList = document.getElementById('plan-list');
 
     const $planReviewConsole = document.getElementById('plan-review-console');
@@ -963,6 +982,14 @@
       if (e.event_type === 'phase_transition') return `Phase transition: ${d.from} → \sub{${d.to}}`;
       if (e.event_type === 'artifact_write') return `Wrote file: ${d.artifactName}`;
       if (e.event_type === 'halt') return `HALT: ${d.reason || ''}`;
+      if (e.event_type === 'ping') return `Ping ${d.agentName || '?'}: ${d.status || 'unknown'} (${d.durationMs || 0}ms)${d.error ? ' — ' + d.error : ''}`;
+      if (e.event_type === 'assistant_message') return `Assistant (${d.role || '?'}): ${d.truncated ? d.preview : (d.text || d.preview || '')}`;
+      if (e.event_type === 'pending_question') return `Pending question: ${d.question || d.questionId || ''}${d.options && d.options.length ? ' [opts: ' + d.options.slice(0, 4).join(', ') + (d.options.length > 4 ? ', …' : '') + ']' : ''}`;
+      if (e.event_type === 'mission_initialized') return `Mission initialized${d.goal ? ': ' + d.goal : ''}`;
+      if (e.event_type === 'budget_usage') return `Budget: $${Number(d.costUsd || 0).toFixed(4)} / ${d.totalTokens || 0} tokens`;
+      if (e.event_type === 'budget_exceeded') return `Budget exceeded: ${d.reason || ''}`;
+      if (e.event_type === 'decision_logged') return `Decision: ${d.decision || ''}`;
+      if (e.event_type === 'state_loaded') return `State loaded: phase=${d.phase || ''} v${d.version || 0}`;
       return d.message || JSON.stringify(d);
     }
 
@@ -1087,6 +1114,41 @@
         `;
       }
 
+      if (e.event_type === 'ping') {
+        const status = e.data.status || 'unknown';
+        const isOk = status === 'ok';
+        const color = isOk ? '#7ee787' : (status === 'timeout' ? '#d29922' : '#ff7b72');
+        return `
+          <div class="system-log" style="border-left-color: ${color};">
+            <b style="color: ${color};">PING ${escapeHtml(status.toUpperCase())}</b> — ${escapeHtml(e.data.agentName || '?')} (${e.data.durationMs || 0}ms)${e.data.error ? ' — ' + escapeHtml(e.data.error) : ''}
+          </div>
+        `;
+      }
+
+      if (e.event_type === 'assistant_message') {
+        const text = e.data.truncated ? (e.data.preview || '') : (e.data.text || e.data.preview || '');
+        return `
+          <div class="thought-card">
+            <div class="thought-header">Assistant · ${escapeHtml(e.data.role || '?')}</div>
+            <div>${escapeHtml(text)}</div>
+          </div>
+        `;
+      }
+
+      if (e.event_type === 'pending_question') {
+        const opts = Array.isArray(e.data.options) ? e.data.options : [];
+        const optsHtml = opts.length
+          ? `<div style="margin-top:6px; color:#8e8e93; font-size:11px;">Options: ${opts.slice(0, 6).map(escapeHtml).join(' · ') + (opts.length > 6 ? ' · …' : '')}</div>`
+          : '';
+        return `
+          <div class="thought-card" style="border-color:#c586c0;">
+            <div class="thought-header" style="color:#c586c0;">Pending Question · ${escapeHtml(e.data.questionId || '?')}</div>
+            <div>${escapeHtml(e.data.question || '')}</div>
+            ${optsHtml}
+          </div>
+        `;
+      }
+
       const summary = summarizeEvent(e);
       return `
         <div class="cli-line">
@@ -1098,21 +1160,66 @@
 
     // Core Processing & Rendering
     function processEvents(events) {
-      // Find active worker/validator spans
+      if ($statEvents) {
+        $statEvents.textContent = String(events.length);
+        $statEvents.title = events.length > MAX_RENDERED_EVENTS
+          ? `Showing latest ${MAX_RENDERED_EVENTS} of ${events.length} events`
+          : `Showing ${events.length} events`;
+      }
+      if ($statMission) {
+        const explicitMission = getMissionIdFromUrl();
+        $statMission.textContent = explicitMission ? explicitMission.slice(0, 18) : `${window.location.host} current`;
+        $statMission.title = explicitMission || `Resolved by ${window.location.origin}/api/events`;
+      }
+
+      if ($statLatest) {
+        const latest = events[events.length - 1];
+        const label = latest
+          ? `${latest.event_type}${latest.data?.toolName ? ':' + latest.data.toolName : latest.data?.agentName ? ':' + latest.data.agentName : ''}`
+          : '—';
+        $statLatest.textContent = label.slice(0, 32);
+        $statLatest.title = latest ? JSON.stringify(latest.data || {}) : 'No events loaded';
+      }
+
+      if (!events.length) {
+        $paneOrchestration.classList.add('active-running');
+        $bodyOrchestration.innerHTML = `
+          <div class="system-log" style="border-left-color:#d29922;">
+            <b>NO EVENTS LOADED</b> — This dashboard is connected to ${escapeHtml(window.location.origin)} and is reading ${escapeHtml('/api/events' + missionQueryParam())}. If you just pinged another factory instance, open that instance's printed Dashboard URL.
+          </div>
+        `;
+        $paneWorker.classList.remove('active-running');
+        $badgeWorker.textContent = 'Sleeping';
+        $bodyWorker.innerHTML = getSleepHtml('Worker', SLEEP_ASCII_WORKER, 'No events loaded for this mission yet.');
+        $containerWorkerDiff.style.display = 'none';
+        $paneValidator.classList.remove('active-running');
+        $badgeValidator.textContent = 'Sleeping';
+        $bodyValidator.innerHTML = getSleepHtml('Validator', SLEEP_ASCII_VALIDATOR, 'No validation events loaded for this mission yet.');
+        return;
+      }
+
+      // Scan the full history for worker/validator spans (active AND completed).
+      // We track ALL span_ids so the Worker and Validator panels show every
+      // worker/validator run across the entire mission, not just the
+      // currently-running one.
+      const workerSpans = new Set();
+      const validatorSpans = new Set();
       let activeWorker = null;
       let activeValidator = null;
 
       for (const e of events) {
         if (e.event_type === 'agent_start') {
           if (e.agent_level === 'worker') {
+            workerSpans.add(e.span_id);
             activeWorker = e.span_id;
-          } else if (e.agent_level && e.agent_level.includes('validator')) {
+          } else if (e.agent_level && (e.agent_level.includes('validator') || e.agent_level === 'user_testing_shard')) {
+            validatorSpans.add(e.span_id);
             activeValidator = e.span_id;
           }
         } else if (e.event_type === 'agent_end') {
           if (e.agent_level === 'worker' && activeWorker === e.span_id) {
             activeWorker = null;
-          } else if (e.agent_level && e.agent_level.includes('validator') && activeValidator === e.span_id) {
+          } else if (e.agent_level && (e.agent_level.includes('validator') || e.agent_level === 'user_testing_shard') && activeValidator === e.span_id) {
             activeValidator = null;
           }
         }
@@ -1120,41 +1227,106 @@
 
       state.activeWorkerSpan = activeWorker;
       state.activeValidatorSpan = activeValidator;
+      state.allWorkerSpans = workerSpans;
+      state.allValidatorSpans = validatorSpans;
 
-      // Filter events per column
+      // Render only the latest events to keep the browser responsive on
+      // long missions with thousands of events.
+      const renderedEvents = events.slice(-MAX_RENDERED_EVENTS);
+
+      // Filter events per column.
+      // Worker and Validator panels filter from the FULL event history (not
+      // just the last N) because a mission may have hundreds of orchestrator
+      // events after the last worker/validator run. Without this, those panels
+      // would appear empty even though worker/validator events exist earlier.
+      // The per-column render is capped below to stay responsive.
+      //
+      // - Worker panel: ALL worker agent events + child events of any worker span
+      //   (tool calls inside workers, session events, etc.)
+      // - Validator panel: ALL validator/shard agent events + child events of any
+      //   validator span (scrutiny checks, user-testing browser steps, etc.)
       const orchEvents = [];
       const workerEvents = [];
       const validatorEvents = [];
 
-      for (const e of events) {
-        // Orchestrator
-        if (e.agent_level === 'orchestrator' || !e.agent_level || e.event_type === 'phase_transition' || e.event_type === 'halt') {
+      for (const e of renderedEvents) {
+        const lvl = e.agent_level;
+
+        // Orchestrator column: orchestrator + unattributed system events
+        if (lvl === 'orchestrator' || !lvl || e.event_type === 'phase_transition' || e.event_type === 'halt') {
           orchEvents.push(e);
         }
-        
-        // Worker
-        if (e.agent_level === 'worker' || e.parent_span_id === activeWorker || e.span_id === activeWorker) {
+      }
+
+      for (const e of events) {
+        const lvl = e.agent_level;
+
+        // Worker column: worker agent_level, or any event whose span/parent is a worker span
+        if (lvl === 'worker' || workerSpans.has(e.span_id) || workerSpans.has(e.parent_span_id)) {
           workerEvents.push(e);
         }
-        
-        // Validator
-        if ((e.agent_level && e.agent_level.includes('validator')) || e.parent_span_id === activeValidator || e.span_id === activeValidator) {
+
+        // Validator column: scrutiny_validator, user_testing_validator, user_testing_shard,
+        // or any event whose span/parent is a validator span
+        if (
+          (lvl && (lvl.includes('validator') || lvl === 'user_testing_shard')) ||
+          validatorSpans.has(e.span_id) ||
+          validatorSpans.has(e.parent_span_id)
+        ) {
           validatorEvents.push(e);
         }
       }
 
-      // Render Orchestration
+      // Cap per-column rendering to the latest MAX_RENDERED_EVENTS so very
+      // large missions don't stall the browser.
+      const visibleWorkerEvents = workerEvents.slice(-MAX_RENDERED_EVENTS);
+      const visibleValidatorEvents = validatorEvents.slice(-MAX_RENDERED_EVENTS);
+
+      // Render Orchestration — shows ALL events chronologically (the complete factory log).
+      // Always include a tiny visibility banner so users can distinguish "no logs" from
+      // "logs loaded but pane content is below / old".
       $paneOrchestration.classList.add('active-running');
-      $bodyOrchestration.innerHTML = orchEvents.map(getEventRowHtml).join('');
+      const latest = events[events.length - 1];
+      const banner = `
+        <div class="system-log" style="border-left-color:#7ee787; color:#d1d1d6;">
+          <b>EVENTS LOADED</b> — ${events.length} total; showing latest ${Math.min(MAX_RENDERED_EVENTS, events.length)} from ${escapeHtml('/api/events' + missionQueryParam())}; latest=${escapeHtml(latest ? latest.event_type : 'none')}
+        </div>
+      `;
+      const visibleOrchEvents = renderedEvents;
+      $bodyOrchestration.innerHTML = banner + visibleOrchEvents.map((event) => {
+        try {
+          return getEventRowHtml(event);
+        } catch (err) {
+          return `<div class="system-log" style="border-left-color:#ff7b72;"><b>RENDER ERROR</b> — ${escapeHtml(event.event_type || 'unknown')}: ${escapeHtml(err && err.message ? err.message : err)}</div>`;
+        }
+      }).join('');
       $bodyOrchestration.scrollTop = $bodyOrchestration.scrollHeight;
 
-      // Render Worker
-      if (state.activeWorkerSpan) {
-        $paneWorker.classList.add('active-running');
-        $badgeWorker.textContent = 'Running';
-        $bodyWorker.innerHTML = workerEvents.map(getEventRowHtml).join('');
+      // Render Worker — shows ALL worker events persistently.
+      // Badge: "Running" when a worker is active, "N events" when idle but
+      // historical logs exist, "Sleeping" only when zero worker events ever.
+      if (workerEvents.length > 0) {
+        if (state.activeWorkerSpan) {
+          $paneWorker.classList.add('active-running');
+          $badgeWorker.textContent = 'Running';
+        } else {
+          $paneWorker.classList.remove('active-running');
+          $badgeWorker.textContent = `${workerEvents.length} events`;
+        }
+        const workerBanner = `
+          <div class="system-log" style="border-left-color:#7ee787; color:#d1d1d6;">
+            <b>WORKER LOGS</b> — ${workerSpans.size} worker run${workerSpans.size === 1 ? '' : 's'}; ${workerEvents.length} event${workerEvents.length === 1 ? '' : 's'} total; showing latest ${visibleWorkerEvents.length}${state.activeWorkerSpan ? ' (1 active)' : ''}
+          </div>
+        `;
+        $bodyWorker.innerHTML = workerBanner + visibleWorkerEvents.map((event) => {
+          try {
+            return getEventRowHtml(event);
+          } catch (err) {
+            return `<div class="system-log" style="border-left-color:#ff7b72;"><b>RENDER ERROR</b> — ${escapeHtml(event.event_type || 'unknown')}: ${escapeHtml(err && err.message ? err.message : err)}</div>`;
+          }
+        }).join('');
         $bodyWorker.scrollTop = $bodyWorker.scrollHeight;
-        $containerWorkerDiff.style.display = 'flex';
+        $containerWorkerDiff.style.display = state.activeWorkerSpan ? 'flex' : 'none';
       } else {
         $paneWorker.classList.remove('active-running');
         $badgeWorker.textContent = 'Sleeping';
@@ -1162,11 +1334,29 @@
         $containerWorkerDiff.style.display = 'none';
       }
 
-      // Render Validator
-      if (state.activeValidatorSpan) {
-        $paneValidator.classList.add('active-running');
-        $badgeValidator.textContent = 'Running';
-        $bodyValidator.innerHTML = validatorEvents.map(getEventRowHtml).join('');
+      // Render Validator — shows ALL validation events persistently.
+      // Badge: "Running" when a validator is active, "N events" when idle but
+      // historical logs exist, "Sleeping" only when zero validator events ever.
+      if (validatorEvents.length > 0) {
+        if (state.activeValidatorSpan) {
+          $paneValidator.classList.add('active-running');
+          $badgeValidator.textContent = 'Running';
+        } else {
+          $paneValidator.classList.remove('active-running');
+          $badgeValidator.textContent = `${validatorEvents.length} events`;
+        }
+        const valBanner = `
+          <div class="system-log" style="border-left-color:#7ee787; color:#d1d1d6;">
+            <b>VALIDATOR LOGS</b> — ${validatorSpans.size} validator run${validatorSpans.size === 1 ? '' : 's'}; ${validatorEvents.length} event${validatorEvents.length === 1 ? '' : 's'} total; showing latest ${visibleValidatorEvents.length}${state.activeValidatorSpan ? ' (1 active)' : ''}
+          </div>
+        `;
+        $bodyValidator.innerHTML = valBanner + visibleValidatorEvents.map((event) => {
+          try {
+            return getEventRowHtml(event);
+          } catch (err) {
+            return `<div class="system-log" style="border-left-color:#ff7b72;"><b>RENDER ERROR</b> — ${escapeHtml(event.event_type || 'unknown')}: ${escapeHtml(err && err.message ? err.message : err)}</div>`;
+          }
+        }).join('');
         $bodyValidator.scrollTop = $bodyValidator.scrollHeight;
       } else {
         $paneValidator.classList.remove('active-running');

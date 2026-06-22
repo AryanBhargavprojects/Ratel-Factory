@@ -1,7 +1,7 @@
 {
   "name": "@ratel-factory/pi-extension",
-  "version": "0.2.1",
-  "description": "Ratel Factory — native Pi Coding Agent extension. Registers Ratel factory commands, tools, lifecycle hooks, and a bundled skill so Pi users can run Ratel missions through the Pi extension API.",
+  "version": "0.2.2",
+  "description": "Ratel Factory — native Pi Coding Agent extension. Runs the Ratel orchestrator in-process (no HTTP service, no `ratel --serve`) and registers Pi commands, tools, lifecycle hooks, and a bundled skill so Pi users can run Ratel missions directly inside Pi.",
   "keywords": [
     "pi-package",
     "ratel",
@@ -30,7 +30,7 @@
   ],
   "scripts": {
     "prepack": "npm run build",
-    "build": "tsc",
+    "build": "node -e \"const fs=require('fs'); fs.rmSync('dist',{recursive:true,force:true}); fs.rmSync('tsconfig.tsbuildinfo',{force:true})\" && tsc",
     "dev": "tsx src/index.ts",
     "test": "tsx --test test/**/*.test.ts"
   },
