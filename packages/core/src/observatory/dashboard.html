@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ratel Observatory</title>
   <style>
-    /* ── Typography & Base Styles ── */
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;600&display=swap');
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -32,154 +31,212 @@
       flex-shrink: 0;
       z-index: 100;
     }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+    .brand { display: flex; align-items: center; gap: 10px; }
     .brand-logo {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      color: #ffffff;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      font-size: 20px; font-weight: 700; letter-spacing: -0.5px; color: #ffffff;
+      display: flex; align-items: center; gap: 8px;
     }
     .brand-logo span {
-      background: #ffffff;
-      color: #060608;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      background: #ffffff; color: #060608; padding: 2px 6px; border-radius: 4px;
+      font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
     }
-    .mission-status {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      font-size: 13px;
-    }
+    .mission-status { display: flex; align-items: center; gap: 20px; font-size: 13px; }
     .status-item {
+      display: flex; align-items: center; gap: 8px;
+      background: #121216; border: 1px solid #222228; padding: 6px 12px; border-radius: 6px;
+    }
+    .status-label { color: #8e8e93; text-transform: uppercase; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; }
+    .status-value { color: #ffffff; font-weight: 600; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #8e8e93; display: inline-block; }
+    .status-dot.active { background: #ffffff; box-shadow: 0 0 8px #ffffff; animation: pulse 2s infinite; }
+    #btn-plan, #btn-tree {
+      background: transparent; border: 1px solid #3a3a44; color: #e1e1e6;
+      padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px; transition: all 0.2s;
+    }
+    #btn-plan:hover, #btn-tree:hover { background: #ffffff; color: #060608; border-color: #ffffff; }
+    #btn-tree.active { background: #c586c0; color: #000; border-color: #c586c0; }
+
+    /* ── Main Layout: Sidebar + Content ── */
+    #main-layout {
       display: flex;
-      align-items: center;
-      gap: 8px;
-      background: #121216;
-      border: 1px solid #222228;
-      padding: 6px 12px;
-      border-radius: 6px;
-    }
-    .status-label {
-      color: #8e8e93;
-      text-transform: uppercase;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-    }
-    .status-value {
-      color: #ffffff;
-      font-weight: 600;
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #8e8e93;
-      display: inline-block;
-    }
-    .status-dot.active {
-      background: #ffffff;
-      box-shadow: 0 0 8px #ffffff;
-      animation: pulse 2s infinite;
-    }
-    #btn-plan {
-      background: transparent;
-      border: 1px solid #3a3a44;
-      color: #e1e1e6;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.2s;
-    }
-    #btn-plan:hover {
-      background: #ffffff;
-      color: #060608;
-      border-color: #ffffff;
+      flex: 1;
+      overflow: hidden;
     }
 
-    /* ── Dialog Popup Checklist Styling ── */
-    dialog::backdrop {
-      background-color: rgba(0, 0, 0, 0.7);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+    /* ── Workspace Tree Sidebar ── */
+    #workspace-sidebar {
+      width: 280px;
+      min-width: 280px;
+      background: #08080a;
+      border-right: 1px solid #1a1a20;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width 0.2s;
     }
-    #plan-dialog {
+    #workspace-sidebar.open { display: flex; }
+    .sidebar-header {
+      background: #111114;
+      border-bottom: 1px solid #1a1a20;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .sidebar-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+      color: #8e8e93; display: flex; align-items: center; gap: 8px;
+    }
+    .sidebar-actions { display: flex; gap: 6px; }
+    .sidebar-btn {
+      background: transparent; border: 1px solid #222228; color: #8e8e93;
+      padding: 3px 8px; border-radius: 4px; font-size: 10px; cursor: pointer;
+      font-family: 'JetBrains Mono', monospace; transition: all 0.15s;
+    }
+    .sidebar-btn:hover { background: #18181c; color: #fff; border-color: #3a3a44; }
+    #workspace-tree {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+    .tree-node { user-select: none; }
+    .tree-row {
+      display: flex; align-items: center; gap: 4px;
+      padding: 3px 12px; cursor: pointer;
+      transition: background 0.1s;
+      white-space: nowrap;
+    }
+    .tree-row:hover { background: #121216; }
+    .tree-row.selected { background: #1a1a22; color: #c586c0; }
+    .tree-icon { width: 14px; text-align: center; flex-shrink: 0; color: #5c5c64; }
+    .tree-icon.dir { color: #c586c0; }
+    .tree-icon.file { color: #8e8e93; }
+    .tree-icon.artifact { color: #7ee787; }
+    .tree-name { overflow: hidden; text-overflow: ellipsis; }
+    .tree-size { color: #3e3e44; font-size: 10px; margin-left: auto; padding-left: 8px; flex-shrink: 0; }
+    .tree-children { margin-left: 16px; }
+    .tree-chevron { width: 10px; color: #5c5c64; font-size: 9px; transition: transform 0.15s; }
+    .tree-chevron.expanded { transform: rotate(90deg); }
+
+    /* ── File Viewer Modal ── */
+    #file-viewer {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    #file-viewer.open { display: flex; }
+    .file-viewer-box {
       background: #09090b;
       border: 1px solid #222228;
       border-radius: 12px;
-      width: 650px;
-      max-width: 90%;
-      padding: 24px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.8);
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      outline: none;
-      color: #e1e1e6;
-    }
-    #original-feature-section:hover {
-      background: #121216 !important;
-    }
-    #original-feature-section:hover #feature-section-btn {
-      color: #ffffff !important;
-      border-color: #ffffff !important;
-      background: #000000 !important;
-    }
-    #plan-list {
+      width: 80%;
+      max-width: 900px;
+      height: 80%;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      max-height: 350px;
-      overflow-y: auto;
-      padding-right: 4px;
+      box-shadow: 0 10px 60px rgba(0,0,0,0.9);
     }
-    .plan-item {
+    .file-viewer-header {
+      background: #111114;
+      border-bottom: 1px solid #1a1a20;
+      padding: 10px 16px;
       display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      background: #121216;
-      border: 1px solid #1c1c22;
-      padding: 10px 14px;
-      border-radius: 6px;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .file-viewer-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; font-weight: 700; color: #ffffff;
+    }
+    .file-viewer-close {
+      background: transparent; border: none; color: #8e8e93;
+      font-size: 20px; cursor: pointer; line-height: 1;
+    }
+    .file-viewer-close:hover { color: #fff; }
+    .file-viewer-body {
+      flex: 1;
+      overflow: auto;
+      padding: 16px;
+      font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
+      line-height: 1.6;
+      color: #d1d1d6;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
-    .plan-item.completed {
-      opacity: 0.6;
-      border-color: #121216;
+    .file-viewer-body.json { white-space: pre; }
+
+    /* ── Event Detail Popover ── */
+    #event-popover {
+      display: none;
+      position: fixed;
+      background: #0d0d10;
+      border: 1px solid #33333d;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #d1d1d6;
+      max-width: 500px;
+      max-height: 300px;
+      overflow: auto;
+      z-index: 150;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.7);
     }
-    .plan-item-checkbox {
-      font-family: monospace;
-      font-size: 13px;
-      color: #8e8e93;
-      user-select: none;
+    #event-popover.open { display: block; }
+    .popover-header {
+      font-size: 10px; text-transform: uppercase; color: #8e8e93;
+      font-weight: 700; margin-bottom: 6px; letter-spacing: 0.5px;
     }
-    .plan-item.completed .plan-item-checkbox {
-      color: #ffffff;
+    .popover-content { white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+
+    /* ── Dialog Popup Checklist ── */
+    dialog::backdrop { background-color: rgba(0,0,0,0.7); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+    #plan-dialog {
+      background: #09090b; border: 1px solid #222228; border-radius: 12px;
+      width: 650px; max-width: 90%; padding: 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      outline: none; color: #e1e1e6;
     }
-    .plan-item-text {
-      color: #ffffff;
-      line-height: 1.4;
+    #original-feature-section:hover { background: #121216 !important; }
+    #original-feature-section:hover #feature-section-btn { color: #ffffff !important; border-color: #ffffff !important; background: #000000 !important; }
+    #plan-list { display: flex; flex-direction: column; gap: 10px; max-height: 350px; overflow-y: auto; padding-right: 4px; }
+    .plan-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      background: #121216; border: 1px solid #1c1c22; padding: 10px 14px; border-radius: 6px; font-size: 12px;
     }
-    .plan-item.completed .plan-item-text {
-      text-decoration: line-through;
-      color: #8e8e93;
+    .plan-item.completed { opacity: 0.6; border-color: #121216; }
+    .plan-item-checkbox { font-family: monospace; font-size: 13px; color: #8e8e93; user-select: none; }
+    .plan-item.completed .plan-item-checkbox { color: #ffffff; }
+    .plan-item-text { color: #ffffff; line-height: 1.4; }
+    .plan-item.completed .plan-item-text { text-decoration: line-through; color: #8e8e93; }
+
+    /* ── Content Area (right of sidebar) ── */
+    #content-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Goal Ticker ── */
+    #original-feature-section {
+      background: #0b0b0d; border-bottom: 1px solid #1a1a20; padding: 12px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; transition: background 0.2s; flex-shrink: 0; z-index: 90;
     }
 
     /* ── Main View Grid ── */
@@ -193,196 +250,68 @@
       box-sizing: border-box;
     }
 
-    /* ── Console / Pane Container ── */
     .console-pane {
-      display: flex;
-      flex-direction: column;
-      background: #09090b;
-      border: 1px solid #1a1a20;
-      border-radius: 10px;
-      overflow: hidden;
-      position: relative;
+      display: flex; flex-direction: column;
+      background: #09090b; border: 1px solid #1a1a20; border-radius: 10px;
+      overflow: hidden; position: relative;
     }
-    .console-pane.active-running {
-      border-color: #3a3a44;
-      box-shadow: 0 4px 30px rgba(0,0,0,0.6);
-    }
+    .console-pane.active-running { border-color: #3a3a44; box-shadow: 0 4px 30px rgba(0,0,0,0.6); }
     .console-header {
-      background: #111114;
-      border-bottom: 1px solid #1a1a20;
-      padding: 10px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-shrink: 0;
+      background: #111114; border-bottom: 1px solid #1a1a20; padding: 10px 16px;
+      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
     }
     .console-title {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      color: #8e8e93;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.5px; color: #8e8e93; display: flex; align-items: center; gap: 8px;
     }
-    .console-pane.active-running .console-title {
-      color: #ffffff;
-    }
+    .console-pane.active-running .console-title { color: #ffffff; }
     .console-status-badge {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 9px;
-      text-transform: uppercase;
-      font-family: 'JetBrains Mono', monospace;
-      padding: 2px 8px;
-      border-radius: 4px;
-      background: #18181c;
-      color: #8e8e93;
-      border: 1px solid #222228;
+      display: flex; align-items: center; gap: 6px; font-size: 9px;
+      text-transform: uppercase; font-family: 'JetBrains Mono', monospace;
+      padding: 2px 8px; border-radius: 4px; background: #18181c; color: #8e8e93; border: 1px solid #222228;
     }
-    .console-pane.active-running .console-status-badge {
-      background: #ffffff;
-      color: #060608;
-      border-color: #ffffff;
-    }
+    .console-pane.active-running .console-status-badge { background: #ffffff; color: #060608; border-color: #ffffff; }
 
-    /* ── Console Content & Logs ── */
     .console-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      line-height: 1.6;
-      color: #d1d1d6;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      scroll-behavior: smooth;
+      flex: 1; overflow-y: auto; padding: 16px;
+      font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6;
+      color: #d1d1d6; display: flex; flex-direction: column; gap: 12px; scroll-behavior: smooth;
     }
 
-    /* ── CLI Elements ── */
-    .cli-line {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-    }
-    .cli-prompt {
-      color: #8e8e93;
-      font-weight: bold;
-      user-select: none;
-    }
-    .cli-content {
-      flex: 1;
-      word-break: break-all;
-      white-space: pre-wrap;
-    }
-    
-    /* System & Thoughts */
-    .system-log {
-      color: #8e8e93;
-      font-size: 11px;
-      border-left: 2px solid #3a3a44;
-      padding-left: 8px;
-      margin: 4px 0;
-    }
+    .cli-line { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; border-radius: 4px; padding: 2px 4px; }
+    .cli-line:hover { background: #121216; }
+    .cli-prompt { color: #8e8e93; font-weight: bold; user-select: none; }
+    .cli-content { flex: 1; word-break: break-all; white-space: pre-wrap; }
+
+    .system-log { color: #8e8e93; font-size: 11px; border-left: 2px solid #3a3a44; padding-left: 8px; margin: 4px 0; }
     .thought-card {
-      background: #0f0f13;
-      border: 1px solid #1e1e24;
-      border-radius: 6px;
-      padding: 10px 14px;
-      color: #a1a1a8;
-      font-size: 11px;
+      background: #0f0f13; border: 1px solid #1e1e24; border-radius: 6px;
+      padding: 10px 14px; color: #a1a1a8; font-size: 11px;
     }
-    .thought-header {
-      font-size: 9px;
-      text-transform: uppercase;
-      color: #8e8e93;
-      font-weight: bold;
-      margin-bottom: 4px;
-      letter-spacing: 0.5px;
-    }
+    .thought-header { font-size: 9px; text-transform: uppercase; color: #8e8e93; font-weight: bold; margin-bottom: 4px; letter-spacing: 0.5px; }
 
-    /* Active Tool Executions */
     .tool-execution-card {
-      background: #121216;
-      border: 1px solid #22222a;
-      border-radius: 6px;
-      overflow: hidden;
-      margin: 4px 0;
+      background: #121216; border: 1px solid #22222a; border-radius: 6px; overflow: hidden; margin: 4px 0;
     }
     .tool-exec-header {
-      background: #181820;
-      padding: 6px 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid #22222a;
-      font-size: 11px;
+      background: #181820; padding: 6px 12px; display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid #22222a; font-size: 11px;
     }
-    .tool-exec-name {
-      font-weight: bold;
-      color: #ffffff;
-    }
-    .tool-exec-status {
-      font-size: 9px;
-      text-transform: uppercase;
-      color: #8e8e93;
-    }
-    .tool-exec-status.running {
-      color: #ffffff;
-      animation: flash 1.5s infinite;
-    }
-    .tool-exec-cmd {
-      padding: 10px 12px;
-      background: #08080a;
-      overflow-x: auto;
-      font-size: 11px;
-      white-space: pre;
-      color: #a1a1a8;
-    }
+    .tool-exec-name { font-weight: bold; color: #ffffff; }
+    .tool-exec-status { font-size: 9px; text-transform: uppercase; color: #8e8e93; }
+    .tool-exec-status.running { color: #ffffff; animation: flash 1.5s infinite; }
+    .tool-exec-cmd { padding: 10px 12px; background: #08080a; overflow-x: auto; font-size: 11px; white-space: pre; color: #a1a1a8; }
 
-    /* ── Split Screen Diff inside Worker column ── */
-    .worker-split-container {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-    .worker-log-pane {
-      flex: 1;
-      overflow-y: auto;
-      min-height: 150px;
-    }
-    .worker-diff-pane {
-      height: 45%;
-      border-top: 1px solid #1a1a20;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      background: #08080a;
-    }
+    .worker-split-container { display: flex; flex-direction: column; height: 100%; }
+    .worker-log-pane { flex: 1; overflow-y: auto; min-height: 150px; }
+    .worker-diff-pane { height: 45%; border-top: 1px solid #1a1a20; display: flex; flex-direction: column; overflow: hidden; background: #08080a; }
     .diff-header {
-      background: #111114;
-      border-bottom: 1px solid #1a1a20;
-      padding: 6px 16px;
-      font-size: 10px;
-      font-weight: bold;
-      color: #8e8e93;
-      text-transform: uppercase;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      background: #111114; border-bottom: 1px solid #1a1a20; padding: 6px 16px;
+      font-size: 10px; font-weight: bold; color: #8e8e93; text-transform: uppercase;
+      display: flex; align-items: center; justify-content: space-between;
     }
-    .diff-content-scroll {
-      flex: 1;
-      overflow-y: auto;
-      padding: 10px;
-      font-size: 11px;
-    }
-    
-    /* Diff hunks */
+    .diff-content-scroll { flex: 1; overflow-y: auto; padding: 10px; font-size: 11px; }
+
     .diff-container { display: flex; flex-direction: column; gap: 8px; }
     .diff-hunk { border: 1px solid #222228; border-radius: 4px; overflow: hidden; background: #0c0c0e; }
     .diff-hunk-header { background: #121216; padding: 4px 10px; border-bottom: 1px solid #222228; color: #8e8e93; font-size: 10px; }
@@ -391,83 +320,31 @@
     .diff-line-ind { width: 12px; text-align: center; color: #5c5c64; user-select: none; }
     .diff-line-text { flex: 1; white-space: pre; overflow-x: auto; }
     .diff-line-ctx { color: #8e8e93; }
-    .diff-line-add { background: rgba(63, 185, 80, 0.12); color: #7ee787; }
+    .diff-line-add { background: rgba(63,185,80,0.12); color: #7ee787; }
     .diff-line-add .diff-line-ind { color: #3fb950; }
-    .diff-line-del { background: rgba(248, 81, 73, 0.12); color: #ff7b72; }
+    .diff-line-del { background: rgba(248,81,73,0.12); color: #ff7b72; }
     .diff-line-del .diff-line-ind { color: #f85149; }
 
-    /* ── Idle / Sleeping State Screensavers ── */
     .screensaver-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      color: #3e3e44;
-      text-align: center;
-      padding: 24px;
-      user-select: none;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; color: #3e3e44; text-align: center; padding: 24px; user-select: none;
     }
-    .screensaver-ascii {
-      font-family: monospace;
-      white-space: pre;
-      line-height: 1.2;
-      font-size: 10px;
-      margin-bottom: 20px;
-      color: #222228;
-    }
-    .screensaver-text {
-      font-size: 11px;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      font-weight: 600;
-      color: #3e3e44;
-    }
-    .screensaver-sub {
-      font-size: 10px;
-      color: #2a2a30;
-      margin-top: 4px;
-    }
-    .screensaver-cursor {
-      display: inline-block;
-      width: 6px;
-      height: 12px;
-      background: #3e3e44;
-      margin-left: 4px;
-      animation: blink 1s step-end infinite;
-      vertical-align: middle;
-    }
+    .screensaver-ascii { font-family: monospace; white-space: pre; line-height: 1.2; font-size: 10px; margin-bottom: 20px; color: #222228; }
+    .screensaver-text { font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; font-weight: 600; color: #3e3e44; }
+    .screensaver-sub { font-size: 10px; color: #2a2a30; margin-top: 4px; }
+    .screensaver-cursor { display: inline-block; width: 6px; height: 12px; background: #3e3e44; margin-left: 4px; animation: blink 1s step-end infinite; vertical-align: middle; }
 
-    /* ── Animations ── */
-    @keyframes pulse {
-      0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
-      70% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 8px rgba(255, 255, 255, 0); }
-      100% { transform: scale(1); opacity: 0; box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
-    }
-    @keyframes flash {
-      0%, 100% { opacity: 0.4; }
-      50% { opacity: 1; }
-    }
-    @keyframes blink {
-      0%, 100% { opacity: 0; }
-      50% { opacity: 1; }
-    }
+    @keyframes pulse { 0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(255,255,255,0.4); } 70% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 8px rgba(255,255,255,0); } 100% { transform: scale(1); opacity: 0; box-shadow: 0 0 0 0 rgba(255,255,255,0); } }
+    @keyframes flash { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+    @keyframes blink { 0%,100% { opacity: 0; } 50% { opacity: 1; } }
 
-    /* Scrollbars */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #09090b; }
     ::-webkit-scrollbar-thumb { background: #222228; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #33333d; }
 
-    /* ── Plan Review Console (Widescreen Editor) ── */
     #plan-review-console {
-      display: none;
-      flex: 1;
-      padding: 16px;
-      gap: 16px;
-      overflow: hidden;
-      box-sizing: border-box;
-      height: calc(100vh - 56px);
+      display: none; flex: 1; padding: 16px; gap: 16px; overflow: hidden; box-sizing: border-box; height: calc(100vh - 56px);
     }
   </style>
 </head>
@@ -479,177 +356,136 @@
       <div class="brand-logo">RATEL <span>Observatory</span></div>
     </div>
     <div class="mission-status">
-      <div class="status-item">
-        <span class="status-label">Phase</span>
-        <span id="stat-phase" class="status-value">—</span>
-      </div>
-      <div class="status-item">
-        <span class="status-label">Engine</span>
-        <span class="status-value" style="display: flex; align-items: center; gap: 6px;">
-          <span class="status-dot active"></span>
-          Running
-        </span>
-      </div>
-      <div class="status-item" title="Events loaded by this dashboard instance">
-        <span class="status-label">Events</span>
-        <span id="stat-events" class="status-value">0</span>
-      </div>
-      <div class="status-item" title="Mission source for this dashboard instance">
-        <span class="status-label">Mission</span>
-        <span id="stat-mission" class="status-value">current</span>
-      </div>
-      <div class="status-item" title="Most recent event loaded by this dashboard instance">
-        <span class="status-label">Latest</span>
-        <span id="stat-latest" class="status-value">—</span>
-      </div>
-      <button id="btn-plan">
-        [+] Plan Checklist
-      </button>
+      <div class="status-item"><span class="status-label">Phase</span><span id="stat-phase" class="status-value">—</span></div>
+      <div class="status-item"><span class="status-label">Engine</span><span class="status-value" style="display:flex;align-items:center;gap:6px;"><span class="status-dot active"></span>Running</span></div>
+      <div class="status-item" title="Events loaded"><span class="status-label">Events</span><span id="stat-events" class="status-value">0</span></div>
+      <div class="status-item" title="Mission source"><span class="status-label">Mission</span><span id="stat-mission" class="status-value">current</span></div>
+      <div class="status-item" title="Most recent event"><span class="status-label">Latest</span><span id="stat-latest" class="status-value">—</span></div>
+      <button id="btn-tree">🌲 Workspace</button>
+      <button id="btn-plan">[+] Plan Checklist</button>
     </div>
   </div>
 
+  <!-- ── Main Layout: Sidebar + Content ── -->
+  <div id="main-layout">
 
-
-  <!-- ── Original Feature Section (Goal Ticker) ── -->
-  <div id="original-feature-section" style="background: #0b0b0d; border-bottom: 1px solid #1a1a20; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.2s; flex-shrink: 0; z-index: 90;">
-    <div style="display: flex; align-items: center; gap: 16px; flex: 1; overflow: hidden;">
-      <span style="font-size: 11px; text-transform: uppercase; color: #8e8e93; letter-spacing: 1px; font-weight: 700; white-space: nowrap; font-family: 'Outfit', sans-serif;">
-        Original Feature Goal
-      </span>
-      <div style="flex: 1; overflow: hidden; display: flex; align-items: center;">
-        <marquee scrollamount="2.5" id="goal-text-marquee" style="color: #ffffff; font-weight: 600; font-size: 13px; font-family: 'JetBrains Mono', monospace;">—</marquee>
+    <!-- ── Workspace Tree Sidebar ── -->
+    <div id="workspace-sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">🌲 MISSION WORKSPACE</div>
+        <div class="sidebar-actions">
+          <button class="sidebar-btn" id="btn-expand-all">[+] Expand</button>
+          <button class="sidebar-btn" id="btn-collapse-all">[-] Collapse</button>
+        </div>
+      </div>
+      <div id="workspace-tree">
+        <div style="color:#3e3e44; font-size:11px; padding:16px; text-align:center;">Loading workspace...</div>
       </div>
     </div>
-    <div id="feature-section-btn" style="font-size: 11px; color: #8e8e93; font-family: 'JetBrains Mono', monospace; margin-left: 16px; flex-shrink: 0; border: 1px solid #222228; padding: 4px 10px; border-radius: 4px; background: #121216; transition: all 0.2s;">
-      [View Plan Checklist]
-    </div>
-  </div>
 
-  <!-- ── Plan Checklist Dialog Popup ── -->
+    <!-- ── Content Area ── -->
+    <div id="content-area">
+
+      <!-- ── Goal Ticker ── -->
+      <div id="original-feature-section" style="background:#0b0b0d;border-bottom:1px solid #1a1a20;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:background 0.2s;flex-shrink:0;z-index:90;">
+        <div style="display:flex;align-items:center;gap:16px;flex:1;overflow:hidden;">
+          <span style="font-size:11px;text-transform:uppercase;color:#8e8e93;letter-spacing:1px;font-weight:700;white-space:nowrap;font-family:'Outfit',sans-serif;">Original Feature Goal</span>
+          <div style="flex:1;overflow:hidden;display:flex;align-items:center;">
+            <marquee scrollamount="2.5" id="goal-text-marquee" style="color:#ffffff;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;">—</marquee>
+          </div>
+        </div>
+        <div id="feature-section-btn" style="font-size:11px;color:#8e8e93;font-family:'JetBrains Mono',monospace;margin-left:16px;flex-shrink:0;border:1px solid #222228;padding:4px 10px;border-radius:4px;background:#121216;transition:all 0.2s;">[View Plan Checklist]</div>
+      </div>
+
+      <!-- ── 3-Column Grid ── -->
+      <div id="observatory-grid">
+        <div class="console-pane" id="pane-orchestration">
+          <div class="console-header"><div class="console-title">◈ ALL FACTORY LOGS</div><div class="console-status-badge">Complete Feed</div></div>
+          <div class="console-body" id="body-orchestration"></div>
+        </div>
+        <div class="console-pane" id="pane-worker">
+          <div class="console-header"><div class="console-title">◇ WORKER PANEL</div><div class="console-status-badge" id="badge-worker">Sleeping</div></div>
+          <div class="worker-split-container">
+            <div class="worker-log-pane"><div class="console-body" id="body-worker"></div></div>
+            <div class="worker-diff-pane" id="container-worker-diff" style="display:none;">
+              <div class="diff-header"><span>Live Hunk Diff View</span><span style="font-family:monospace;font-size:9px;color:#5c5c64;">$ git diff</span></div>
+              <div class="diff-content-scroll" id="body-worker-diff"></div>
+            </div>
+          </div>
+        </div>
+        <div class="console-pane" id="pane-validator">
+          <div class="console-header"><div class="console-title">⬪ VALIDATION CONTROL</div><div class="console-status-badge" id="badge-validator">Sleeping</div></div>
+          <div class="console-body" id="body-validator"></div>
+        </div>
+      </div>
+
+      <!-- ── Plan Review Console ── -->
+      <div id="plan-review-console">
+        <div class="console-pane" style="flex:2;display:flex;flex-direction:column;">
+          <div class="console-header" style="padding:10px 16px;flex-shrink:0;">
+            <div class="console-title" style="color:#ffffff;gap:8px;">
+              <span>📄 VALIDATION CONTRACT</span>
+              <span style="font-family:monospace;font-size:10px;color:#8e8e93;font-weight:normal;">validation-contract.md</span>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button id="btn-tab-preview" style="background:#18181c;border:1px solid #c586c0;color:#ffffff;padding:4px 12px;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;font-family:'JetBrains Mono',monospace;outline:none;transition:all 0.2s;">Preview</button>
+              <button id="btn-tab-edit" style="background:transparent;border:1px solid #222228;color:#8e8e93;padding:4px 12px;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;font-family:'JetBrains Mono',monospace;outline:none;transition:all 0.2s;">Edit Markdown</button>
+            </div>
+          </div>
+          <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;background:#050507;position:relative;">
+            <div id="tab-content-preview" style="flex:1;overflow-y:auto;padding:24px;font-size:13.5px;line-height:1.6;color:#e1e1e6;scroll-behavior:smooth;"></div>
+            <textarea id="tab-content-edit" style="display:none;flex:1;width:100%;border:none;background:#050507;padding:20px;color:#e1e1e6;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.5;resize:none;outline:none;box-sizing:border-box;" placeholder="Type markdown contract here..."></textarea>
+          </div>
+        </div>
+        <div style="flex:1.2;display:flex;flex-direction:column;gap:16px;overflow-y:auto;padding-right:4px;">
+          <div class="console-pane" style="padding:16px 20px;display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
+            <div style="font-size:10px;text-transform:uppercase;color:#8e8e93;font-weight:700;letter-spacing:0.5px;">Mission Goal</div>
+            <div id="review-mission-goal" style="font-size:15px;font-weight:600;color:#ffffff;line-height:1.4;">—</div>
+          </div>
+          <div class="console-pane" style="flex:1;display:flex;flex-direction:column;min-height:180px;">
+            <div class="console-header" style="padding:10px 16px;flex-shrink:0;"><div class="console-title">🛠️ PLANNED FEATURES</div></div>
+            <div id="review-features-list" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;"></div>
+          </div>
+          <div class="console-pane" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px;flex-shrink:0;">
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <label style="font-size:10px;text-transform:uppercase;color:#8e8e93;font-weight:700;letter-spacing:0.5px;">Feedback / Comments</label>
+              <textarea id="review-feedback" placeholder="Type feedback comments here..." style="width:100%;height:80px;background:#050507;border:1px solid #222228;border-radius:6px;padding:10px;color:#e1e1e6;font-family:sans-serif;font-size:12px;resize:none;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='#c586c0'" onblur="this.style.borderColor='#222228'"></textarea>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:4px;">
+              <button id="btn-review-reject" style="flex:1;background:transparent;border:1px solid #cf6679;color:#cf6679;padding:10px;border-radius:6px;font-weight:bold;cursor:pointer;font-size:12px;outline:none;transition:all 0.2s;" onmouseover="this.style.background='rgba(207,102,121,0.1)'" onmouseout="this.style.background='transparent'">Request Edits</button>
+              <button id="btn-review-approve" style="flex:1.3;background:#c586c0;border:none;color:#000;padding:10px;border-radius:6px;font-weight:bold;cursor:pointer;font-size:12px;outline:none;transition:all 0.2s;" onmouseover="this.style.background='#d89cd3'" onmouseout="this.style.background='#c586c0'">Approve & Run Mission</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content-area -->
+  </div><!-- /main-layout -->
+
+  <!-- ── Plan Checklist Dialog ── -->
   <dialog id="plan-dialog" closedby="any" aria-labelledby="planDialogTitle">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid #1a1a20; padding-bottom: 12px; flex-shrink: 0;">
-      <div id="planDialogTitle" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 0.5px;">Original Feature Plan Checklist</div>
-      <button id="btn-close-plan" style="background: transparent; border: none; color: #8e8e93; font-size: 20px; cursor: pointer; line-height: 1; outline: none;">&times;</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;border-bottom:1px solid #1a1a20;padding-bottom:12px;flex-shrink:0;">
+      <div id="planDialogTitle" style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#ffffff;text-transform:uppercase;letter-spacing:0.5px;">Original Feature Plan Checklist</div>
+      <button id="btn-close-plan" style="background:transparent;border:none;color:#8e8e93;font-size:20px;cursor:pointer;line-height:1;outline:none;">&times;</button>
     </div>
-    <div id="plan-list">
-      <div class="empty" style="color: #8e8e93; font-style: italic;">No features defined yet.</div>
-    </div>
+    <div id="plan-list"><div class="empty" style="color:#8e8e93;font-style:italic;">No features defined yet.</div></div>
   </dialog>
 
-
-
-  <!-- ── Side-by-Side 3 Column Grid ── -->
-  <div id="observatory-grid">
-
-    <!-- 1. ORCHESTRATION COLUMN -->
-    <div class="console-pane" id="pane-orchestration">
-      <div class="console-header">
-        <div class="console-title">◈ ALL FACTORY LOGS</div>
-        <div class="console-status-badge">Complete Feed</div>
+  <!-- ── File Viewer Modal ── -->
+  <div id="file-viewer">
+    <div class="file-viewer-box">
+      <div class="file-viewer-header">
+        <div class="file-viewer-title" id="file-viewer-title">—</div>
+        <button class="file-viewer-close" id="file-viewer-close">&times;</button>
       </div>
-      <div class="console-body" id="body-orchestration">
-        <!-- Live stream content populated here -->
-      </div>
+      <div class="file-viewer-body" id="file-viewer-body">—</div>
     </div>
-
-    <!-- 2. WORKER COLUMN -->
-    <div class="console-pane" id="pane-worker">
-      <div class="console-header">
-        <div class="console-title">◇ WORKER PANEL</div>
-        <div class="console-status-badge" id="badge-worker">Sleeping</div>
-      </div>
-      <!-- Split Container inside worker for Diff viewer -->
-      <div class="worker-split-container">
-        <!-- Top Half: Terminal Logs -->
-        <div class="worker-log-pane">
-          <div class="console-body" id="body-worker">
-            <!-- Sleep screensaver or CLI logs -->
-          </div>
-        </div>
-        <!-- Bottom Half: Code Diff -->
-        <div class="worker-diff-pane" id="container-worker-diff" style="display: none;">
-          <div class="diff-header">
-            <span>Live Hunk Diff View</span>
-            <span style="font-family: monospace; font-size: 9px; color: #5c5c64;">$ git diff</span>
-          </div>
-          <div class="diff-content-scroll" id="body-worker-diff">
-            <!-- Hunk diffs loaded here -->
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 3. VALIDATOR COLUMN -->
-    <div class="console-pane" id="pane-validator">
-      <div class="console-header">
-        <div class="console-title">⬪ VALIDATION CONTROL</div>
-        <div class="console-status-badge" id="badge-validator">Sleeping</div>
-      </div>
-      <div class="console-body" id="body-validator">
-        <!-- Sleep screensaver or validator test logs -->
-      </div>
-    </div>
-
   </div>
 
-  <!-- ── Widescreen Plan Review Console ── -->
-  <div id="plan-review-console">
-    <!-- Left Pane: Contract Editor & Preview (Flex: 2) -->
-    <div class="console-pane" style="flex: 2; display: flex; flex-direction: column;">
-      <div class="console-header" style="padding: 10px 16px; flex-shrink: 0;">
-        <div class="console-title" style="color: #ffffff; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">
-          <span>📄 VALIDATION CONTRACT</span>
-          <span style="font-family: monospace; font-size: 10px; color: #8e8e93; font-weight: normal;">validation-contract.md</span>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button id="btn-tab-preview" style="background: #18181c; border: 1px solid #c586c0; color: #ffffff; padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; font-family: 'JetBrains Mono', monospace; outline: none; transition: all 0.2s;">Preview</button>
-          <button id="btn-tab-edit" style="background: transparent; border: 1px solid #222228; color: #8e8e93; padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; font-family: 'JetBrains Mono', monospace; outline: none; transition: all 0.2s;">Edit Markdown</button>
-        </div>
-      </div>
-      <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; background: #050507; position: relative;">
-        <!-- Preview Tab -->
-        <div id="tab-content-preview" style="flex: 1; overflow-y: auto; padding: 24px; font-size: 13.5px; line-height: 1.6; color: #e1e1e6; scroll-behavior: smooth;">
-          <!-- Rendered markdown content -->
-        </div>
-        <!-- Edit Tab -->
-        <textarea id="tab-content-edit" style="display: none; flex: 1; width: 100%; border: none; background: #050507; padding: 20px; color: #e1e1e6; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.5; resize: none; outline: none; box-sizing: border-box;" placeholder="Type markdown contract here..."></textarea>
-      </div>
-    </div>
-
-    <!-- Right Pane: Context, Checklist, Feedback & Actions (Flex: 1.2) -->
-    <div style="flex: 1.2; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; padding-right: 4px;">
-      
-      <!-- Goal / Target Card -->
-      <div class="console-pane" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;">
-        <div style="font-size: 10px; text-transform: uppercase; color: #8e8e93; font-weight: 700; letter-spacing: 0.5px;">Mission Goal</div>
-        <div id="review-mission-goal" style="font-size: 15px; font-weight: 600; color: #ffffff; line-height: 1.4;">—</div>
-      </div>
-
-      <!-- Feature Checklist -->
-      <div class="console-pane" style="flex: 1; display: flex; flex-direction: column; min-height: 180px;">
-        <div class="console-header" style="padding: 10px 16px; flex-shrink: 0;">
-          <div class="console-title">🛠️ PLANNED FEATURES</div>
-        </div>
-        <div id="review-features-list" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
-          <!-- Checklist items populated dynamically -->
-        </div>
-      </div>
-
-      <!-- Feedback & Actions Pane -->
-      <div class="console-pane" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; flex-shrink: 0;">
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <label style="font-size: 10px; text-transform: uppercase; color: #8e8e93; font-weight: 700; letter-spacing: 0.5px;">Feedback / Comments (Required for requesting edits)</label>
-          <textarea id="review-feedback" placeholder="Type feedback comments here if you want the orchestrator to revise the plan..." style="width: 100%; height: 80px; background: #050507; border: 1px solid #222228; border-radius: 6px; padding: 10px; color: #e1e1e6; font-family: sans-serif; font-size: 12px; resize: none; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='#c586c0'" onblur="this.style.borderColor='#222228'"></textarea>
-        </div>
-        
-        <!-- Action Buttons -->
-        <div style="display: flex; gap: 12px; margin-top: 4px;">
-          <button id="btn-review-reject" style="flex: 1; background: transparent; border: 1px solid #cf6679; color: #cf6679; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; outline: none; transition: all 0.2s;" onmouseover="this.style.background='rgba(207,102,121,0.1)'" onmouseout="this.style.background='transparent'">Request Edits</button>
-          <button id="btn-review-approve" style="flex: 1.3; background: #c586c0; border: none; color: #000000; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; outline: none; transition: all 0.2s;" onmouseover="this.style.background='#d89cd3'" onmouseout="this.style.background='#c586c0'">Approve & Run Mission</button>
-        </div>
-      </div>
-
-    </div>
+  <!-- ── Event Detail Popover ── -->
+  <div id="event-popover">
+    <div class="popover-header" id="popover-header">EVENT</div>
+    <div class="popover-content" id="popover-content">—</div>
   </div>
 
   <!-- ── Client Logic ── -->
@@ -658,33 +494,35 @@
 
     const MAX_RENDERED_EVENTS = 500;
 
-    // State representation
     const state = {
       events: [],
       lastEventCount: -1,
+      lastWorkspaceHash: '',
       activeWorkerSpan: null,
       activeValidatorSpan: null,
       allWorkerSpans: new Set(),
       allValidatorSpans: new Set(),
-      planExpanded: false
+      planExpanded: false,
+      workspaceTree: null,
+      expandedDirs: new Set(),
+      selectedFile: null,
+      sidebarOpen: false,
     };
 
-    // Read missionId from page URL query param (?missionId=mis_...)
     function getMissionIdFromUrl() {
       const params = new URLSearchParams(window.location.search);
       return params.get('missionId') || null;
     }
-
-    // Build query string to append to API URLs when missionId is present
     function missionQueryParam() {
       const id = getMissionIdFromUrl();
       return id ? `?missionId=${encodeURIComponent(id)}` : '';
     }
 
-    // DOM references
+    // DOM refs
     const $planDialog = document.getElementById('plan-dialog');
     const $btnClosePlan = document.getElementById('btn-close-plan');
     const $btnPlan = document.getElementById('btn-plan');
+    const $btnTree = document.getElementById('btn-tree');
     const $originalFeatureSection = document.getElementById('original-feature-section');
     const $goalTextMarquee = document.getElementById('goal-text-marquee');
     const $statPhase = document.getElementById('stat-phase');
@@ -692,7 +530,6 @@
     const $statMission = document.getElementById('stat-mission');
     const $statLatest = document.getElementById('stat-latest');
     const $planList = document.getElementById('plan-list');
-
     const $planReviewConsole = document.getElementById('plan-review-console');
     const $observatoryGrid = document.getElementById('observatory-grid');
     const $btnTabPreview = document.getElementById('btn-tab-preview');
@@ -704,11 +541,6 @@
     const $reviewFeedback = document.getElementById('review-feedback');
     const $btnReviewReject = document.getElementById('btn-review-reject');
     const $btnReviewApprove = document.getElementById('btn-review-approve');
-
-    // Three-column Observatory grid references (Orchestration / Worker / Validator).
-    // Required by processEvents() and pollDiff(); omitting these caused
-    // `ReferenceError: $paneOrchestration is not defined` / `$bodyWorkerDiff is not defined`
-    // which blanked the panes even when /api/events returned data.
     const $paneOrchestration = document.getElementById('pane-orchestration');
     const $bodyOrchestration = document.getElementById('body-orchestration');
     const $paneWorker = document.getElementById('pane-worker');
@@ -719,759 +551,467 @@
     const $paneValidator = document.getElementById('pane-validator');
     const $badgeValidator = document.getElementById('badge-validator');
     const $bodyValidator = document.getElementById('body-validator');
+    const $workspaceSidebar = document.getElementById('workspace-sidebar');
+    const $workspaceTree = document.getElementById('workspace-tree');
+    const $btnExpandAll = document.getElementById('btn-expand-all');
+    const $btnCollapseAll = document.getElementById('btn-collapse-all');
+    const $fileViewer = document.getElementById('file-viewer');
+    const $fileViewerTitle = document.getElementById('file-viewer-title');
+    const $fileViewerBody = document.getElementById('file-viewer-body');
+    const $fileViewerClose = document.getElementById('file-viewer-close');
+    const $eventPopover = document.getElementById('event-popover');
+    const $popoverHeader = document.getElementById('popover-header');
+    const $popoverContent = document.getElementById('popover-content');
 
     let rawContractMd = "";
 
-    // Toggle Checklist Dialog Popup
-    $btnPlan.addEventListener('click', () => {
-      $planDialog.showModal();
+    // ── Sidebar toggle ──
+    $btnTree.addEventListener('click', () => {
+      state.sidebarOpen = !state.sidebarOpen;
+      $workspaceSidebar.classList.toggle('open', state.sidebarOpen);
+      $btnTree.classList.toggle('active', state.sidebarOpen);
+      if (state.sidebarOpen) pollWorkspace();
     });
 
-    $originalFeatureSection.addEventListener('click', () => {
-      $planDialog.showModal();
+    $btnExpandAll.addEventListener('click', () => {
+      function walk(node) {
+        if (node.type === 'dir' && node.children) {
+          state.expandedDirs.add(node.path);
+          node.children.forEach(walk);
+        }
+      }
+      if (state.workspaceTree) walk(state.workspaceTree);
+      renderTree();
     });
 
-    $btnClosePlan.addEventListener('click', () => {
-      $planDialog.close();
+    $btnCollapseAll.addEventListener('click', () => {
+      state.expandedDirs.clear();
+      state.expandedDirs.add('.'); // keep root expanded
+      renderTree();
     });
 
-    // Fallback for browsers without closedby support
+    // ── File viewer ──
+    $fileViewerClose.addEventListener('click', () => $fileViewer.classList.remove('open'));
+    $fileViewer.addEventListener('click', (e) => { if (e.target === $fileViewer) $fileViewer.classList.remove('open'); });
+
+    async function openFile(path, name) {
+      $fileViewerTitle.textContent = name;
+      $fileViewerBody.textContent = 'Loading...';
+      $fileViewerBody.className = 'file-viewer-body';
+      $fileViewer.classList.add('open');
+      try {
+        const res = await fetch('/api/file' + missionQueryParam() + '&path=' + encodeURIComponent(path));
+        if (!res.ok) { $fileViewerBody.textContent = 'Error: ' + (await res.json()).error; return; }
+        const data = await res.json();
+        const content = data.content || '';
+        if (name.endsWith('.json')) {
+          try { $fileViewerBody.textContent = JSON.stringify(JSON.parse(content), null, 2); $fileViewerBody.className = 'file-viewer-body json'; }
+          catch { $fileViewerBody.textContent = content; }
+        } else {
+          $fileViewerBody.textContent = content;
+        }
+      } catch (err) {
+        $fileViewerBody.textContent = 'Error: ' + (err.message || err);
+      }
+    }
+
+    // ── Event popover ──
+    function showEventPopover(event, eventData) {
+      const rect = event.target.getBoundingClientRect();
+      const x = Math.min(rect.left, window.innerWidth - 520);
+      const y = rect.bottom + 6;
+      $popoverHeader.textContent = (eventData.event_type || 'EVENT').toUpperCase();
+      $popoverContent.textContent = JSON.stringify(eventData, null, 2);
+      $eventPopover.style.left = x + 'px';
+      $eventPopover.style.top = y + 'px';
+      $eventPopover.classList.add('open');
+    }
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.cli-line') && !e.target.closest('#event-popover')) {
+        $eventPopover.classList.remove('open');
+      }
+    });
+
+    // ── Workspace tree rendering ──
+    const ARTIFACT_FILES = new Set(['state.json','requirements.json','constraints.md','research-notes.md','validation-contract.md','features.json','milestones.json','decision-log.md','halt-reason.md','agents.md','worker-skills.json']);
+
+    function renderTree() {
+      if (!state.workspaceTree) {
+        $workspaceTree.innerHTML = '<div style="color:#3e3e44;font-size:11px;padding:16px;text-align:center;">No workspace data.</div>';
+        return;
+      }
+      $workspaceTree.innerHTML = renderTreeNode(state.workspaceTree, 0);
+      attachTreeListeners();
+    }
+
+    function renderTreeNode(node, depth) {
+      if (node.type === 'file') {
+        const isArtifact = ARTIFACT_FILES.has(node.name);
+        const isSelected = state.selectedFile === node.path;
+        const sizeStr = node.size != null ? formatSize(node.size) : '';
+        return `<div class="tree-row" data-path="${escapeAttr(node.path)}" data-name="${escapeAttr(node.name)}" data-type="file" ${isSelected ? 'class="tree-row selected"' : ''}>
+          <span class="tree-icon file ${isArtifact ? 'artifact' : ''}">${isArtifact ? '◆' : '○'}</span>
+          <span class="tree-name">${escapeHtml(node.name)}</span>
+          <span class="tree-size">${sizeStr}</span>
+        </div>`;
+      }
+      const isExpanded = state.expandedDirs.has(node.path);
+      const chevron = isExpanded ? '▼' : '▶';
+      let html = `<div class="tree-row" data-path="${escapeAttr(node.path)}" data-type="dir">
+        <span class="tree-chevron ${isExpanded ? 'expanded' : ''}">${chevron}</span>
+        <span class="tree-icon dir">▸</span>
+        <span class="tree-name">${escapeHtml(node.name === '.' ? 'mission root' : node.name)}</span>
+      </div>`;
+      if (isExpanded && node.children) {
+        html += `<div class="tree-children">`;
+        for (const child of node.children) html += renderTreeNode(child, depth + 1);
+        html += `</div>`;
+      }
+      return html;
+    }
+
+    function attachTreeListeners() {
+      $workspaceTree.querySelectorAll('.tree-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+          const type = row.dataset.type;
+          const path = row.dataset.path;
+          const name = row.dataset.name || path;
+          if (type === 'dir') {
+            if (state.expandedDirs.has(path)) state.expandedDirs.delete(path);
+            else state.expandedDirs.add(path);
+            renderTree();
+          } else if (type === 'file') {
+            state.selectedFile = path;
+            document.querySelectorAll('.tree-row.selected').forEach(r => r.classList.remove('selected'));
+            row.classList.add('selected');
+            openFile(path, name);
+          }
+        });
+      });
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + 'B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'K';
+      return (bytes / (1024 * 1024)).toFixed(1) + 'M';
+    }
+
+    async function pollWorkspace() {
+      try {
+        const res = await fetch('/api/workspace' + missionQueryParam());
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.tree) { $workspaceTree.innerHTML = '<div style="color:#3e3e44;font-size:11px;padding:16px;text-align:center;">No mission found.</div>'; return; }
+        const hash = JSON.stringify(data.tree);
+        if (hash === state.lastWorkspaceHash) return;
+        state.lastWorkspaceHash = hash;
+        state.workspaceTree = data.tree;
+        state.expandedDirs.add('.'); // root always expanded
+        renderTree();
+      } catch (err) {
+        console.error('Failed to poll workspace:', err);
+      }
+    }
+
+    // ── Plan dialog ──
+    $btnPlan.addEventListener('click', () => $planDialog.showModal());
+    $originalFeatureSection.addEventListener('click', () => $planDialog.showModal());
+    $btnClosePlan.addEventListener('click', () => $planDialog.close());
     if (!('closedBy' in HTMLDialogElement.prototype)) {
       $planDialog.addEventListener('click', (event) => {
         if (event.target !== $planDialog) return;
         const rect = $planDialog.getBoundingClientRect();
-        const isDialogContent = (
-          rect.top <= event.clientY &&
-          event.clientY <= rect.top + rect.height &&
-          rect.left <= event.clientX &&
-          event.clientX <= rect.left + rect.width
-        );
-        if (isDialogContent) return;
+        if (rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width) return;
         $planDialog.close();
       });
     }
 
-    // Tab switching event listeners
+    // ── Plan review tabs ──
     $btnTabPreview.addEventListener('click', () => {
-      $btnTabPreview.style.borderColor = '#c586c0';
-      $btnTabPreview.style.color = '#ffffff';
-      $btnTabPreview.style.background = '#18181c';
-      
-      $btnTabEdit.style.borderColor = '#222228';
-      $btnTabEdit.style.color = '#8e8e93';
-      $btnTabEdit.style.background = 'transparent';
-
+      $btnTabPreview.style.borderColor = '#c586c0'; $btnTabPreview.style.color = '#fff'; $btnTabPreview.style.background = '#18181c';
+      $btnTabEdit.style.borderColor = '#222228'; $btnTabEdit.style.color = '#8e8e93'; $btnTabEdit.style.background = 'transparent';
       rawContractMd = $tabContentEdit.value;
       $tabContentPreview.innerHTML = renderMarkdownToHtml(rawContractMd);
-
-      $tabContentPreview.style.display = 'block';
-      $tabContentEdit.style.display = 'none';
+      $tabContentPreview.style.display = 'block'; $tabContentEdit.style.display = 'none';
     });
-
     $btnTabEdit.addEventListener('click', () => {
-      $btnTabEdit.style.borderColor = '#c586c0';
-      $btnTabEdit.style.color = '#ffffff';
-      $btnTabEdit.style.background = '#18181c';
-      
-      $btnTabPreview.style.borderColor = '#222228';
-      $btnTabPreview.style.color = '#8e8e93';
-      $btnTabPreview.style.background = 'transparent';
-
+      $btnTabEdit.style.borderColor = '#c586c0'; $btnTabEdit.style.color = '#fff'; $btnTabEdit.style.background = '#18181c';
+      $btnTabPreview.style.borderColor = '#222228'; $btnTabPreview.style.color = '#8e8e93'; $btnTabPreview.style.background = 'transparent';
       $tabContentEdit.value = rawContractMd;
-
-      $tabContentPreview.style.display = 'none';
-      $tabContentEdit.style.display = 'block';
-      $tabContentEdit.focus();
+      $tabContentPreview.style.display = 'none'; $tabContentEdit.style.display = 'block'; $tabContentEdit.focus();
     });
 
-    // Action: Approve
     $btnReviewApprove.addEventListener('click', async () => {
-      if ($tabContentEdit.style.display === 'block') {
-        rawContractMd = $tabContentEdit.value;
-      }
-      $btnReviewApprove.disabled = true;
-      $btnReviewReject.disabled = true;
+      if ($tabContentEdit.style.display === 'block') rawContractMd = $tabContentEdit.value;
+      $btnReviewApprove.disabled = true; $btnReviewReject.disabled = true;
       try {
-        const res = await fetch('/api/approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            feedback: $reviewFeedback.value,
-            files: {
-              'validation-contract.md': rawContractMd
-            }
-          })
-        });
-        if (res.ok) {
-          $planReviewConsole.style.display = 'none';
-          $observatoryGrid.style.display = 'grid';
-          alert('Plan approved successfully! Resuming orchestrator...');
-        } else {
-          alert('Failed to submit approval.');
-          $btnReviewApprove.disabled = false;
-          $btnReviewReject.disabled = false;
-        }
-      } catch (err) {
-        console.error(err);
-        $btnReviewApprove.disabled = false;
-        $btnReviewReject.disabled = false;
-      }
+        const res = await fetch('/api/approve', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ feedback: $reviewFeedback.value, files: { 'validation-contract.md': rawContractMd } }) });
+        if (res.ok) { $planReviewConsole.style.display = 'none'; $observatoryGrid.style.display = 'grid'; alert('Plan approved! Resuming orchestrator...'); }
+        else { alert('Failed to submit approval.'); $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false; }
+      } catch (err) { console.error(err); $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false; }
     });
-
-    // Action: Request Edits
     $btnReviewReject.addEventListener('click', async () => {
-      if ($tabContentEdit.style.display === 'block') {
-        rawContractMd = $tabContentEdit.value;
-      }
-      if (!$reviewFeedback.value.trim()) {
-        alert('Please specify what changes you want the orchestrator to make in the feedback box.');
-        return;
-      }
-      $btnReviewApprove.disabled = true;
-      $btnReviewReject.disabled = true;
+      if ($tabContentEdit.style.display === 'block') rawContractMd = $tabContentEdit.value;
+      if (!$reviewFeedback.value.trim()) { alert('Please specify feedback.'); return; }
+      $btnReviewApprove.disabled = true; $btnReviewReject.disabled = true;
       try {
-        const res = await fetch('/api/reject', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            feedback: $reviewFeedback.value,
-            files: {
-              'validation-contract.md': rawContractMd
-            }
-          })
-        });
-        if (res.ok) {
-          $planReviewConsole.style.display = 'none';
-          $observatoryGrid.style.display = 'grid';
-          alert('Feedback submitted! The orchestrator will now revise the plan.');
-        } else {
-          alert('Failed to submit feedback.');
-          $btnReviewApprove.disabled = false;
-          $btnReviewReject.disabled = false;
-        }
-      } catch (err) {
-        console.error(err);
-        $btnReviewApprove.disabled = false;
-        $btnReviewReject.disabled = false;
-      }
+        const res = await fetch('/api/reject', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ feedback: $reviewFeedback.value, files: { 'validation-contract.md': rawContractMd } }) });
+        if (res.ok) { $planReviewConsole.style.display = 'none'; $observatoryGrid.style.display = 'grid'; alert('Feedback submitted! Revising plan...'); }
+        else { alert('Failed to submit feedback.'); $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false; }
+      } catch (err) { console.error(err); $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false; }
     });
 
-
-    // ASCII Screensavers
-    const SLEEP_ASCII_WORKER = `
- _ _ _  _ _ _  _ _ _  _ _ _ 
-| | | || | | ||  _  ||  _  |
-| | | || | | || | | || |_| |
-|  _  ||  _  || |_| ||  _  |
-|_| |_||_| |_||_ _ _||_| |_|
-    `;
-    const SLEEP_ASCII_VALIDATOR = `
- _ _ _  _ _ _  _ _ _  _ _ _ 
-|  _  ||  _  ||_ _ _||  _  |
-| | | || |_| |  | |  | | | |
-| |_| ||  _  |  | |  | |_| |
-|_ _ _||_| |_|  |_|  |_ _ _|
-    `;
-
+    // ── Screensavers ──
+    const SLEEP_ASCII_WORKER = `\n _ _ _  _ _ _  _ _ _  _ _ _ \n| | | || | | ||  _  ||  _  |\n| | | || | | || | | || |_| |\n|  _  ||  _  || |_| ||  _  |\n|_| |_||_| |_||_ _ _||_| |_|`;
+    const SLEEP_ASCII_VALIDATOR = `\n _ _ _  _ _ _  _ _ _  _ _ _ \n|  _  ||  _  ||_ _ _||  _  |\n| | | || |_| |  | |  | | | |\n| |_| ||  _  |  | |  | |_| |\n|_ _ _||_| |_|  |_|  |_ _ _|`;
     function getSleepHtml(type, asciiText, subtitle) {
-      return `
-        <div class="screensaver-container">
-          <div class="screensaver-ascii">${asciiText}</div>
-          <div class="screensaver-text">${type} SLEEPING<span class="screensaver-cursor"></span></div>
-          <div class="screensaver-sub">${subtitle}</div>
-        </div>
-      `;
+      return `<div class="screensaver-container"><div class="screensaver-ascii">${asciiText}</div><div class="screensaver-text">${type} SLEEPING<span class="screensaver-cursor"></span></div><div class="screensaver-sub">${subtitle}</div></div>`;
     }
 
-    // Helper functions
-    function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    }
+    // ── Helpers ──
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function escapeAttr(s) { return String(s).replace(/"/g, '&quot;'); }
 
     function renderMarkdownToHtml(md) {
-      if (!md) return '<div style="color: #8e8e93; font-style: italic;">No contract content.</div>';
-      
+      if (!md) return '<div style="color:#8e8e93;font-style:italic;">No contract content.</div>';
       let html = escapeHtml(md);
-
-      // Preprocess code blocks
       const codeBlocks = [];
-      html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
-        const id = `__CODE_BLOCK_${codeBlocks.length}__`;
-        codeBlocks.push(code);
-        return id;
-      });
-
-      // Inline code
+      html = html.replace(/```([\s\S]*?)```/g, (m, code) => { const id = `__CODE_BLOCK_${codeBlocks.length}__`; codeBlocks.push(code); return id; });
       const inlineCode = [];
-      html = html.replace(/`([^`\n]+)`/g, (match, code) => {
-        const id = `__INLINE_CODE_${inlineCode.length}__`;
-        inlineCode.push(code);
-        return id;
-      });
-
-      // Headers
-      html = html.replace(/^### (.*$)/gim, '<h3 style="font-family: \'Outfit\', sans-serif; font-size: 15px; font-weight: 700; color: #ffffff; margin-top: 20px; margin-bottom: 8px; border-bottom: 1px solid #222228; padding-bottom: 4px;">$1</h3>');
-      html = html.replace(/^## (.*$)/gim, '<h2 style="font-family: \'Outfit\', sans-serif; font-size: 18px; font-weight: 700; color: #ffffff; margin-top: 24px; margin-bottom: 12px; border-bottom: 1px solid #222228; padding-bottom: 6px;">$1</h2>');
-      html = html.replace(/^# (.*$)/gim, '<h1 style="font-family: \'Outfit\', sans-serif; font-size: 22px; font-weight: 700; color: #ffffff; margin-top: 28px; margin-bottom: 16px; border-bottom: 1px solid #222228; padding-bottom: 8px;">$1</h1>');
-
-      // Checkboxes
-      html = html.replace(/^\s*[-*]\s+\[[xX]\]\s+(.*$)/gim, '<div style="display: flex; align-items: flex-start; gap: 8px; margin: 6px 0; font-size: 13px;"><span style="color: #c586c0; font-weight: bold; font-family: \'JetBrains Mono\', monospace; user-select: none;">[✓]</span><span style="color: #8e8e93; text-decoration: line-through;">$1</span></div>');
-      html = html.replace(/^\s*[-*]\s+\[\s*\]\s+(.*$)/gim, '<div style="display: flex; align-items: flex-start; gap: 8px; margin: 6px 0; font-size: 13px;"><span style="color: #8e8e93; font-weight: bold; font-family: \'JetBrains Mono\', monospace; user-select: none;">[ ]</span><span style="color: #e1e1e6;">$1</span></div>');
-
-      // Unordered list items
-      html = html.replace(/^\s*[-*]\s+(?!__)(.*$)/gim, '<li style="margin-left: 20px; margin-top: 4px; margin-bottom: 4px; font-size: 13px; color: #d1d1d6; list-style-type: square;">$1</li>');
-
-      // Bold text
-      html = html.replace(/\*\*([\s\S]*?)\*\*/g, '<strong style="color: #ffffff; font-weight: 600;">$1</strong>');
-
-      // Horizontal rules
-      html = html.replace(/^---$/gim, '<hr style="border: none; border-top: 1px solid #222228; margin: 24px 0;">');
-
-      // Paragraphs
+      html = html.replace(/`([^`\n]+)`/g, (m, code) => { const id = `__INLINE_CODE_${inlineCode.length}__`; inlineCode.push(code); return id; });
+      html = html.replace(/^### (.*$)/gim, '<h3 style="font-family:\'Outfit\',sans-serif;font-size:15px;font-weight:700;color:#fff;margin-top:20px;margin-bottom:8px;border-bottom:1px solid #222228;padding-bottom:4px;">$1</h3>');
+      html = html.replace(/^## (.*$)/gim, '<h2 style="font-family:\'Outfit\',sans-serif;font-size:18px;font-weight:700;color:#fff;margin-top:24px;margin-bottom:12px;border-bottom:1px solid #222228;padding-bottom:6px;">$1</h2>');
+      html = html.replace(/^# (.*$)/gim, '<h1 style="font-family:\'Outfit\',sans-serif;font-size:22px;font-weight:700;color:#fff;margin-top:28px;margin-bottom:16px;border-bottom:1px solid #222228;padding-bottom:8px;">$1</h1>');
+      html = html.replace(/^\s*[-*]\s+\[[xX]\]\s+(.*$)/gim, '<div style="display:flex;align-items:flex-start;gap:8px;margin:6px 0;font-size:13px;"><span style="color:#c586c0;font-weight:bold;font-family:\'JetBrains Mono\',monospace;">[✓]</span><span style="color:#8e8e93;text-decoration:line-through;">$1</span></div>');
+      html = html.replace(/^\s*[-*]\s+\[\s*\]\s+(.*$)/gim, '<div style="display:flex;align-items:flex-start;gap:8px;margin:6px 0;font-size:13px;"><span style="color:#8e8e93;font-weight:bold;font-family:\'JetBrains Mono\',monospace;">[ ]</span><span style="color:#e1e1e6;">$1</span></div>');
+      html = html.replace(/^\s*[-*]\s+(?!__)(.*$)/gim, '<li style="margin-left:20px;margin:4px 0;font-size:13px;color:#d1d1d6;list-style-type:square;">$1</li>');
+      html = html.replace(/\*\*([\s\S]*?)\*\*/g, '<strong style="color:#fff;font-weight:600;">$1</strong>');
+      html = html.replace(/^---$/gim, '<hr style="border:none;border-top:1px solid #222228;margin:24px 0;">');
       const lines = html.split('\n');
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (line && !line.startsWith('<h') && !line.startsWith('<div') && !line.startsWith('<li') && !line.startsWith('<hr') && !line.startsWith('__CODE_BLOCK_') && !line.startsWith('__INLINE_CODE_')) {
-          lines[i] = `<p style="margin: 10px 0; font-size: 13.5px; color: #d1d1d6; line-height: 1.6;">${lines[i]}</p>`;
+          lines[i] = `<p style="margin:10px 0;font-size:13.5px;color:#d1d1d6;line-height:1.6;">${lines[i]}</p>`;
         }
       }
       html = lines.join('\n');
-
-      // Restore inline code
-      inlineCode.forEach((code, idx) => {
-        html = html.replace(new RegExp(`__INLINE_CODE_${idx}__`, 'g'), `<code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #16161a; padding: 2px 6px; border-radius: 4px; border: 1px solid #222228; color: #c586c0;">${code}</code>`);
-      });
-
-      // Restore code blocks
+      inlineCode.forEach((code, idx) => { html = html.replace(new RegExp(`__INLINE_CODE_${idx}__`,'g'), `<code style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#16161a;padding:2px 6px;border-radius:4px;border:1px solid #222228;color:#c586c0;">${code}</code>`); });
       codeBlocks.forEach((code, idx) => {
-        const lines = code.trim().split('\n');
-        let lang = '';
-        let content = code;
-        if (lines[0] && !lines[0].includes(' ') && lines[0].length < 15) {
-          lang = lines[0].trim();
-          content = lines.slice(1).join('\n');
-        }
-        html = html.replace(new RegExp(`__CODE_BLOCK_${idx}__`, 'g'), `
-          <div style="background: #050507; border: 1px solid #1a1a20; border-radius: 8px; margin: 16px 0; overflow: hidden; display: flex; flex-direction: column;">
-            ${lang ? `<div style="background: #111114; padding: 6px 16px; font-size: 10px; font-family: 'JetBrains Mono', monospace; color: #8e8e93; text-transform: uppercase; font-weight: bold; border-bottom: 1px solid #1a1a20; display: flex; justify-content: space-between;"><span>${lang}</span></div>` : ''}
-            <pre style="margin: 0; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; overflow-x: auto; color: #e1e1e6; line-height: 1.5; white-space: pre;">${content}</pre>
-          </div>
-        `);
+        const cl = code.trim().split('\n'); let lang=''; let content=code;
+        if (cl[0] && !cl[0].includes(' ') && cl[0].length < 15) { lang = cl[0].trim(); content = cl.slice(1).join('\n'); }
+        html = html.replace(new RegExp(`__CODE_BLOCK_${idx}__`,'g'), `<div style="background:#050507;border:1px solid #1a1a20;border-radius:8px;margin:16px 0;overflow:hidden;">${lang?`<div style="background:#111114;padding:6px 16px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#8e8e93;text-transform:uppercase;font-weight:bold;border-bottom:1px solid #1a1a20;">${lang}</div>`:''}<pre style="margin:0;padding:16px;font-family:'JetBrains Mono',monospace;font-size:12px;overflow-x:auto;color:#e1e1e6;line-height:1.5;white-space:pre;">${content}</pre></div>`);
       });
-
       return html;
     }
 
-    function fmtTime(iso) {
-      try {
-        const d = new Date(iso);
-        return d.toTimeString().slice(0, 8);
-      } catch { return '--:--:--'; }
-    }
+    function fmtTime(iso) { try { return new Date(iso).toTimeString().slice(0,8); } catch { return '--:--:--'; } }
 
     function summarizeEvent(e) {
       const d = e.data || {};
-      if (e.event_type === 'agent_start') return `Starting subagent: ${d.agentType || ''} ${d.featureId ? '['+d.featureId+']' : ''}`;
-      if (e.event_type === 'agent_end') return `Subagent finished. Status: ${d.parseStatus || 'unknown'} (${d.durationMs || 0}ms)`;
-      if (e.event_type === 'tool_call') return `${d.toolName || ''}(${JSON.stringify(d.params || {})})`;
-      if (e.event_type === 'tool_result') return `result: ${d.parseStatus || ''} \text{${d.durationMs ? '('+d.durationMs+'ms)' : ''}}`;
-      if (e.event_type === 'session_tool_start') return `Invoked tool: ${d.toolName || ''}`;
-      if (e.event_type === 'session_tool_end') return `Tool returned: ${d.isError ? 'ERROR' : 'SUCCESS'}`;
-      if (e.event_type === 'validation_recovery') return `Validation Recovery triggered for ${d.milestoneId || ''}`;
-      if (e.event_type === 'integration_preflight') return `Preflight check: ${d.status || ''}`;
-      if (e.event_type === 'phase_transition') return `Phase transition: ${d.from} → \sub{${d.to}}`;
-      if (e.event_type === 'artifact_write') return `Wrote file: ${d.artifactName}`;
-      if (e.event_type === 'halt') return `HALT: ${d.reason || ''}`;
-      if (e.event_type === 'ping') return `Ping ${d.agentName || '?'}: ${d.status || 'unknown'} (${d.durationMs || 0}ms)${d.error ? ' — ' + d.error : ''}`;
-      if (e.event_type === 'assistant_message') return `Assistant (${d.role || '?'}): ${d.truncated ? d.preview : (d.text || d.preview || '')}`;
-      if (e.event_type === 'pending_question') return `Pending question: ${d.question || d.questionId || ''}${d.options && d.options.length ? ' [opts: ' + d.options.slice(0, 4).join(', ') + (d.options.length > 4 ? ', …' : '') + ']' : ''}`;
-      if (e.event_type === 'mission_initialized') return `Mission initialized${d.goal ? ': ' + d.goal : ''}`;
-      if (e.event_type === 'budget_usage') return `Budget: $${Number(d.costUsd || 0).toFixed(4)} / ${d.totalTokens || 0} tokens`;
-      if (e.event_type === 'budget_exceeded') return `Budget exceeded: ${d.reason || ''}`;
-      if (e.event_type === 'decision_logged') return `Decision: ${d.decision || ''}`;
-      if (e.event_type === 'state_loaded') return `State loaded: phase=${d.phase || ''} v${d.version || 0}`;
+      if (e.event_type === 'agent_start') return `Starting subagent: ${d.agentType||''} ${d.featureId?'['+d.featureId+']':''}`;
+      if (e.event_type === 'agent_end') return `Subagent finished. Status: ${d.parseStatus||'unknown'} (${d.durationMs||0}ms)`;
+      if (e.event_type === 'tool_call') return `${d.toolName||''}(${JSON.stringify(d.params||{})})`;
+      if (e.event_type === 'tool_result') return `result: ${d.parseStatus||''} ${d.durationMs?'('+d.durationMs+'ms)':''}`;
+      if (e.event_type === 'session_tool_start') return `Invoked tool: ${d.toolName||''}`;
+      if (e.event_type === 'session_tool_end') return `Tool returned: ${d.isError?'ERROR':'SUCCESS'}`;
+      if (e.event_type === 'validation_recovery') return `Validation Recovery: ${d.milestoneId||''}`;
+      if (e.event_type === 'integration_preflight') return `Preflight: ${d.status||''}`;
+      if (e.event_type === 'phase_transition') return `Phase: ${d.from} → ${d.to}`;
+      if (e.event_type === 'artifact_write') return `Wrote: ${d.artifactName}`;
+      if (e.event_type === 'halt') return `HALT: ${d.reason||''}`;
+      if (e.event_type === 'ping') return `Ping ${d.agentName||'?'}: ${d.status||'?'} (${d.durationMs||0}ms)${d.error?' — '+d.error:''}`;
+      if (e.event_type === 'assistant_message') return `Assistant (${d.role||'?'}): ${d.truncated?d.preview:(d.text||d.preview||'')}`;
+      if (e.event_type === 'pending_question') return `Question: ${d.question||d.questionId||''}`;
+      if (e.event_type === 'mission_initialized') return `Mission initialized${d.goal?': '+d.goal:''}`;
+      if (e.event_type === 'budget_usage') return `Budget: $${Number(d.costUsd||0).toFixed(4)} / ${d.totalTokens||0} tokens`;
+      if (e.event_type === 'budget_exceeded') return `Budget exceeded: ${d.reason||''}`;
+      if (e.event_type === 'decision_logged') return `Decision: ${d.decision||''}`;
+      if (e.event_type === 'state_loaded') return `State: phase=${d.phase||''} v${d.version||0}`;
       return d.message || JSON.stringify(d);
     }
 
-    // Diff rendering logic (hunks)
+    // ── Diff rendering ──
     function parseUnifiedDiff(diffText) {
-      const lines = diffText.split('\n');
-      const files = [];
-      let currentFile = null;
-      let currentHunk = null;
-
+      const lines = diffText.split('\n'); const files = []; let currentFile = null; let currentHunk = null;
       for (const line of lines) {
-        if (line.startsWith('diff --git')) {
-          currentFile = { hunks: [] };
-          files.push(currentFile);
-          currentHunk = null;
-        } else if (line.startsWith('@@')) {
-          const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-          if (match) {
-            currentHunk = {
-              oldStart: parseInt(match[1], 10),
-              oldCount: parseInt(match[2] || '1', 10),
-              newStart: parseInt(match[3], 10),
-              newCount: parseInt(match[4] || '1', 10),
-              lines: []
-            };
-            if (currentFile) currentFile.hunks.push(currentHunk);
-          }
-        } else if (currentHunk && (line.startsWith(' ') || line.startsWith('+') || line.startsWith('-'))) {
-          const type = line[0] === '+' ? 'add' : line[0] === '-' ? 'del' : 'ctx';
-          currentHunk.lines.push({ type, text: line.slice(1) });
-        }
+        if (line.startsWith('diff --git')) { currentFile = { hunks: [] }; files.push(currentFile); currentHunk = null; }
+        else if (line.startsWith('@@')) { const m = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/); if (m) { currentHunk = { oldStart:+m[1], oldCount:+(m[2]||1), newStart:+m[3], newCount:+(m[4]||1), lines:[] }; if (currentFile) currentFile.hunks.push(currentHunk); } }
+        else if (currentHunk && (line.startsWith(' ')||line.startsWith('+')||line.startsWith('-'))) { const type = line[0]==='+'?'add':line[0]==='-'?'del':'ctx'; currentHunk.lines.push({type, text: line.slice(1)}); }
       }
       return files;
     }
-
     function renderDiff(diffText) {
-      if (!diffText || !diffText.trim()) {
-        return '<div style="color: #5c5c64; font-style: italic; text-align: center; margin-top: 15px;">No file modifications.</div>';
-      }
+      if (!diffText || !diffText.trim()) return '<div style="color:#5c5c64;font-style:italic;text-align:center;margin-top:15px;">No file modifications.</div>';
       const files = parseUnifiedDiff(diffText);
-      if (files.length === 0 || files.every(f => f.hunks.length === 0)) {
-        return '<div style="color: #5c5c64; font-style: italic; text-align: center; margin-top: 15px;">No file modifications.</div>';
-      }
+      if (files.length === 0 || files.every(f => f.hunks.length === 0)) return '<div style="color:#5c5c64;font-style:italic;text-align:center;margin-top:15px;">No file modifications.</div>';
       let html = '<div class="diff-container">';
-      for (const file of files) {
-        for (const hunk of file.hunks) {
-          html += '<div class="diff-hunk">';
-          html += `<div class="diff-hunk-header">@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@</div>`;
-          let oldNum = hunk.oldStart;
-          let newNum = hunk.newStart;
-          for (const line of hunk.lines) {
-            let oldNumStr = '';
-            let newNumStr = '';
-            let typeClass = '';
-            let indicator = '';
-            if (line.type === 'ctx') {
-              oldNumStr = oldNum;
-              newNumStr = newNum;
-              oldNum++;
-              newNum++;
-              typeClass = 'diff-line-ctx';
-              indicator = ' ';
-            } else if (line.type === 'del') {
-              oldNumStr = oldNum;
-              oldNum++;
-              typeClass = 'diff-line-del';
-              indicator = '-';
-            } else if (line.type === 'add') {
-              newNumStr = newNum;
-              newNum++;
-              typeClass = 'diff-line-add';
-              indicator = '+';
-            }
-            html += `<div class="diff-line ${typeClass}">
-              <span class="diff-line-num">${oldNumStr}</span>
-              <span class="diff-line-ind">${indicator}</span>
-              <span class="diff-line-text">${escapeHtml(line.text)}</span>
-            </div>`;
-          }
-          html += '</div>';
+      for (const file of files) for (const hunk of file.hunks) {
+        html += '<div class="diff-hunk"><div class="diff-hunk-header">@@ -'+hunk.oldStart+','+hunk.oldCount+' +'+hunk.newStart+','+hunk.newCount+' @@</div>';
+        let oldNum = hunk.oldStart, newNum = hunk.newStart;
+        for (const line of hunk.lines) {
+          let oldNumStr='', newNumStr='', typeClass='', ind='';
+          if (line.type==='ctx') { oldNumStr=oldNum; newNumStr=newNum; oldNum++; newNum++; typeClass='diff-line-ctx'; ind=' '; }
+          else if (line.type==='del') { oldNumStr=oldNum; oldNum++; typeClass='diff-line-del'; ind='-'; }
+          else if (line.type==='add') { newNumStr=newNum; newNum++; typeClass='diff-line-add'; ind='+'; }
+          html += `<div class="diff-line ${typeClass}"><span class="diff-line-num">${oldNumStr}</span><span class="diff-line-ind">${ind}</span><span class="diff-line-text">${escapeHtml(line.text)}</span></div>`;
         }
+        html += '</div>';
       }
-      html += '</div>';
-      return html;
+      html += '</div>'; return html;
     }
 
-    // Rendering event rows inside terminal feeds
+    // ── Event row rendering ──
     function getEventRowHtml(e) {
       const timeStr = `[${fmtTime(e.timestamp)}]`;
-      
-      if (e.event_type === 'decision_logged' && e.data && e.data.decision) {
-        return `
-          <div class="thought-card">
-            <div class="thought-header">Thought Process</div>
-            <div>${escapeHtml(e.data.decision)}</div>
-          </div>
-        `;
-      }
+      const dataAttr = `data-event='${escapeAttr(JSON.stringify(e))}'`;
 
+      if (e.event_type === 'decision_logged' && e.data?.decision) {
+        return `<div class="thought-card" ${dataAttr}><div class="thought-header">Thought Process</div><div>${escapeHtml(e.data.decision)}</div></div>`;
+      }
       if (e.event_type === 'tool_call' || e.event_type === 'session_tool_start') {
-        const toolName = e.data.toolName;
-        const params = e.data.params || {};
-        const cmd = params.CommandLine || JSON.stringify(params, null, 2);
-        return `
-          <div class="tool-execution-card">
-            <div class="tool-exec-header">
-              <span class="tool-exec-name">${escapeHtml(toolName)}</span>
-              <span class="tool-exec-status running">Executing</span>
-            </div>
-            <div class="tool-exec-cmd">$ ${escapeHtml(cmd)}</div>
-          </div>
-        `;
+        const toolName = e.data.toolName; const params = e.data.params || {}; const cmd = params.CommandLine || JSON.stringify(params, null, 2);
+        return `<div class="tool-execution-card" ${dataAttr}><div class="tool-exec-header"><span class="tool-exec-name">${escapeHtml(toolName)}</span><span class="tool-exec-status running">Executing</span></div><div class="tool-exec-cmd">$ ${escapeHtml(cmd)}</div></div>`;
       }
-
       if (e.event_type === 'tool_result' || e.event_type === 'session_tool_end') {
-        const isError = e.data.isError || e.data.parseStatus === 'failed';
-        const statusLabel = isError ? 'FAILED' : 'COMPLETED';
-        return `
-          <div class="system-log">
-            <b>${statusLabel}</b> — ${escapeHtml(summarizeEvent(e))}
-          </div>
-        `;
+        const isError = e.data.isError || e.data.parseStatus === 'failed'; const statusLabel = isError?'FAILED':'COMPLETED';
+        return `<div class="system-log cli-line" ${dataAttr}><b>${statusLabel}</b> — ${escapeHtml(summarizeEvent(e))}</div>`;
       }
-
       if (e.event_type === 'ping') {
-        const status = e.data.status || 'unknown';
-        const isOk = status === 'ok';
-        const color = isOk ? '#7ee787' : (status === 'timeout' ? '#d29922' : '#ff7b72');
-        return `
-          <div class="system-log" style="border-left-color: ${color};">
-            <b style="color: ${color};">PING ${escapeHtml(status.toUpperCase())}</b> — ${escapeHtml(e.data.agentName || '?')} (${e.data.durationMs || 0}ms)${e.data.error ? ' — ' + escapeHtml(e.data.error) : ''}
-          </div>
-        `;
+        const status = e.data.status||'unknown'; const isOk = status==='ok'; const color = isOk?'#7ee787':(status==='timeout'?'#d29922':'#ff7b72');
+        return `<div class="system-log cli-line" style="border-left-color:${color};" ${dataAttr}><b style="color:${color};">PING ${escapeHtml(status.toUpperCase())}</b> — ${escapeHtml(e.data.agentName||'?')} (${e.data.durationMs||0}ms)${e.data.error?' — '+escapeHtml(e.data.error):''}</div>`;
       }
-
       if (e.event_type === 'assistant_message') {
-        const text = e.data.truncated ? (e.data.preview || '') : (e.data.text || e.data.preview || '');
-        return `
-          <div class="thought-card">
-            <div class="thought-header">Assistant · ${escapeHtml(e.data.role || '?')}</div>
-            <div>${escapeHtml(text)}</div>
-          </div>
-        `;
+        const text = e.data.truncated?(e.data.preview||''):(e.data.text||e.data.preview||'');
+        return `<div class="thought-card cli-line" ${dataAttr}><div class="thought-header">Assistant · ${escapeHtml(e.data.role||'?')}</div><div>${escapeHtml(text)}</div></div>`;
       }
-
       if (e.event_type === 'pending_question') {
-        const opts = Array.isArray(e.data.options) ? e.data.options : [];
-        const optsHtml = opts.length
-          ? `<div style="margin-top:6px; color:#8e8e93; font-size:11px;">Options: ${opts.slice(0, 6).map(escapeHtml).join(' · ') + (opts.length > 6 ? ' · …' : '')}</div>`
-          : '';
-        return `
-          <div class="thought-card" style="border-color:#c586c0;">
-            <div class="thought-header" style="color:#c586c0;">Pending Question · ${escapeHtml(e.data.questionId || '?')}</div>
-            <div>${escapeHtml(e.data.question || '')}</div>
-            ${optsHtml}
-          </div>
-        `;
+        const opts = Array.isArray(e.data.options)?e.data.options:[]; const optsHtml = opts.length?`<div style="margin-top:6px;color:#8e8e93;font-size:11px;">Options: ${opts.slice(0,6).map(escapeHtml).join(' · ')+(opts.length>6?' · …':'')}</div>`:'';
+        return `<div class="thought-card cli-line" style="border-color:#c586c0;" ${dataAttr}><div class="thought-header" style="color:#c586c0;">Pending Question · ${escapeHtml(e.data.questionId||'?')}</div><div>${escapeHtml(e.data.question||'')}</div>${optsHtml}</div>`;
       }
-
       const summary = summarizeEvent(e);
-      return `
-        <div class="cli-line">
-          <span class="cli-prompt">$</span>
-          <span class="cli-content">${escapeHtml(summary)}</span>
-        </div>
-      `;
+      return `<div class="cli-line" ${dataAttr}><span class="cli-prompt">$</span><span class="cli-content">${escapeHtml(summary)}</span></div>`;
     }
 
-    // Core Processing & Rendering
-    function processEvents(events) {
-      if ($statEvents) {
-        $statEvents.textContent = String(events.length);
-        $statEvents.title = events.length > MAX_RENDERED_EVENTS
-          ? `Showing latest ${MAX_RENDERED_EVENTS} of ${events.length} events`
-          : `Showing ${events.length} events`;
-      }
-      if ($statMission) {
-        const explicitMission = getMissionIdFromUrl();
-        $statMission.textContent = explicitMission ? explicitMission.slice(0, 18) : `${window.location.host} current`;
-        $statMission.title = explicitMission || `Resolved by ${window.location.origin}/api/events`;
-      }
+    // ── Attach click handlers to event rows ──
+    function attachEventClickHandlers(container) {
+      container.querySelectorAll('[data-event]').forEach(row => {
+        row.addEventListener('click', (e) => {
+          try {
+            const eventData = JSON.parse(row.dataset.event);
+            showEventPopover(e, eventData);
+          } catch {}
+        });
+      });
+    }
 
-      if ($statLatest) {
-        const latest = events[events.length - 1];
-        const label = latest
-          ? `${latest.event_type}${latest.data?.toolName ? ':' + latest.data.toolName : latest.data?.agentName ? ':' + latest.data.agentName : ''}`
-          : '—';
-        $statLatest.textContent = label.slice(0, 32);
-        $statLatest.title = latest ? JSON.stringify(latest.data || {}) : 'No events loaded';
-      }
+    // ── Core Processing & Rendering ──
+    function processEvents(events) {
+      if ($statEvents) { $statEvents.textContent = String(events.length); $statEvents.title = events.length > MAX_RENDERED_EVENTS ? `Showing latest ${MAX_RENDERED_EVENTS} of ${events.length}` : `${events.length} events`; }
+      if ($statMission) { const m = getMissionIdFromUrl(); $statMission.textContent = m ? m.slice(0,18) : `${window.location.host} current`; $statMission.title = m || `Resolved by ${window.location.origin}/api/events`; }
+      if ($statLatest) { const latest = events[events.length-1]; const label = latest ? `${latest.event_type}${latest.data?.toolName?':'+latest.data.toolName:latest.data?.agentName?':'+latest.data.agentName:''}` : '—'; $statLatest.textContent = label.slice(0,32); $statLatest.title = latest ? JSON.stringify(latest.data||{}) : 'No events'; }
 
       if (!events.length) {
         $paneOrchestration.classList.add('active-running');
-        $bodyOrchestration.innerHTML = `
-          <div class="system-log" style="border-left-color:#d29922;">
-            <b>NO EVENTS LOADED</b> — This dashboard is connected to ${escapeHtml(window.location.origin)} and is reading ${escapeHtml('/api/events' + missionQueryParam())}. If you just pinged another factory instance, open that instance's printed Dashboard URL.
-          </div>
-        `;
-        $paneWorker.classList.remove('active-running');
-        $badgeWorker.textContent = 'Sleeping';
-        $bodyWorker.innerHTML = getSleepHtml('Worker', SLEEP_ASCII_WORKER, 'No events loaded for this mission yet.');
+        $bodyOrchestration.innerHTML = `<div class="system-log" style="border-left-color:#d29922;"><b>NO EVENTS LOADED</b> — Connected to ${escapeHtml(window.location.origin)}, reading ${escapeHtml('/api/events'+missionQueryParam())}.</div>`;
+        $paneWorker.classList.remove('active-running'); $badgeWorker.textContent = 'Sleeping';
+        $bodyWorker.innerHTML = getSleepHtml('Worker', SLEEP_ASCII_WORKER, 'No events yet.');
         $containerWorkerDiff.style.display = 'none';
-        $paneValidator.classList.remove('active-running');
-        $badgeValidator.textContent = 'Sleeping';
-        $bodyValidator.innerHTML = getSleepHtml('Validator', SLEEP_ASCII_VALIDATOR, 'No validation events loaded for this mission yet.');
+        $paneValidator.classList.remove('active-running'); $badgeValidator.textContent = 'Sleeping';
+        $bodyValidator.innerHTML = getSleepHtml('Validator', SLEEP_ASCII_VALIDATOR, 'No validation events yet.');
         return;
       }
 
-      // Scan the full history for worker/validator spans (active AND completed).
-      // We track ALL span_ids so the Worker and Validator panels show every
-      // worker/validator run across the entire mission, not just the
-      // currently-running one.
-      const workerSpans = new Set();
-      const validatorSpans = new Set();
-      let activeWorker = null;
-      let activeValidator = null;
-
+      const workerSpans = new Set(); const validatorSpans = new Set(); let activeWorker = null; let activeValidator = null;
       for (const e of events) {
         if (e.event_type === 'agent_start') {
-          if (e.agent_level === 'worker') {
-            workerSpans.add(e.span_id);
-            activeWorker = e.span_id;
-          } else if (e.agent_level && (e.agent_level.includes('validator') || e.agent_level === 'user_testing_shard')) {
-            validatorSpans.add(e.span_id);
-            activeValidator = e.span_id;
-          }
+          if (e.agent_level === 'worker') { workerSpans.add(e.span_id); activeWorker = e.span_id; }
+          else if (e.agent_level && (e.agent_level.includes('validator') || e.agent_level === 'user_testing_shard')) { validatorSpans.add(e.span_id); activeValidator = e.span_id; }
         } else if (e.event_type === 'agent_end') {
-          if (e.agent_level === 'worker' && activeWorker === e.span_id) {
-            activeWorker = null;
-          } else if (e.agent_level && (e.agent_level.includes('validator') || e.agent_level === 'user_testing_shard') && activeValidator === e.span_id) {
-            activeValidator = null;
-          }
+          if (e.agent_level === 'worker' && activeWorker === e.span_id) activeWorker = null;
+          else if (e.agent_level && (e.agent_level.includes('validator') || e.agent_level === 'user_testing_shard') && activeValidator === e.span_id) activeValidator = null;
         }
       }
+      state.activeWorkerSpan = activeWorker; state.activeValidatorSpan = activeValidator;
+      state.allWorkerSpans = workerSpans; state.allValidatorSpans = validatorSpans;
 
-      state.activeWorkerSpan = activeWorker;
-      state.activeValidatorSpan = activeValidator;
-      state.allWorkerSpans = workerSpans;
-      state.allValidatorSpans = validatorSpans;
-
-      // Render only the latest events to keep the browser responsive on
-      // long missions with thousands of events.
       const renderedEvents = events.slice(-MAX_RENDERED_EVENTS);
-
-      // Filter events per column.
-      // Worker and Validator panels filter from the FULL event history (not
-      // just the last N) because a mission may have hundreds of orchestrator
-      // events after the last worker/validator run. Without this, those panels
-      // would appear empty even though worker/validator events exist earlier.
-      // The per-column render is capped below to stay responsive.
-      //
-      // - Worker panel: ALL worker agent events + child events of any worker span
-      //   (tool calls inside workers, session events, etc.)
-      // - Validator panel: ALL validator/shard agent events + child events of any
-      //   validator span (scrutiny checks, user-testing browser steps, etc.)
-      const orchEvents = [];
-      const workerEvents = [];
-      const validatorEvents = [];
-
-      for (const e of renderedEvents) {
-        const lvl = e.agent_level;
-
-        // Orchestrator column: orchestrator + unattributed system events
-        if (lvl === 'orchestrator' || !lvl || e.event_type === 'phase_transition' || e.event_type === 'halt') {
-          orchEvents.push(e);
-        }
-      }
-
+      const orchEvents = []; const workerEvents = []; const validatorEvents = [];
+      for (const e of renderedEvents) { const lvl = e.agent_level; if (lvl === 'orchestrator' || !lvl || e.event_type === 'phase_transition' || e.event_type === 'halt') orchEvents.push(e); }
       for (const e of events) {
         const lvl = e.agent_level;
-
-        // Worker column: worker agent_level, or any event whose span/parent is a worker span
-        if (lvl === 'worker' || workerSpans.has(e.span_id) || workerSpans.has(e.parent_span_id)) {
-          workerEvents.push(e);
-        }
-
-        // Validator column: scrutiny_validator, user_testing_validator, user_testing_shard,
-        // or any event whose span/parent is a validator span
-        if (
-          (lvl && (lvl.includes('validator') || lvl === 'user_testing_shard')) ||
-          validatorSpans.has(e.span_id) ||
-          validatorSpans.has(e.parent_span_id)
-        ) {
-          validatorEvents.push(e);
-        }
+        if (lvl === 'worker' || workerSpans.has(e.span_id) || workerSpans.has(e.parent_span_id)) workerEvents.push(e);
+        if ((lvl && (lvl.includes('validator') || lvl === 'user_testing_shard')) || validatorSpans.has(e.span_id) || validatorSpans.has(e.parent_span_id)) validatorEvents.push(e);
       }
-
-      // Cap per-column rendering to the latest MAX_RENDERED_EVENTS so very
-      // large missions don't stall the browser.
       const visibleWorkerEvents = workerEvents.slice(-MAX_RENDERED_EVENTS);
       const visibleValidatorEvents = validatorEvents.slice(-MAX_RENDERED_EVENTS);
 
-      // Render Orchestration — shows ALL events chronologically (the complete factory log).
-      // Always include a tiny visibility banner so users can distinguish "no logs" from
-      // "logs loaded but pane content is below / old".
+      // Orchestration
       $paneOrchestration.classList.add('active-running');
-      const latest = events[events.length - 1];
-      const banner = `
-        <div class="system-log" style="border-left-color:#7ee787; color:#d1d1d6;">
-          <b>EVENTS LOADED</b> — ${events.length} total; showing latest ${Math.min(MAX_RENDERED_EVENTS, events.length)} from ${escapeHtml('/api/events' + missionQueryParam())}; latest=${escapeHtml(latest ? latest.event_type : 'none')}
-        </div>
-      `;
-      const visibleOrchEvents = renderedEvents;
-      $bodyOrchestration.innerHTML = banner + visibleOrchEvents.map((event) => {
-        try {
-          return getEventRowHtml(event);
-        } catch (err) {
-          return `<div class="system-log" style="border-left-color:#ff7b72;"><b>RENDER ERROR</b> — ${escapeHtml(event.event_type || 'unknown')}: ${escapeHtml(err && err.message ? err.message : err)}</div>`;
-        }
-      }).join('');
+      const banner = `<div class="system-log" style="border-left-color:#7ee787;color:#d1d1d6;"><b>EVENTS LOADED</b> — ${events.length} total; showing latest ${Math.min(MAX_RENDERED_EVENTS, events.length)}</div>`;
+      $bodyOrchestration.innerHTML = banner + orchEvents.map(e => { try { return getEventRowHtml(e); } catch(err) { return `<div class="system-log" style="border-left-color:#ff7b72;"><b>RENDER ERROR</b> — ${escapeHtml(e.event_type||'?')}: ${escapeHtml(err?.message||err)}</div>`; } }).join('');
       $bodyOrchestration.scrollTop = $bodyOrchestration.scrollHeight;
+      attachEventClickHandlers($bodyOrchestration);
 
-      // Render Worker — shows ALL worker events persistently.
-      // Badge: "Running" when a worker is active, "N events" when idle but
-      // historical logs exist, "Sleeping" only when zero worker events ever.
+      // Worker
       if (workerEvents.length > 0) {
-        if (state.activeWorkerSpan) {
-          $paneWorker.classList.add('active-running');
-          $badgeWorker.textContent = 'Running';
-        } else {
-          $paneWorker.classList.remove('active-running');
-          $badgeWorker.textContent = `${workerEvents.length} events`;
-        }
-        const workerBanner = `
-          <div class="system-log" style="border-left-color:#7ee787; color:#d1d1d6;">
-            <b>WORKER LOGS</b> — ${workerSpans.size} worker run${workerSpans.size === 1 ? '' : 's'}; ${workerEvents.length} event${workerEvents.length === 1 ? '' : 's'} total; showing latest ${visibleWorkerEvents.length}${state.activeWorkerSpan ? ' (1 active)' : ''}
-          </div>
-        `;
-        $bodyWorker.innerHTML = workerBanner + visibleWorkerEvents.map((event) => {
-          try {
-            return getEventRowHtml(event);
-          } catch (err) {
-            return `<div class="system-log" style="border-left-color:#ff7b72;"><b>RENDER ERROR</b> — ${escapeHtml(event.event_type || 'unknown')}: ${escapeHtml(err && err.message ? err.message : err)}</div>`;
-          }
-        }).join('');
+        if (state.activeWorkerSpan) { $paneWorker.classList.add('active-running'); $badgeWorker.textContent = 'Running'; }
+        else { $paneWorker.classList.remove('active-running'); $badgeWorker.textContent = `${workerEvents.length} events`; }
+        $bodyWorker.innerHTML = `<div class="system-log" style="border-left-color:#7ee787;color:#d1d1d6;"><b>WORKER LOGS</b> — ${workerSpans.size} run(s); ${workerEvents.length} events</div>` + visibleWorkerEvents.map(e => { try { return getEventRowHtml(e); } catch(err) { return `<div class="system-log" style="border-left-color:#ff7b72;"><b>ERR</b></div>`; } }).join('');
         $bodyWorker.scrollTop = $bodyWorker.scrollHeight;
         $containerWorkerDiff.style.display = state.activeWorkerSpan ? 'flex' : 'none';
+        attachEventClickHandlers($bodyWorker);
       } else {
-        $paneWorker.classList.remove('active-running');
-        $badgeWorker.textContent = 'Sleeping';
-        $bodyWorker.innerHTML = getSleepHtml('Worker', SLEEP_ASCII_WORKER, 'Waiting for Orchestrator to compile features.');
+        $paneWorker.classList.remove('active-running'); $badgeWorker.textContent = 'Sleeping';
+        $bodyWorker.innerHTML = getSleepHtml('Worker', SLEEP_ASCII_WORKER, 'Waiting for Orchestrator.');
         $containerWorkerDiff.style.display = 'none';
       }
 
-      // Render Validator — shows ALL validation events persistently.
-      // Badge: "Running" when a validator is active, "N events" when idle but
-      // historical logs exist, "Sleeping" only when zero validator events ever.
+      // Validator
       if (validatorEvents.length > 0) {
-        if (state.activeValidatorSpan) {
-          $paneValidator.classList.add('active-running');
-          $badgeValidator.textContent = 'Running';
-        } else {
-          $paneValidator.classList.remove('active-running');
-          $badgeValidator.textContent = `${validatorEvents.length} events`;
-        }
-        const valBanner = `
-          <div class="system-log" style="border-left-color:#7ee787; color:#d1d1d6;">
-            <b>VALIDATOR LOGS</b> — ${validatorSpans.size} validator run${validatorSpans.size === 1 ? '' : 's'}; ${validatorEvents.length} event${validatorEvents.length === 1 ? '' : 's'} total; showing latest ${visibleValidatorEvents.length}${state.activeValidatorSpan ? ' (1 active)' : ''}
-          </div>
-        `;
-        $bodyValidator.innerHTML = valBanner + visibleValidatorEvents.map((event) => {
-          try {
-            return getEventRowHtml(event);
-          } catch (err) {
-            return `<div class="system-log" style="border-left-color:#ff7b72;"><b>RENDER ERROR</b> — ${escapeHtml(event.event_type || 'unknown')}: ${escapeHtml(err && err.message ? err.message : err)}</div>`;
-          }
-        }).join('');
+        if (state.activeValidatorSpan) { $paneValidator.classList.add('active-running'); $badgeValidator.textContent = 'Running'; }
+        else { $paneValidator.classList.remove('active-running'); $badgeValidator.textContent = `${validatorEvents.length} events`; }
+        $bodyValidator.innerHTML = `<div class="system-log" style="border-left-color:#7ee787;color:#d1d1d6;"><b>VALIDATOR LOGS</b> — ${validatorSpans.size} run(s); ${validatorEvents.length} events</div>` + visibleValidatorEvents.map(e => { try { return getEventRowHtml(e); } catch(err) { return `<div class="system-log" style="border-left-color:#ff7b72;"><b>ERR</b></div>`; } }).join('');
         $bodyValidator.scrollTop = $bodyValidator.scrollHeight;
+        attachEventClickHandlers($bodyValidator);
       } else {
-        $paneValidator.classList.remove('active-running');
-        $badgeValidator.textContent = 'Sleeping';
-        $bodyValidator.innerHTML = getSleepHtml('Validator', SLEEP_ASCII_VALIDATOR, 'Awaiting test verification from Worker output.');
+        $paneValidator.classList.remove('active-running'); $badgeValidator.textContent = 'Sleeping';
+        $bodyValidator.innerHTML = getSleepHtml('Validator', SLEEP_ASCII_VALIDATOR, 'Awaiting validation.');
       }
     }
 
-    // API Polling Functions
+    // ── Polling ──
     async function pollEvents() {
-      try {
-        const res = await fetch('/api/events' + missionQueryParam());
-        if (!res.ok) return;
-        const events = await res.json();
-        if (events.length === state.lastEventCount) return;
-        state.events = events;
-        state.lastEventCount = events.length;
-        processEvents(events);
-      } catch (err) {
-        console.error('Failed to poll events:', err);
-      }
+      try { const res = await fetch('/api/events'+missionQueryParam()); if (!res.ok) return; const events = await res.json(); if (events.length === state.lastEventCount) return; state.events = events; state.lastEventCount = events.length; processEvents(events); } catch(err) { console.error('Failed to poll events:', err); }
     }
-
     async function pollDiff() {
-      try {
-        const res = await fetch('/api/diff' + missionQueryParam());
-        if (!res.ok) return;
-        const data = await res.json();
-        $bodyWorkerDiff.innerHTML = renderDiff(data.diff);
-      } catch (err) {
-        console.error('Failed to poll diffs:', err);
-      }
+      try { const res = await fetch('/api/diff'+missionQueryParam()); if (!res.ok) return; const data = await res.json(); $bodyWorkerDiff.innerHTML = renderDiff(data.diff); } catch(err) { console.error('Failed to poll diffs:', err); }
     }
-
     async function pollMission() {
       try {
-        const res = await fetch('/api/mission' + missionQueryParam());
-        if (!res.ok) return;
-        const data = await res.json();
-
-        // Update Goal
+        const res = await fetch('/api/mission'+missionQueryParam()); if (!res.ok) return; const data = await res.json();
         $goalTextMarquee.textContent = data.requirements?.goal || 'No goal specified';
         $statPhase.textContent = data.state?.phase || '—';
-
         const isPendingReview = data.state?.phase === 'user_approval';
         if (isPendingReview) {
-          $planReviewConsole.style.display = 'flex';
-          $observatoryGrid.style.display = 'none';
-
-          // Populate review context
+          $planReviewConsole.style.display = 'flex'; $observatoryGrid.style.display = 'none';
           $reviewMissionGoal.textContent = data.requirements?.goal || 'No goal specified';
-          
-          if (document.activeElement !== $tabContentEdit) {
-            if (rawContractMd !== (data.validationContractMd || "")) {
-              rawContractMd = data.validationContractMd || "";
-              $tabContentPreview.innerHTML = renderMarkdownToHtml(rawContractMd);
-              $tabContentEdit.value = rawContractMd;
-            }
-          }
-
-          // Populate review checklist
+          if (document.activeElement !== $tabContentEdit) { if (rawContractMd !== (data.validationContractMd||"")) { rawContractMd = data.validationContractMd||""; $tabContentPreview.innerHTML = renderMarkdownToHtml(rawContractMd); $tabContentEdit.value = rawContractMd; } }
           const features = data.features?.features || [];
-          if (features.length === 0) {
-            $reviewFeaturesList.innerHTML = '<div style="color: #8e8e93; font-style: italic;">No features defined yet.</div>';
-          } else {
-            $reviewFeaturesList.innerHTML = features.map(f => {
-              const isDone = f.status === 'completed';
-              const checkbox = isDone ? '[✓]' : (f.status === 'active' || f.status === 'running' ? '[●]' : '[ ]');
-              return `
-                <div class="plan-item ${isDone ? 'completed' : ''}">
-                  <div class="plan-item-checkbox">${checkbox}</div>
-                  <div class="plan-item-text"><b>${escapeHtml(f.id)}</b>: ${escapeHtml(f.title || '')}</div>
-                </div>
-              `;
-            }).join('');
-          }
-
-          $btnReviewApprove.disabled = false;
-          $btnReviewReject.disabled = false;
-        } else {
-          $planReviewConsole.style.display = 'none';
-          $observatoryGrid.style.display = 'grid';
-        }
-
-        // Plan features list (for the dialog popup checklist)
-        const features = data.features?.features || [];
-        if (features.length === 0) {
-          $planList.innerHTML = '<div style="color: #8e8e93; font-style: italic;">No features defined yet.</div>';
-        } else {
-          $planList.innerHTML = features.map(f => {
-            const isDone = f.status === 'completed';
-            const checkbox = isDone ? '[✓]' : (f.status === 'active' || f.status === 'running' ? '[●]' : '[ ]');
-            return `
-              <div class="plan-item ${isDone ? 'completed' : ''}">
-                <div class="plan-item-checkbox">${checkbox}</div>
-                <div class="plan-item-text"><b>${escapeHtml(f.id)}</b>: ${escapeHtml(f.title || '')}</div>
-              </div>
-            `;
-          }).join('');
-        }
-      } catch (err) {
-        console.error('Failed to poll mission state:', err);
-      }
+          if (features.length === 0) $reviewFeaturesList.innerHTML = '<div style="color:#8e8e93;font-style:italic;">No features defined yet.</div>';
+          else $reviewFeaturesList.innerHTML = features.map(f => { const isDone = f.status === 'completed' || f.status === 'validated' || f.status === 'integrated'; const cb = isDone ? '[✓]' : (f.status === 'in_progress' ? '[●]' : '[ ]'); return `<div class="plan-item ${isDone?'completed':''}"><div class="plan-item-checkbox">${cb}</div><div class="plan-item-text"><b>${escapeHtml(f.id)}</b>: ${escapeHtml(f.title||'')}</div></div>`; }).join('');
+          $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false;
+        } else { $planReviewConsole.style.display = 'none'; $observatoryGrid.style.display = 'grid'; }
+        const features2 = data.features?.features || [];
+        if (features2.length === 0) $planList.innerHTML = '<div style="color:#8e8e93;font-style:italic;">No features defined yet.</div>';
+        else $planList.innerHTML = features2.map(f => { const isDone = f.status === 'completed' || f.status === 'validated' || f.status === 'integrated'; const cb = isDone ? '[✓]' : (f.status === 'in_progress' ? '[●]' : '[ ]'); return `<div class="plan-item ${isDone?'completed':''}"><div class="plan-item-checkbox">${cb}</div><div class="plan-item-text"><b>${escapeHtml(f.id)}</b>: ${escapeHtml(f.title||'')}</div></div>`; }).join('');
+      } catch(err) { console.error('Failed to poll mission state:', err); }
     }
 
-    // Initialize Polling loops
-    pollEvents();
-    setInterval(pollEvents, 500);
-
-    pollDiff();
-    setInterval(pollDiff, 1000);
-
-    pollMission();
-    setInterval(pollMission, 1000);
-
+    // ── Init ──
+    pollEvents(); setInterval(pollEvents, 500);
+    pollDiff(); setInterval(pollDiff, 1000);
+    pollMission(); setInterval(pollMission, 1000);
+    pollWorkspace(); setInterval(pollWorkspace, 2000);
   </script>
 </body>
 </html>

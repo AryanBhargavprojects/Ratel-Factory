@@ -231,4 +231,70 @@ describe("ModelRouter", () => {
 
     await rm(dir, { recursive: true, force: true });
   });
+
+  it("reloadConfig updates candidate list from ratel.json", async () => {
+    const dir = await setupDir();
+    // Start with a router that has "anthropic/primary" as the orchestrator model.
+    const router = new ModelRouter({
+      projectRoot: dir,
+      orchestrator: { model: "anthropic/primary", fallbackModels: [] },
+      worker: { model: "anthropic/worker", fallbackModels: [] },
+      validator: { model: "anthropic/validator", fallbackModels: [] },
+      modelRouting: { failureThreshold: 2, cooldownMs: 120000 },
+    });
+
+    let candidates = await router.getCandidates("orchestrator");
+    assert.deepStrictEqual(candidates, ["anthropic/primary"]);
+
+    // Write a ratel.json with a different model. The model string won't
+    // resolve in the test registry, so getFallbackModelConfig returns null,
+    // which reloadConfig coalesces to "sdk-default".
+    await mkdir(join(dir, ".ratel"), { recursive: true });
+    await writeFile(join(dir, "ratel.json"), JSON.stringify({
+      orchestrator: { model: "nonexistent/fake-model-xyz-test" },
+    }, null, 2), "utf-8");
+
+    await router.reloadConfig(dir);
+
+    candidates = await router.getCandidates("orchestrator");
+    // "nonexistent/fake-model-xyz-test" won't resolve in the registry → null → "sdk-default"
+    assert.deepStrictEqual(candidates, ["sdk-default"]);
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("reloadConfig preserves circuit breaker health", async () => {
+    const dir = await setupDir();
+    const router = new ModelRouter({
+      projectRoot: dir,
+      orchestrator: { model: "anthropic/primary", fallbackModels: ["openai/fallback"] },
+      worker: { model: "anthropic/worker", fallbackModels: [] },
+      validator: { model: "anthropic/validator", fallbackModels: [] },
+      modelRouting: { failureThreshold: 1, cooldownMs: 120000 },
+    });
+
+    // Open the circuit for anthropic/primary
+    const retryableFailure: ClassifiedAgentError = { retryable: true, category: "rate_limit", original: new Error("429") };
+    await router.recordFailure("anthropic/primary", retryableFailure);
+
+    // Write an empty ratel.json so reloadConfig sets model to "sdk-default"
+    await mkdir(join(dir, ".ratel"), { recursive: true });
+    await writeFile(join(dir, "ratel.json"), "{}", "utf-8");
+
+    await router.reloadConfig(dir);
+
+    // "sdk-default" has no health entry, so it should be included
+    const candidates = await router.getCandidates("orchestrator");
+    assert.ok(candidates.includes("sdk-default"));
+
+    // But the health state for "anthropic/primary" should still be persisted
+    const healthPath = join(dir, ".ratel", "model-health.json");
+    const raw = await readFile(healthPath, "utf-8");
+    const health = JSON.parse(raw);
+    const primary = health.models.find((m: any) => m.model === "anthropic/primary");
+    assert.ok(primary);
+    assert.strictEqual(primary.state, "open");
+
+    await rm(dir, { recursive: true, force: true });
+  });
 });

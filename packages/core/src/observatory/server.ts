@@ -10,9 +10,9 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { readFile, access, writeFile, mkdir } from "node:fs/promises";
+import { readFile, access, writeFile, mkdir, readdir, stat } from "node:fs/promises";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 import { execFile as execFileCb } from "node:child_process";
@@ -105,6 +105,44 @@ async function resolveMissionId(cwd: string, preferredMissionId?: string): Promi
   return record?.missionId ?? "mis_00000001";
 }
 
+interface FileTreeNode {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  size?: number;
+  children?: FileTreeNode[];
+}
+
+async function buildFileTree(rootDir: string, currentDir: string): Promise<FileTreeNode | null> {
+  const name = relative(rootDir, currentDir) || ".";
+  try {
+    const entries = await readdir(currentDir, { withFileTypes: true });
+    const children: FileTreeNode[] = [];
+    for (const entry of entries) {
+      const fullPath = join(currentDir, entry.name);
+      const relPath = relative(rootDir, fullPath);
+      if (entry.isDirectory()) {
+        const child = await buildFileTree(rootDir, fullPath);
+        if (child) children.push(child);
+      } else if (entry.isFile()) {
+        try {
+          const s = await stat(fullPath);
+          children.push({ name: entry.name, path: relPath, type: "file", size: s.size });
+        } catch {
+          children.push({ name: entry.name, path: relPath, type: "file", size: 0 });
+        }
+      }
+    }
+    children.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    return { name, path: relative(rootDir, currentDir) || ".", type: "dir", children };
+  } catch {
+    return null;
+  }
+}
+
 function createDashboardServer(cwd: string, controlPlane?: import("../control-plane/mission-control-plane.js").MissionControlPlane): Server {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
@@ -136,6 +174,60 @@ function createDashboardServer(cwd: string, controlPlane?: import("../control-pl
       } catch {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end("[]");
+      }
+      return;
+    }
+
+    // API: Return the mission workspace as a file tree.
+    if (pathname === "/api/workspace" || pathname.startsWith("/api/workspace")) {
+      try {
+        const missionId = await resolveMissionId(cwd, url.searchParams.get("missionId") ?? undefined);
+        if (!missionId) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ tree: null, missionId: null }));
+          return;
+        }
+        const scope = createMissionScope(cwd, missionId);
+        const missionDir = getMissionDir(scope);
+        const tree = await buildFileTree(missionDir, missionDir);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ tree, missionId }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      }
+      return;
+    }
+
+    // API: Return a single file's content by relative path within the mission dir.
+    if (pathname === "/api/file" || pathname.startsWith("/api/file")) {
+      try {
+        const missionId = await resolveMissionId(cwd, url.searchParams.get("missionId") ?? undefined);
+        if (!missionId) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "No mission found" }));
+          return;
+        }
+        const scope = createMissionScope(cwd, missionId);
+        const missionDir = getMissionDir(scope);
+        const relPath = url.searchParams.get("path") ?? "";
+        if (!relPath || relPath.includes("..")) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid path" }));
+          return;
+        }
+        const fullPath = join(missionDir, relPath);
+        try {
+          const content = await readFile(fullPath, "utf-8");
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ path: relPath, content }));
+        } catch {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "File not found", path: relPath }));
+        }
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
       }
       return;
     }

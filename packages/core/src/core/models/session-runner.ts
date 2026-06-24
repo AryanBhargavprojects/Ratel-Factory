@@ -278,6 +278,23 @@ export async function createAgentSessionForModel(options: {
 
   const resolvedModel = resolveModel(modelString);
   if (!resolvedModel) {
+    if (modelString === "sdk-default") {
+      // "sdk-default" means no explicit model was configured (or the
+      // configured model could not be resolved). Let createAgentSession
+      // pick the SDK default by passing model: undefined.
+      const { session } = await createAgentSession({
+        cwd,
+        authStorage,
+        modelRegistry,
+        settingsManager,
+        resourceLoader,
+        sessionManager: SessionManager.inMemory(cwd),
+        tools,
+        customTools,
+        thinkingLevel: (thinkingLevel ?? "medium") as any,
+      });
+      return { session, dispose: () => session.dispose() };
+    }
     throw new Error(
       `Configured model could not be resolved: ${modelString} — expected "provider/model-id"`,
     );

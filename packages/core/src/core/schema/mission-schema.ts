@@ -7,6 +7,24 @@ export class MissionArtifactSchemaError extends Error {
   }
 }
 
+/**
+ * Human-readable schema hints for each structured artifact.
+ * Returned in validation error messages so the caller (the LLM) can
+ * self-correct without a second round-trip.
+ */
+export const ARTIFACT_SCHEMA_HINTS: Record<string, string> = {
+  "requirements.json":
+    'Expected shape: {"goal": "<non-empty string>", "productIntent": "<non-empty string>", "nonGoals": ["..."], "riskTolerance": "low"|"medium"|"high", "directory"?: "<optional path>"}',
+  "state.json":
+    'Expected shape: {"phase": "intake"|"discovery"|"clarification"|"constraint_analysis"|"validation_contract"|"feature_decomposition"|"user_approval"|"approved"|"execution"|"completed"|"halted", "version": <number>, "updatedAt": "<ISO timestamp>"}',
+  "features.json":
+    'Expected shape: {"features": [{"id": "<string>", "title": "<string>", "description": "<string>", "assertions": ["<string>"], "milestoneId": "<string>", "status": "pending"|"in_progress"|"integrated"|"validated"|"blocked"}]}',
+  "milestones.json":
+    'Expected shape: {"milestones": [{"id": "<string>", "title": "<string>", "description": "<string>", "featureIds": ["<string>"], "status": "pending"|"in_progress"|"completed"|"blocked"}]}',
+  "worker-skills.json":
+    'Expected shape: {"additionalSkills": ["<skill-name>"]}',
+};
+
 export interface FeaturesDocument {
   features: Feature[];
 }

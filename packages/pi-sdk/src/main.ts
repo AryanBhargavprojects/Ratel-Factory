@@ -39,6 +39,7 @@ import {
   createMissionScope,
   getRatelDir,
   readJsonFile,
+  atomicWriteJson,
 } from "@ratel-factory/core";
 
 /**
@@ -120,6 +121,8 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   if (!missionId) {
     missionId = `mis_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   }
+  // Persist so the Observatory dashboard can discover the active mission.
+  await atomicWriteJson(`${getRatelDir(cwd)}/current-mission.json`, { missionId });
 
   const scope = createMissionScope(cwd, missionId);
   const logger = await EventLogger.forMission(scope);
@@ -232,6 +235,8 @@ async function main(): Promise<void> {
   if (!missionId) {
     missionId = `mis_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   }
+  // Persist so the Observatory dashboard can discover the active mission.
+  await atomicWriteJson(`${getRatelDir(cwd)}/current-mission.json`, { missionId });
   const mainScope = createMissionScope(cwd, missionId);
   const mainLogger = await EventLogger.forMission(mainScope);
   await ensureMissionInitialized(mainScope, mainLogger);

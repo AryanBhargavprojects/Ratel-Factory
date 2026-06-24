@@ -287,6 +287,8 @@ export interface UserTestingReport {
 }
 
 export interface MissionState {
+  /** The mission ID this state belongs to. Always present. */
+  missionId: string;
   phase: MissionPhase;
   version: number;
   updatedAt: string;

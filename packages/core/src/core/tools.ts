@@ -57,6 +57,7 @@ import {
   canonicalizeMissionArtifactContent,
   isStructuredArtifact,
   MissionArtifactSchemaError,
+  ARTIFACT_SCHEMA_HINTS,
 } from "./schema/mission-schema.js";
 import { ValidationContractSchema, validateSchema } from "./schema/report-schemas.js";
 import { writeWorkerRawOutput } from "./workers/worker-output.js";
@@ -377,7 +378,13 @@ export function writeMissionArtifactTool(context: MissionExecutionContext) {
       "Supported artifacts: state.json, requirements.json, constraints.md, research-notes.md, " +
       "validation-contract.md, features.json, milestones.json, decision-log.md, halt-reason.md, " +
       "agents.md, worker-skills.json. " +
-      "For decision-log, mode=append is recommended.",
+      "For decision-log, mode=append is recommended.\n\n" +
+      "## Required schemas (JSON artifacts must match exactly)\n" +
+      "- requirements.json: {\"goal\": string, \"productIntent\": string, \"nonGoals\": string[], \"riskTolerance\": \"low\"|\"medium\"|\"high\", \"directory\"?: string}\n" +
+      "- state.json: {\"phase\": \"intake\"|\"discovery\"|\"clarification\"|\"constraint_analysis\"|\"validation_contract\"|\"feature_decomposition\"|\"user_approval\"|\"approved\"|\"execution\"|\"completed\"|\"halted\", \"version\": number, \"updatedAt\": string}\n" +
+      "- features.json: {\"features\": [{\"id\": string, \"title\": string, \"description\": string, \"assertions\": string[], \"milestoneId\": string, \"status\": \"pending\"|\"in_progress\"|\"integrated\"|\"validated\"|\"blocked\"}]}\n" +
+      "- milestones.json: {\"milestones\": [{\"id\": string, \"title\": string, \"description\": string, \"featureIds\": string[], \"status\": \"pending\"|\"in_progress\"|\"completed\"|\"blocked\"}]}\n" +
+      "- worker-skills.json: {\"additionalSkills\": string[]}",
     parameters: Type.Object({
       artifact: Type.String({
         description: "Artifact name (e.g. requirements.json, constraints.md, agents.md, worker-skills.json)",
@@ -413,9 +420,11 @@ export function writeMissionArtifactTool(context: MissionExecutionContext) {
             : err instanceof Error
               ? err.message
               : String(err);
+          const hint = ARTIFACT_SCHEMA_HINTS[artifact] ?? "";
+          const fullMessage = hint ? `${message}\n\n${hint}` : message;
           context.logger.toolResult("write_mission_artifact", { parseStatus: "failed", error: message });
           return {
-            content: [{ type: "text" as const, text: `ERROR: Invalid ${artifact}: ${message}. Previous artifact was not overwritten.` }],
+            content: [{ type: "text" as const, text: `ERROR: Invalid ${artifact}: ${fullMessage}. Previous artifact was not overwritten.` }],
             details: { error: "schema_validation_failed", artifact, message },
           };
         }
@@ -1380,6 +1389,11 @@ export function setModelTool(context: MissionExecutionContext) {
           getDefaultAgentDir(),
         );
         resultError = undefined;
+        // Propagate the config change to the live ModelRouter so subagent
+        // spawns (run_research, draft_validation_contract, ask_smart_friend,
+        // run_worker, run_validation) pick up the new model immediately
+        // without requiring a new orchestrator session.
+        await context.models.reloadConfig(context.scope.projectRoot);
       } catch (err) {
         resultConfig = await getModelConfig(context.scope.projectRoot);
         resultError = err instanceof Error ? err.message : String(err);

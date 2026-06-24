@@ -74,7 +74,12 @@ export class OrchestratorAgent {
     this.cwd = options.cwd ?? process.cwd();
 
     // Create or resolve mission scope
-    const missionId = options.missionId ?? "mis_00000001";
+    const missionId = options.missionId;
+    if (!missionId) {
+      throw new Error(
+        "OrchestratorAgent.init requires a missionId. All adapters (Pi SDK, Pi extension, control plane) must pass one — there is no default.",
+      );
+    }
     const scope = createMissionScope(this.cwd, missionId);
 
     // Initialize mission state before anything else

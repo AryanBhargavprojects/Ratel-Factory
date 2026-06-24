@@ -52,6 +52,35 @@ export class ModelRouter {
     await this.loadHealth();
   }
 
+  /**
+   * Reload model config from ratel.json and update the candidate lists.
+   * Called after set_model writes a new model to ratel.json so the live
+   * router picks up the change without requiring a new orchestrator session.
+   *
+   * Health state (circuit breaker) is preserved across reload — only the
+   * candidate model strings per role are refreshed.
+   */
+  async reloadConfig(projectRoot: string): Promise<void> {
+    const { getFallbackModelConfig } = await import("../config.js");
+    const fallbackConfig = await getFallbackModelConfig(projectRoot);
+    this.config = {
+      projectRoot,
+      orchestrator: {
+        model: fallbackConfig.orchestrator.model ?? "sdk-default",
+        fallbackModels: fallbackConfig.orchestrator.fallbackModels ?? [],
+      },
+      worker: {
+        model: fallbackConfig.worker.model ?? "sdk-default",
+        fallbackModels: fallbackConfig.worker.fallbackModels ?? [],
+      },
+      validator: {
+        model: fallbackConfig.validator.model ?? "sdk-default",
+        fallbackModels: fallbackConfig.validator.fallbackModels ?? [],
+      },
+      modelRouting: fallbackConfig.modelRouting,
+    };
+  }
+
   /** Get the ordered list of candidate model strings for a role. */
   async getCandidates(role: AgentRole): Promise<string[]> {
     const roleConfig = this.config[role];
