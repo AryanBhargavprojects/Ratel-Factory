@@ -67,13 +67,13 @@ Ratel supports two first-class end-user adapters: the **OpenCode adapter** (serv
 ### 1. Automated Installation (OpenCode)
 
 ```bash
-curl -fsSL https://ratelfactory.dev/install-opencode.sh | bash
+curl -fsSL https://install.ratelfactory.dev/install-opencode.sh | bash
 ```
 
 To pin a specific release instead of npm `latest`:
 
 ```bash
-RATEL_VERSION=0.2.0 bash <(curl -fsSL https://ratelfactory.dev/install-opencode.sh)
+RATEL_VERSION=0.2.0 bash <(curl -fsSL https://install.ratelfactory.dev/install-opencode.sh)
 ```
 
 This script will automatically:

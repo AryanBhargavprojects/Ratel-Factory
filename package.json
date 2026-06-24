@@ -17,8 +17,8 @@
     "test:all": "npm test && npm test --workspace=packages/core && npm test --workspace=packages/opencode-plugin && npm test --workspace=packages/pi-extension && npm test --workspace=packages/pi-sdk"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.79.0",
-    "@earendil-works/pi-coding-agent": "^0.79.0",
+    "@earendil-works/pi-ai": "^0.79.10",
+    "@earendil-works/pi-coding-agent": "^0.79.10",
     "@sinclair/typebox": "^0.34.49",
     "pi-orch-extension": "^1.0.0"
   },

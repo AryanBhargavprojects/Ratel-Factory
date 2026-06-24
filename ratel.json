@@ -8,7 +8,7 @@
   "orchestrator": {
     "systemPrompt": null,
     "thinkingLevel": "high",
-    "model": "openai-codex/gpt-5.5",
+    "model": "ollama/minimax-m3:cloud",
     "tools": [
       "read",
       "grep",
@@ -91,7 +91,7 @@
     }
   },
   "workers": {
-    "model": "opencode-go/kimi-k2.7-code",
+    "model": "opencode-go/glm-5.2",
     "thinking": "high",
     "defaultTools": [
       "read",
