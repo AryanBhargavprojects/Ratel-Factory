@@ -1,9 +1,11 @@
 /**
  * Ratel Pi Extension — Tool Scope
  *
- * Service owns lifecycle state. The extension does not maintain local phase.
- * This module is retained for compatibility with any future service-driven
- * tool-gating helpers (e.g., querying the service for allowed tools).
+ * The in-process orchestrator (via {@link RatelRuntime}) owns lifecycle/phase
+ * state under `.ratel/missions/<missionId>/`. The extension does not maintain
+ * a local phase copy. This module is retained as a placeholder for any future
+ * tool-gating helpers. It currently exports nothing.
  */
 
-// No local phase state. Use service health and mission status for gating.
+// No local phase state. Use runtime status and mission state for gating.
+export {};
