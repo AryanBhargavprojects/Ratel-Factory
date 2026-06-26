@@ -45,6 +45,15 @@ export { ModelRouter } from "./core/models/model-router.js";
 export { startObservatory, type ObservatoryHandle } from "./observatory/service.js";
 export { startDashboardServer, startDashboardServerOnAvailablePort, getCurrentDashboardUrl } from "./observatory/server.js";
 export { default as registerObservatoryDashboard } from "./observatory/dashboard.js";
+export { DashboardData } from "./observatory/dashboard-data.js";
+export {
+  DashboardActions,
+  ControlPlaneActionBridge,
+  InProcessActionBridge,
+  NoActionBridge,
+  type ActionBridge,
+  type InProcessBridgeCallbacks,
+} from "./observatory/dashboard-actions.js";
 
 // ---------------------------------------------------------------------------
 // Portfile

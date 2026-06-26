@@ -1,11 +1,20 @@
 import type { Server } from "node:http";
 import { startDashboardServerOnAvailablePort, type DashboardServerHandle } from "./server.js";
 import type { ResolvedObservabilityConfig } from "../core/config.js";
+import type { ActionBridge } from "./dashboard-actions.js";
 
 export interface StartObservatoryOptions {
   cwd: string;
   config: ResolvedObservabilityConfig;
   controlPlane?: import("../control-plane/mission-control-plane.js").MissionControlPlane;
+  /**
+   * Optional action bridge for resume semantics. When omitted, the service
+   * mode uses ControlPlaneActionBridge when a control plane is present, and
+   * NoActionBridge otherwise. Pi extensions may inject an
+   * InProcessActionBridge here so dashboard actions resume the in-process
+   * orchestrator.
+   */
+  actionBridge?: ActionBridge;
 }
 
 export interface ObservatoryHandle {
@@ -34,16 +43,21 @@ function enabledHandle(handle: DashboardServerHandle): ObservatoryHandle {
 }
 
 /**
- * Start the read-only Observatory dashboard as part of factory startup.
+ * Start the Observatory dashboard as part of factory startup.
  *
  * This is intentionally deterministic and fail-soft:
  * - enabled by default via config resolution
  * - started before InteractiveMode receives the first user prompt
  * - port conflicts fall back to the next available port
  * - startup failures are reported but never prevent the factory from running
+ *
+ * Resume semantics are mode-aware via the ActionBridge:
+ *   - service mode with controlPlane → ControlPlaneActionBridge (actions available)
+ *   - in-process mode with actionBridge → that bridge (actions available)
+ *   - no bridge → NoActionBridge (edits save to disk only)
  */
 export async function startObservatory(options: StartObservatoryOptions): Promise<ObservatoryHandle> {
-  const { cwd, config } = options;
+  const { cwd, config, controlPlane, actionBridge } = options;
 
   if (!config.enabled) {
     console.log("[Observatory] Disabled by ratel.json observability.enabled=false.");
@@ -54,6 +68,8 @@ export async function startObservatory(options: StartObservatoryOptions): Promis
     const dashboard = await startDashboardServerOnAvailablePort({
       cwd,
       port: config.port,
+      controlPlane,
+      actionBridge,
     });
 
     if (config.autoOpen) {

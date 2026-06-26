@@ -35,6 +35,13 @@ export interface SessionRunnerOptions<T> {
  *   - Provider not configured (e.g., Azure fallback when no Azure creds)
  *   - API error before any tokens were generated
  *   - Non-text output (image / tool-only turn)
+ *
+ * IMPORTANT: A tool-only completion — where the model called tools but emitted
+ * no final text — is still classified as EmptyOutputError here. Callers that
+ * can verify artifacts exist (e.g., draftValidationContractTool checking for
+ * .feature files and validation-contract.md) should catch EmptyOutputError
+ * and verify artifacts before failing. This keeps the collector generic while
+ * allowing artifact-producing agents to survive a silent-text completion.
  */
 export async function collectResponse(session: AgentSession, prompt: string): Promise<string> {
   let response = "";
@@ -264,7 +271,7 @@ export async function createAgentSessionForModel(options: {
 
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: false },
-    retry: { enabled: true, maxRetries: 1 },
+    retry: { enabled: true, maxRetries: 2 },
   });
 
   const resourceLoader = new DefaultResourceLoader({

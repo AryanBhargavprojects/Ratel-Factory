@@ -8,7 +8,7 @@
   "orchestrator": {
     "systemPrompt": null,
     "thinkingLevel": "high",
-    "model": "ollama/minimax-m3:cloud",
+    "model": "openai-codex/gpt-5.5",
     "tools": [
       "read",
       "grep",

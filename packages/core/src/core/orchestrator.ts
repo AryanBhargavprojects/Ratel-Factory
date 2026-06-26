@@ -192,6 +192,7 @@ export class OrchestratorAgent {
       "list_models",
       "ping_agents",
       "get_budget_status",
+      "reload_budget",
       "ensure_skills_installed",
       "get_feature_complexity",
       "wait_for_user_approval",

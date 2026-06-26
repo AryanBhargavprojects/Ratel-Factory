@@ -1,1017 +1,686 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ratel Observatory</title>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;600&display=swap');
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ratel Observatory</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;600&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body { font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #060608; color: #e1e1e6; overflow: hidden; display: flex; flex-direction: column; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+:root {
+  --bg: #060608; --bg1: #0a0a0d; --bg2: #111116; --bg3: #16161c;
+  --border: #1a1a20; --border2: #222228; --border3: #2a2a32;
+  --text: #e1e1e6; --text-dim: #8e8e93; --text-dim2: #6c6c74;
+  --accent: #c586c0; --accent2: #7ee787; --warn: #d29922; --err: #f85149; --info: #58a6ff;
+}
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; }
-    body {
-      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #060608;
-      color: #e1e1e6;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
+/* ── Top bar ── */
+#top-bar { background: rgba(18,18,22,0.7); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 100; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.brand-logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; }
+.brand-logo span { background: #fff; color: #060608; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+#summary-strip { display: flex; align-items: center; gap: 8px; flex: 1; overflow: hidden; font-size: 12px; flex-wrap: wrap; }
+.ss-chip { display: flex; align-items: center; gap: 6px; background: var(--bg2); border: 1px solid var(--border2); padding: 5px 10px; border-radius: 6px; white-space: nowrap; }
+.ss-label { color: var(--text-dim); text-transform: uppercase; font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
+.ss-value { color: #fff; font-weight: 600; }
+.ss-value.phase { color: var(--accent); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim2); display: inline-block; }
+.status-dot.active { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); animation: pulse 2s infinite; }
+.status-dot.halted { background: var(--err); box-shadow: 0 0 8px var(--err); }
+.status-dot.completed { background: var(--info); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+#mode-badge { font-size: 10px; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border2); background: var(--bg2); color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
 
-    /* ── Top Status Bar ── */
-    #top-bar {
-      background: rgba(18, 18, 22, 0.7);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid #1a1a20;
-      padding: 12px 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-shrink: 0;
-      z-index: 100;
-    }
-    .brand { display: flex; align-items: center; gap: 10px; }
-    .brand-logo {
-      font-size: 20px; font-weight: 700; letter-spacing: -0.5px; color: #ffffff;
-      display: flex; align-items: center; gap: 8px;
-    }
-    .brand-logo span {
-      background: #ffffff; color: #060608; padding: 2px 6px; border-radius: 4px;
-      font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .mission-status { display: flex; align-items: center; gap: 20px; font-size: 13px; }
-    .status-item {
-      display: flex; align-items: center; gap: 8px;
-      background: #121216; border: 1px solid #222228; padding: 6px 12px; border-radius: 6px;
-    }
-    .status-label { color: #8e8e93; text-transform: uppercase; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; }
-    .status-value { color: #ffffff; font-weight: 600; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #8e8e93; display: inline-block; }
-    .status-dot.active { background: #ffffff; box-shadow: 0 0 8px #ffffff; animation: pulse 2s infinite; }
-    #btn-plan, #btn-tree {
-      background: transparent; border: 1px solid #3a3a44; color: #e1e1e6;
-      padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
-      display: flex; align-items: center; gap: 6px; transition: all 0.2s;
-    }
-    #btn-plan:hover, #btn-tree:hover { background: #ffffff; color: #060608; border-color: #ffffff; }
-    #btn-tree.active { background: #c586c0; color: #000; border-color: #c586c0; }
+/* ── Tab bar ── */
+#tab-bar { display: flex; gap: 0; background: var(--bg1); border-bottom: 1px solid var(--border); flex-shrink: 0; padding: 0 12px; align-items: center; }
+.tab { padding: 10px 18px; cursor: pointer; font-size: 13px; color: var(--text-dim); border-bottom: 2px solid transparent; transition: all 0.15s; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.tab:hover { color: var(--text); }
+.tab.active { color: #fff; border-bottom-color: var(--accent); }
+.tab .badge { background: var(--err); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 10px; font-weight: 700; }
+.tab .badge.warn { background: var(--warn); }
+.tab .badge.info { background: var(--info); }
+#tab-files { margin-left: auto; color: var(--text-dim2); }
+#tab-files.active { color: var(--text-dim); }
 
-    /* ── Main Layout: Sidebar + Content ── */
-    #main-layout {
-      display: flex;
-      flex: 1;
-      overflow: hidden;
-    }
+/* ── Content ── */
+#content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.tab-pane { display: none; flex: 1; overflow: auto; padding: 16px; }
+.tab-pane.active { display: flex; flex-direction: column; gap: 14px; }
 
-    /* ── Workspace Tree Sidebar ── */
-    #workspace-sidebar {
-      width: 280px;
-      min-width: 280px;
-      background: #08080a;
-      border-right: 1px solid #1a1a20;
-      display: none;
-      flex-direction: column;
-      overflow: hidden;
-      transition: width 0.2s;
-    }
-    #workspace-sidebar.open { display: flex; }
-    .sidebar-header {
-      background: #111114;
-      border-bottom: 1px solid #1a1a20;
-      padding: 10px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-shrink: 0;
-    }
-    .sidebar-title {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
-      color: #8e8e93; display: flex; align-items: center; gap: 8px;
-    }
-    .sidebar-actions { display: flex; gap: 6px; }
-    .sidebar-btn {
-      background: transparent; border: 1px solid #222228; color: #8e8e93;
-      padding: 3px 8px; border-radius: 4px; font-size: 10px; cursor: pointer;
-      font-family: 'JetBrains Mono', monospace; transition: all 0.15s;
-    }
-    .sidebar-btn:hover { background: #18181c; color: #fff; border-color: #3a3a44; }
-    #workspace-tree {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px 0;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-    }
-    .tree-node { user-select: none; }
-    .tree-row {
-      display: flex; align-items: center; gap: 4px;
-      padding: 3px 12px; cursor: pointer;
-      transition: background 0.1s;
-      white-space: nowrap;
-    }
-    .tree-row:hover { background: #121216; }
-    .tree-row.selected { background: #1a1a22; color: #c586c0; }
-    .tree-icon { width: 14px; text-align: center; flex-shrink: 0; color: #5c5c64; }
-    .tree-icon.dir { color: #c586c0; }
-    .tree-icon.file { color: #8e8e93; }
-    .tree-icon.artifact { color: #7ee787; }
-    .tree-name { overflow: hidden; text-overflow: ellipsis; }
-    .tree-size { color: #3e3e44; font-size: 10px; margin-left: auto; padding-left: 8px; flex-shrink: 0; }
-    .tree-children { margin-left: 16px; }
-    .tree-chevron { width: 10px; color: #5c5c64; font-size: 9px; transition: transform 0.15s; }
-    .tree-chevron.expanded { transform: rotate(90deg); }
+/* ── Cards ── */
+.card { background: var(--bg1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.card-header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 10px 14px; font-size: 12px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.5px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.card-body { padding: 14px; }
 
-    /* ── File Viewer Modal ── */
-    #file-viewer {
-      display: none;
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.8);
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-      z-index: 200;
-      align-items: center;
-      justify-content: center;
-    }
-    #file-viewer.open { display: flex; }
-    .file-viewer-box {
-      background: #09090b;
-      border: 1px solid #222228;
-      border-radius: 12px;
-      width: 80%;
-      max-width: 900px;
-      height: 80%;
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 10px 60px rgba(0,0,0,0.9);
-    }
-    .file-viewer-header {
-      background: #111114;
-      border-bottom: 1px solid #1a1a20;
-      padding: 10px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-shrink: 0;
-    }
-    .file-viewer-title {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px; font-weight: 700; color: #ffffff;
-    }
-    .file-viewer-close {
-      background: transparent; border: none; color: #8e8e93;
-      font-size: 20px; cursor: pointer; line-height: 1;
-    }
-    .file-viewer-close:hover { color: #fff; }
-    .file-viewer-body {
-      flex: 1;
-      overflow: auto;
-      padding: 16px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      line-height: 1.6;
-      color: #d1d1d6;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-    .file-viewer-body.json { white-space: pre; }
+/* ── Live: split layout (agent tree left, activity feed right) ── */
+#live-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; flex: 1; overflow: hidden; min-height: 0; }
+#live-split > .card { display: flex; flex-direction: column; overflow: hidden; }
+#live-split > .card > .card-body { flex: 1; overflow-y: auto; }
 
-    /* ── Event Detail Popover ── */
-    #event-popover {
-      display: none;
-      position: fixed;
-      background: #0d0d10;
-      border: 1px solid #33333d;
-      border-radius: 8px;
-      padding: 12px 16px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      color: #d1d1d6;
-      max-width: 500px;
-      max-height: 300px;
-      overflow: auto;
-      z-index: 150;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.7);
-    }
-    #event-popover.open { display: block; }
-    .popover-header {
-      font-size: 10px; text-transform: uppercase; color: #8e8e93;
-      font-weight: 700; margin-bottom: 6px; letter-spacing: 0.5px;
-    }
-    .popover-content { white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+/* ── Agent tree (#2) ── */
+#agent-tree { font-size: 13px; line-height: 1.8; }
+.tree-node { padding-left: 20px; }
+.tree-node-root { padding-left: 0; }
+.tree-node-label { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 4px; cursor: default; transition: background 0.1s; }
+.tree-node-label:hover { background: var(--bg2); }
+.tree-node-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--text-dim2); }
+.tree-node-dot.running { background: var(--accent2); box-shadow: 0 0 10px var(--accent2); animation: glow 1.5s infinite; }
+.tree-node-dot.failed { background: var(--err); box-shadow: 0 0 8px var(--err); }
+.tree-node-dot.idle { background: var(--text-dim2); }
+.tree-node-dot.waiting { background: var(--warn); }
+@keyframes glow { 0%,100% { box-shadow: 0 0 4px var(--accent2); } 50% { box-shadow: 0 0 14px var(--accent2); } }
+.tree-node-role { font-weight: 600; color: var(--text); }
+.tree-node-role.root { color: var(--accent); font-size: 14px; }
+.tree-node-meta { font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+.tree-node-children { margin-left: 14px; border-left: 1px solid var(--border2); padding-left: 8px; }
 
-    /* ── Dialog Popup Checklist ── */
-    dialog::backdrop { background-color: rgba(0,0,0,0.7); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-    #plan-dialog {
-      background: #09090b; border: 1px solid #222228; border-radius: 12px;
-      width: 650px; max-width: 90%; padding: 24px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.8);
-      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
-      outline: none; color: #e1e1e6;
-    }
-    #original-feature-section:hover { background: #121216 !important; }
-    #original-feature-section:hover #feature-section-btn { color: #ffffff !important; border-color: #ffffff !important; background: #000000 !important; }
-    #plan-list { display: flex; flex-direction: column; gap: 10px; max-height: 350px; overflow-y: auto; padding-right: 4px; }
-    .plan-item {
-      display: flex; align-items: flex-start; gap: 10px;
-      background: #121216; border: 1px solid #1c1c22; padding: 10px 14px; border-radius: 6px; font-size: 12px;
-    }
-    .plan-item.completed { opacity: 0.6; border-color: #121216; }
-    .plan-item-checkbox { font-family: monospace; font-size: 13px; color: #8e8e93; user-select: none; }
-    .plan-item.completed .plan-item-checkbox { color: #ffffff; }
-    .plan-item-text { color: #ffffff; line-height: 1.4; }
-    .plan-item.completed .plan-item-text { text-decoration: line-through; color: #8e8e93; }
+/* ── Activity feed (#3) ── */
+#activity-feed { font-size: 13px; line-height: 1.6; }
+.activity-row { display: flex; gap: 8px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.activity-time { color: var(--text-dim2); flex-shrink: 0; width: 60px; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding-top: 2px; }
+.activity-cat { flex-shrink: 0; width: 70px; font-size: 10px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; padding-top: 3px; }
+.activity-cat.agent { color: var(--info); }
+.activity-cat.file { color: var(--accent2); }
+.activity-cat.validation { color: var(--warn); }
+.activity-cat.phase { color: var(--accent); }
+.activity-cat.decision { color: var(--accent); }
+.activity-cat.halt { color: var(--err); }
+.activity-cat.budget { color: var(--err); }
+.activity-cat.question { color: var(--info); }
+.activity-cat.approval { color: var(--accent2); }
+.activity-text { color: var(--text); flex: 1; }
 
-    /* ── Content Area (right of sidebar) ── */
-    #content-area {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
+/* ── Halt banner ── */
+#halt-banner { background: rgba(248,81,73,0.1); border: 1px solid var(--err); border-radius: 6px; padding: 10px 14px; color: var(--err); font-size: 13px; display: none; }
+#halt-banner.show { display: block; }
 
-    /* ── Goal Ticker ── */
-    #original-feature-section {
-      background: #0b0b0d; border-bottom: 1px solid #1a1a20; padding: 12px 24px;
-      display: flex; align-items: center; justify-content: space-between;
-      cursor: pointer; transition: background 0.2s; flex-shrink: 0; z-index: 90;
-    }
+/* ── Plan tab: one scrollable document ── */
+#plan-doc { max-width: 900px; margin: 0 auto; width: 100%; }
+.plan-section { margin-bottom: 20px; }
+.plan-section-header { font-size: 15px; font-weight: 700; color: var(--accent); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.plan-context { background: var(--bg1); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 14px; font-size: 13px; }
+.plan-context-row { display: flex; gap: 10px; margin-bottom: 4px; }
+.plan-context-label { color: var(--text-dim); font-weight: 600; min-width: 120px; }
+.plan-context-value { color: var(--text); }
+.plan-assertion { background: var(--bg1); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; }
+.plan-assertion-id { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent2); font-weight: 700; }
+.plan-assertion-title { font-weight: 600; font-size: 13px; color: var(--text); margin-bottom: 4px; }
+.plan-assertion-meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); }
+.plan-assertion-criteria { font-size: 12px; color: var(--text); margin-top: 4px; }
+.plan-feature { background: var(--bg1); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.plan-feature-title { font-weight: 600; font-size: 13px; }
+.plan-feature-meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); }
+.plan-feature-status { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; }
+.plan-feature-status.pending { background: var(--bg3); color: var(--text-dim); }
+.plan-feature-status.in_progress { background: rgba(88,166,255,0.15); color: var(--info); }
+.plan-feature-status.integrated { background: rgba(126,231,135,0.15); color: var(--accent2); }
+.plan-feature-status.validated { background: rgba(126,231,135,0.25); color: var(--accent2); }
+.plan-feature-status.blocked { background: rgba(248,81,73,0.15); color: var(--err); }
+.plan-milestone { background: var(--bg1); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.plan-milestone-progress { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-dim); }
 
-    /* ── Main View Grid ── */
-    #observatory-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      flex: 1;
-      padding: 16px;
-      overflow: hidden;
-      box-sizing: border-box;
-    }
+/* ── Approval bar ── */
+#approval-bar { position: sticky; bottom: 0; background: var(--bg1); border-top: 1px solid var(--border2); padding: 14px 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+#approval-bar .approval-hint { font-size: 11px; color: var(--text-dim); flex: 1; }
+.btn { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg2); color: var(--text); font-size: 13px; cursor: pointer; transition: all 0.15s; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { background: var(--bg3); border-color: var(--border3); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.primary { background: var(--accent2); color: #000; border-color: var(--accent2); font-weight: 600; }
+.btn.primary:hover { opacity: 0.9; }
+.btn.danger { background: var(--err); color: #fff; border-color: var(--err); font-weight: 600; }
+.btn.ghost { background: transparent; }
 
-    .console-pane {
-      display: flex; flex-direction: column;
-      background: #09090b; border: 1px solid #1a1a20; border-radius: 10px;
-      overflow: hidden; position: relative;
-    }
-    .console-pane.active-running { border-color: #3a3a44; box-shadow: 0 4px 30px rgba(0,0,0,0.6); }
-    .console-header {
-      background: #111114; border-bottom: 1px solid #1a1a20; padding: 10px 16px;
-      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
-    }
-    .console-title {
-      font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700;
-      letter-spacing: 0.5px; color: #8e8e93; display: flex; align-items: center; gap: 8px;
-    }
-    .console-pane.active-running .console-title { color: #ffffff; }
-    .console-status-badge {
-      display: flex; align-items: center; gap: 6px; font-size: 9px;
-      text-transform: uppercase; font-family: 'JetBrains Mono', monospace;
-      padding: 2px 8px; border-radius: 4px; background: #18181c; color: #8e8e93; border: 1px solid #222228;
-    }
-    .console-pane.active-running .console-status-badge { background: #ffffff; color: #060608; border-color: #ffffff; }
+/* ── Edit draft mode ── */
+.edit-toggle { font-size: 12px; color: var(--text-dim); cursor: pointer; text-decoration: underline; }
+.edit-toggle:hover { color: var(--text); }
+#edit-panel { display: none; background: var(--bg2); border: 1px solid var(--border3); border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+#edit-panel.show { display: block; }
+#edit-panel textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border2); border-radius: 5px; padding: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; min-height: 120px; resize: vertical; }
+.edit-field { margin-bottom: 8px; }
+.edit-field label { font-size: 11px; color: var(--text-dim); font-weight: 600; display: block; margin-bottom: 4px; text-transform: uppercase; }
 
-    .console-body {
-      flex: 1; overflow-y: auto; padding: 16px;
-      font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6;
-      color: #d1d1d6; display: flex; flex-direction: column; gap: 12px; scroll-behavior: smooth;
-    }
+/* ── Files tab ── */
+#files-layout { display: grid; grid-template-columns: 280px 1fr; gap: 14px; flex: 1; overflow: hidden; min-height: 0; }
+#files-tree-panel { background: var(--bg1); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+#files-tree-panel .card-header { border-bottom: 1px solid var(--border); }
+#files-tree { flex: 1; overflow-y: auto; padding: 6px 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.f-tree-row { display: flex; align-items: center; gap: 4px; padding: 3px 12px; cursor: pointer; white-space: nowrap; transition: background 0.1s; }
+.f-tree-row:hover { background: var(--bg2); }
+.f-tree-row.selected { background: var(--bg3); color: var(--accent); }
+.f-tree-icon { width: 14px; text-align: center; flex-shrink: 0; color: var(--text-dim2); }
+.f-tree-icon.dir { color: var(--accent); }
+.f-tree-icon.file { color: var(--text-dim); }
+.f-tree-name { overflow: hidden; text-overflow: ellipsis; }
+.f-tree-lock { font-size: 9px; color: var(--warn); margin-left: auto; padding-right: 4px; }
 
-    .cli-line { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; border-radius: 4px; padding: 2px 4px; }
-    .cli-line:hover { background: #121216; }
-    .cli-prompt { color: #8e8e93; font-weight: bold; user-select: none; }
-    .cli-content { flex: 1; word-break: break-all; white-space: pre-wrap; }
+#files-editor-panel { background: var(--bg1); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+#files-editor-header { border-bottom: 1px solid var(--border); padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center; }
+#files-editor-body { flex: 1; overflow-y: auto; padding: 14px; }
+#files-editor-body pre { font-family: 'JetBrains Mono', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+#files-editor-body textarea { width: 100%; min-height: 300px; background: var(--bg); color: var(--text); border: 1px solid var(--border2); border-radius: 5px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; resize: vertical; }
+#files-editor-actions { padding: 8px 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
 
-    .system-log { color: #8e8e93; font-size: 11px; border-left: 2px solid #3a3a44; padding-left: 8px; margin: 4px 0; }
-    .thought-card {
-      background: #0f0f13; border: 1px solid #1e1e24; border-radius: 6px;
-      padding: 10px 14px; color: #a1a1a8; font-size: 11px;
-    }
-    .thought-header { font-size: 9px; text-transform: uppercase; color: #8e8e93; font-weight: bold; margin-bottom: 4px; letter-spacing: 0.5px; }
+/* ── Empty / placeholder ── */
+.empty { color: var(--text-dim2); font-size: 13px; padding: 20px; text-align: center; font-style: italic; }
 
-    .tool-execution-card {
-      background: #121216; border: 1px solid #22222a; border-radius: 6px; overflow: hidden; margin: 4px 0;
-    }
-    .tool-exec-header {
-      background: #181820; padding: 6px 12px; display: flex; align-items: center; justify-content: space-between;
-      border-bottom: 1px solid #22222a; font-size: 11px;
-    }
-    .tool-exec-name { font-weight: bold; color: #ffffff; }
-    .tool-exec-status { font-size: 9px; text-transform: uppercase; color: #8e8e93; }
-    .tool-exec-status.running { color: #ffffff; animation: flash 1.5s infinite; }
-    .tool-exec-cmd { padding: 10px 12px; background: #08080a; overflow-x: auto; font-size: 11px; white-space: pre; color: #a1a1a8; }
+/* ── Toast ── */
+#toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg2); border: 1px solid var(--border3); border-radius: 6px; padding: 12px 16px; font-size: 13px; max-width: 400px; z-index: 300; display: none; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+#toast.show { display: block; }
+#toast.err { border-color: var(--err); }
+#toast.ok { border-color: var(--accent2); }
 
-    .worker-split-container { display: flex; flex-direction: column; height: 100%; }
-    .worker-log-pane { flex: 1; overflow-y: auto; min-height: 150px; }
-    .worker-diff-pane { height: 45%; border-top: 1px solid #1a1a20; display: flex; flex-direction: column; overflow: hidden; background: #08080a; }
-    .diff-header {
-      background: #111114; border-bottom: 1px solid #1a1a20; padding: 6px 16px;
-      font-size: 10px; font-weight: bold; color: #8e8e93; text-transform: uppercase;
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .diff-content-scroll { flex: 1; overflow-y: auto; padding: 10px; font-size: 11px; }
-
-    .diff-container { display: flex; flex-direction: column; gap: 8px; }
-    .diff-hunk { border: 1px solid #222228; border-radius: 4px; overflow: hidden; background: #0c0c0e; }
-    .diff-hunk-header { background: #121216; padding: 4px 10px; border-bottom: 1px solid #222228; color: #8e8e93; font-size: 10px; }
-    .diff-line { display: flex; line-height: 1.5; font-family: monospace; }
-    .diff-line-num { width: 32px; text-align: right; padding-right: 6px; color: #5c5c64; user-select: none; }
-    .diff-line-ind { width: 12px; text-align: center; color: #5c5c64; user-select: none; }
-    .diff-line-text { flex: 1; white-space: pre; overflow-x: auto; }
-    .diff-line-ctx { color: #8e8e93; }
-    .diff-line-add { background: rgba(63,185,80,0.12); color: #7ee787; }
-    .diff-line-add .diff-line-ind { color: #3fb950; }
-    .diff-line-del { background: rgba(248,81,73,0.12); color: #ff7b72; }
-    .diff-line-del .diff-line-ind { color: #f85149; }
-
-    .screensaver-container {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      height: 100%; color: #3e3e44; text-align: center; padding: 24px; user-select: none;
-    }
-    .screensaver-ascii { font-family: monospace; white-space: pre; line-height: 1.2; font-size: 10px; margin-bottom: 20px; color: #222228; }
-    .screensaver-text { font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; font-weight: 600; color: #3e3e44; }
-    .screensaver-sub { font-size: 10px; color: #2a2a30; margin-top: 4px; }
-    .screensaver-cursor { display: inline-block; width: 6px; height: 12px; background: #3e3e44; margin-left: 4px; animation: blink 1s step-end infinite; vertical-align: middle; }
-
-    @keyframes pulse { 0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(255,255,255,0.4); } 70% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 8px rgba(255,255,255,0); } 100% { transform: scale(1); opacity: 0; box-shadow: 0 0 0 0 rgba(255,255,255,0); } }
-    @keyframes flash { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
-    @keyframes blink { 0%,100% { opacity: 0; } 50% { opacity: 1; } }
-
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #09090b; }
-    ::-webkit-scrollbar-thumb { background: #222228; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #33333d; }
-
-    #plan-review-console {
-      display: none; flex: 1; padding: 16px; gap: 16px; overflow: hidden; box-sizing: border-box; height: calc(100vh - 56px);
-    }
-  </style>
+/* ── Modal ── */
+#modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; z-index: 200; align-items: center; justify-content: center; }
+#modal-overlay.open { display: flex; }
+#modal { background: var(--bg1); border: 1px solid var(--border2); border-radius: 10px; max-width: 800px; width: 90%; max-height: 85vh; overflow: auto; display: flex; flex-direction: column; }
+#modal-header { padding: 14px 18px; border-bottom: 1px solid var(--border); font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+#modal-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
+#modal-close { background: transparent; border: none; color: var(--text-dim); font-size: 18px; cursor: pointer; }
+#modal-close:hover { color: var(--err); }
+</style>
 </head>
 <body>
 
-  <!-- ── Top Bar ── -->
-  <div id="top-bar">
-    <div class="brand">
-      <div class="brand-logo">RATEL <span>Observatory</span></div>
-    </div>
-    <div class="mission-status">
-      <div class="status-item"><span class="status-label">Phase</span><span id="stat-phase" class="status-value">—</span></div>
-      <div class="status-item"><span class="status-label">Engine</span><span class="status-value" style="display:flex;align-items:center;gap:6px;"><span class="status-dot active"></span>Running</span></div>
-      <div class="status-item" title="Events loaded"><span class="status-label">Events</span><span id="stat-events" class="status-value">0</span></div>
-      <div class="status-item" title="Mission source"><span class="status-label">Mission</span><span id="stat-mission" class="status-value">current</span></div>
-      <div class="status-item" title="Most recent event"><span class="status-label">Latest</span><span id="stat-latest" class="status-value">—</span></div>
-      <button id="btn-tree">🌲 Workspace</button>
-      <button id="btn-plan">[+] Plan Checklist</button>
+<!-- ── Top bar ── -->
+<div id="top-bar">
+  <div class="brand"><div class="brand-logo">🛰️ <span>Ratel</span></div></div>
+  <div id="summary-strip"></div>
+  <div id="mode-badge" title="Action mode">none</div>
+</div>
+
+<!-- ── Tab bar ── -->
+<div id="tab-bar">
+  <div class="tab active" data-tab="live">Live</div>
+  <div class="tab" data-tab="plan">Plan</div>
+  <div class="tab" id="tab-files" data-tab="files">Files</div>
+</div>
+
+<!-- ── Content ── -->
+<div id="content">
+
+  <!-- ═══ Live ═══ -->
+  <div class="tab-pane active" data-pane="live">
+    <div id="halt-banner"></div>
+    <div id="live-split">
+      <div class="card">
+        <div class="card-header"><span>Agent Tree</span><span class="mono" id="tree-summary"></span></div>
+        <div class="card-body" id="agent-tree"><div class="empty">No mission</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span>Activity</span><span class="mono" id="activity-count">0</span></div>
+        <div class="card-body" id="activity-feed"><div class="empty">No activity yet</div></div>
+      </div>
     </div>
   </div>
 
-  <!-- ── Main Layout: Sidebar + Content ── -->
-  <div id="main-layout">
-
-    <!-- ── Workspace Tree Sidebar ── -->
-    <div id="workspace-sidebar">
-      <div class="sidebar-header">
-        <div class="sidebar-title">🌲 MISSION WORKSPACE</div>
-        <div class="sidebar-actions">
-          <button class="sidebar-btn" id="btn-expand-all">[+] Expand</button>
-          <button class="sidebar-btn" id="btn-collapse-all">[-] Collapse</button>
-        </div>
+  <!-- ═══ Plan ═══ -->
+  <div class="tab-pane" data-pane="plan">
+    <div id="plan-doc">
+      <div class="plan-section">
+        <div class="plan-section-header">Context</div>
+        <div class="plan-context" id="plan-context"><div class="empty">No mission loaded</div></div>
       </div>
-      <div id="workspace-tree">
-        <div style="color:#3e3e44; font-size:11px; padding:16px; text-align:center;">Loading workspace...</div>
+      <div class="plan-section">
+        <div class="plan-section-header">Validation Contract</div>
+        <div id="plan-contract"><div class="empty">No contract yet</div></div>
+      </div>
+      <div class="plan-section">
+        <div class="plan-section-header">Features</div>
+        <div id="plan-features"><div class="empty">No features yet</div></div>
+      </div>
+      <div class="plan-section">
+        <div class="plan-section-header">Milestones</div>
+        <div id="plan-milestones"><div class="empty">No milestones yet</div></div>
       </div>
     </div>
-
-    <!-- ── Content Area ── -->
-    <div id="content-area">
-
-      <!-- ── Goal Ticker ── -->
-      <div id="original-feature-section" style="background:#0b0b0d;border-bottom:1px solid #1a1a20;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:background 0.2s;flex-shrink:0;z-index:90;">
-        <div style="display:flex;align-items:center;gap:16px;flex:1;overflow:hidden;">
-          <span style="font-size:11px;text-transform:uppercase;color:#8e8e93;letter-spacing:1px;font-weight:700;white-space:nowrap;font-family:'Outfit',sans-serif;">Original Feature Goal</span>
-          <div style="flex:1;overflow:hidden;display:flex;align-items:center;">
-            <marquee scrollamount="2.5" id="goal-text-marquee" style="color:#ffffff;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;">—</marquee>
-          </div>
-        </div>
-        <div id="feature-section-btn" style="font-size:11px;color:#8e8e93;font-family:'JetBrains Mono',monospace;margin-left:16px;flex-shrink:0;border:1px solid #222228;padding:4px 10px;border-radius:4px;background:#121216;transition:all 0.2s;">[View Plan Checklist]</div>
+    <div id="approval-bar">
+      <div class="approval-hint" id="approval-hint"></div>
+      <span class="edit-toggle" id="edit-toggle">Edit draft</span>
+      <div id="edit-panel">
+        <div class="edit-field"><label>Validation contract (markdown)</label><textarea id="edit-contract-md" rows="8"></textarea></div>
+        <div class="edit-field"><label>Feedback / reason for edits</label><textarea id="edit-feedback" rows="2" placeholder="What should change..."></textarea></div>
       </div>
-
-      <!-- ── 3-Column Grid ── -->
-      <div id="observatory-grid">
-        <div class="console-pane" id="pane-orchestration">
-          <div class="console-header"><div class="console-title">◈ ALL FACTORY LOGS</div><div class="console-status-badge">Complete Feed</div></div>
-          <div class="console-body" id="body-orchestration"></div>
-        </div>
-        <div class="console-pane" id="pane-worker">
-          <div class="console-header"><div class="console-title">◇ WORKER PANEL</div><div class="console-status-badge" id="badge-worker">Sleeping</div></div>
-          <div class="worker-split-container">
-            <div class="worker-log-pane"><div class="console-body" id="body-worker"></div></div>
-            <div class="worker-diff-pane" id="container-worker-diff" style="display:none;">
-              <div class="diff-header"><span>Live Hunk Diff View</span><span style="font-family:monospace;font-size:9px;color:#5c5c64;">$ git diff</span></div>
-              <div class="diff-content-scroll" id="body-worker-diff"></div>
-            </div>
-          </div>
-        </div>
-        <div class="console-pane" id="pane-validator">
-          <div class="console-header"><div class="console-title">⬪ VALIDATION CONTROL</div><div class="console-status-badge" id="badge-validator">Sleeping</div></div>
-          <div class="console-body" id="body-validator"></div>
-        </div>
-      </div>
-
-      <!-- ── Plan Review Console ── -->
-      <div id="plan-review-console">
-        <div class="console-pane" style="flex:2;display:flex;flex-direction:column;">
-          <div class="console-header" style="padding:10px 16px;flex-shrink:0;">
-            <div class="console-title" style="color:#ffffff;gap:8px;">
-              <span>📄 VALIDATION CONTRACT</span>
-              <span style="font-family:monospace;font-size:10px;color:#8e8e93;font-weight:normal;">validation-contract.md</span>
-            </div>
-            <div style="display:flex;gap:8px;">
-              <button id="btn-tab-preview" style="background:#18181c;border:1px solid #c586c0;color:#ffffff;padding:4px 12px;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;font-family:'JetBrains Mono',monospace;outline:none;transition:all 0.2s;">Preview</button>
-              <button id="btn-tab-edit" style="background:transparent;border:1px solid #222228;color:#8e8e93;padding:4px 12px;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;font-family:'JetBrains Mono',monospace;outline:none;transition:all 0.2s;">Edit Markdown</button>
-            </div>
-          </div>
-          <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;background:#050507;position:relative;">
-            <div id="tab-content-preview" style="flex:1;overflow-y:auto;padding:24px;font-size:13.5px;line-height:1.6;color:#e1e1e6;scroll-behavior:smooth;"></div>
-            <textarea id="tab-content-edit" style="display:none;flex:1;width:100%;border:none;background:#050507;padding:20px;color:#e1e1e6;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.5;resize:none;outline:none;box-sizing:border-box;" placeholder="Type markdown contract here..."></textarea>
-          </div>
-        </div>
-        <div style="flex:1.2;display:flex;flex-direction:column;gap:16px;overflow-y:auto;padding-right:4px;">
-          <div class="console-pane" style="padding:16px 20px;display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
-            <div style="font-size:10px;text-transform:uppercase;color:#8e8e93;font-weight:700;letter-spacing:0.5px;">Mission Goal</div>
-            <div id="review-mission-goal" style="font-size:15px;font-weight:600;color:#ffffff;line-height:1.4;">—</div>
-          </div>
-          <div class="console-pane" style="flex:1;display:flex;flex-direction:column;min-height:180px;">
-            <div class="console-header" style="padding:10px 16px;flex-shrink:0;"><div class="console-title">🛠️ PLANNED FEATURES</div></div>
-            <div id="review-features-list" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;"></div>
-          </div>
-          <div class="console-pane" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px;flex-shrink:0;">
-            <div style="display:flex;flex-direction:column;gap:6px;">
-              <label style="font-size:10px;text-transform:uppercase;color:#8e8e93;font-weight:700;letter-spacing:0.5px;">Feedback / Comments</label>
-              <textarea id="review-feedback" placeholder="Type feedback comments here..." style="width:100%;height:80px;background:#050507;border:1px solid #222228;border-radius:6px;padding:10px;color:#e1e1e6;font-family:sans-serif;font-size:12px;resize:none;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='#c586c0'" onblur="this.style.borderColor='#222228'"></textarea>
-            </div>
-            <div style="display:flex;gap:12px;margin-top:4px;">
-              <button id="btn-review-reject" style="flex:1;background:transparent;border:1px solid #cf6679;color:#cf6679;padding:10px;border-radius:6px;font-weight:bold;cursor:pointer;font-size:12px;outline:none;transition:all 0.2s;" onmouseover="this.style.background='rgba(207,102,121,0.1)'" onmouseout="this.style.background='transparent'">Request Edits</button>
-              <button id="btn-review-approve" style="flex:1.3;background:#c586c0;border:none;color:#000;padding:10px;border-radius:6px;font-weight:bold;cursor:pointer;font-size:12px;outline:none;transition:all 0.2s;" onmouseover="this.style.background='#d89cd3'" onmouseout="this.style.background='#c586c0'">Approve & Run Mission</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </div><!-- /content-area -->
-  </div><!-- /main-layout -->
-
-  <!-- ── Plan Checklist Dialog ── -->
-  <dialog id="plan-dialog" closedby="any" aria-labelledby="planDialogTitle">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;border-bottom:1px solid #1a1a20;padding-bottom:12px;flex-shrink:0;">
-      <div id="planDialogTitle" style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#ffffff;text-transform:uppercase;letter-spacing:0.5px;">Original Feature Plan Checklist</div>
-      <button id="btn-close-plan" style="background:transparent;border:none;color:#8e8e93;font-size:20px;cursor:pointer;line-height:1;outline:none;">&times;</button>
-    </div>
-    <div id="plan-list"><div class="empty" style="color:#8e8e93;font-style:italic;">No features defined yet.</div></div>
-  </dialog>
-
-  <!-- ── File Viewer Modal ── -->
-  <div id="file-viewer">
-    <div class="file-viewer-box">
-      <div class="file-viewer-header">
-        <div class="file-viewer-title" id="file-viewer-title">—</div>
-        <button class="file-viewer-close" id="file-viewer-close">&times;</button>
-      </div>
-      <div class="file-viewer-body" id="file-viewer-body">—</div>
+      <button class="btn primary" id="btn-approve" disabled>Approve & Start</button>
+      <button class="btn danger" id="btn-request-changes" disabled>Request Changes</button>
     </div>
   </div>
 
-  <!-- ── Event Detail Popover ── -->
-  <div id="event-popover">
-    <div class="popover-header" id="popover-header">EVENT</div>
-    <div class="popover-content" id="popover-content">—</div>
+  <!-- ═══ Files ═══ -->
+  <div class="tab-pane" data-pane="files">
+    <div id="files-layout">
+      <div id="files-tree-panel">
+        <div class="card-header"><span>Workspace</span><span class="mono" id="files-count">0</span></div>
+        <div id="files-tree"></div>
+      </div>
+      <div id="files-editor-panel">
+        <div id="files-editor-header"><span id="files-path">Select a file</span><span id="files-lock"></span></div>
+        <div id="files-editor-body"><div class="empty">Pick a file from the tree</div></div>
+        <div id="files-editor-actions">
+          <button class="btn" id="btn-edit-file">Edit</button>
+          <button class="btn primary" id="btn-save-file" style="display:none">Save</button>
+          <button class="btn ghost" id="btn-cancel-edit" style="display:none">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- ── Client Logic ── -->
-  <script>
-    'use strict';
+</div>
 
-    const MAX_RENDERED_EVENTS = 500;
+<!-- ── Modal ── -->
+<div id="modal-overlay">
+  <div id="modal">
+    <div id="modal-header"><span id="modal-title">Detail</span><button id="modal-close">×</button></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
 
-    const state = {
-      events: [],
-      lastEventCount: -1,
-      lastWorkspaceHash: '',
-      activeWorkerSpan: null,
-      activeValidatorSpan: null,
-      allWorkerSpans: new Set(),
-      allValidatorSpans: new Set(),
-      planExpanded: false,
-      workspaceTree: null,
-      expandedDirs: new Set(),
-      selectedFile: null,
-      sidebarOpen: false,
-    };
+<!-- ── Toast ── -->
+<div id="toast"></div>
 
-    function getMissionIdFromUrl() {
-      const params = new URLSearchParams(window.location.search);
-      return params.get('missionId') || null;
+<script>
+"use strict";
+
+// ═══ State ═══
+const state = {
+  missionId: null,
+  activeTab: "live",
+  status: null,
+  artifacts: null,
+  agentTree: null,
+  activity: [],
+  activityTotal: 0,
+  actionsAvailable: false,
+  mode: "none",
+  editingFile: false,
+  currentFile: { path: "", content: "", editable: false },
+};
+
+const $ = (id) => document.getElementById(id);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+// ═══ API ═══
+function withMissionId(path) {
+  if (!state.missionId) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}missionId=${encodeURIComponent(state.missionId)}`;
+}
+async function apiGet(path) { const r = await fetch(withMissionId(path)); if (!r.ok) throw new Error(`${path} → ${r.status}`); return r.json(); }
+async function apiPost(path, body) {
+  const payload = { ...body }; if (state.missionId) payload.missionId = state.missionId;
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const text = await r.text(); let data; try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+  if (!r.ok) throw new Error(`${path} → ${r.status}: ${data.error || data.message || text}`);
+  return data;
+}
+function toast(msg, kind) { const t = $("toast"); t.textContent = msg; t.className = "show " + (kind || ""); setTimeout(() => { t.className = ""; }, 4000); }
+function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function fmtTime(iso) { try { return new Date(iso).toTimeString().slice(0, 8); } catch { return "--:--:--"; } }
+function fmtDate(iso) { try { return new Date(iso).toLocaleString(); } catch { return iso; } }
+
+// ═══ Tabs ═══
+function setTab(tab) {
+  state.activeTab = tab;
+  $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
+  $$(".tab-pane").forEach((p) => p.classList.toggle("active", p.dataset.pane === tab));
+  if (tab === "live") renderLive();
+  if (tab === "plan") renderPlan();
+  if (tab === "files") renderFiles();
+}
+
+// ═══ Summary strip (top bar) ═══
+function renderSummaryStrip(s) {
+  if (!s) { $("summary-strip").innerHTML = '<span class="ss-chip"><span class="ss-label">No mission</span></span>'; return; }
+  const dot = s.status === "active" ? "active" : s.status === "halted" ? "halted" : s.status === "completed" ? "completed" : "";
+  const chips = [
+    `<span class="ss-chip"><span class="ss-label">Mission</span><span class="ss-value mono">${escapeHtml(s.missionId?.slice(0, 16) ?? "—")}</span></span>`,
+    `<span class="ss-chip"><span class="ss-label">Phase</span><span class="ss-value phase">${escapeHtml(s.phase)}</span></span>`,
+    `<span class="ss-chip"><span class="status-dot ${dot}"></span><span class="ss-value">${escapeHtml(s.status)}</span></span>`,
+  ];
+  if (s.budget) {
+    const pct = s.budget.limits.maxCostUsd ? Math.round((s.budget.used.costUsd / s.budget.limits.maxCostUsd) * 100) : 0;
+    chips.push(`<span class="ss-chip"><span class="ss-label">Budget</span><span class="ss-value">${pct}%</span></span>`);
+  }
+  const running = s.agents?.filter((a) => a.state === "running").length ?? 0;
+  const failed = s.agents?.filter((a) => a.state === "failed").length ?? 0;
+  if (running > 0) chips.push(`<span class="ss-chip"><span class="ss-label">Active</span><span class="ss-value">${running}</span></span>`);
+  if (failed > 0) chips.push(`<span class="ss-chip"><span class="ss-label">Failed</span><span class="ss-value" style="color:var(--err)">${failed}</span></span>`);
+  if (s.pendingQuestion) chips.push(`<span class="ss-chip"><span class="ss-label">Pending</span><span class="ss-value" style="color:var(--info)">question</span></span>`);
+  $("summary-strip").innerHTML = chips.join("");
+  $("mode-badge").textContent = s.mode;
+  $("mode-badge").title = s.actionsAvailable ? "Actions available" : "Actions unavailable — edits save to disk only";
+}
+
+// ═══ Live tab ═══
+async function renderLive() {
+  let snap;
+  try { snap = await apiGet("/api/status"); } catch (e) { toast("status: " + e.message, "err"); return; }
+  state.status = snap;
+  state.missionId = snap.missionId;
+  state.actionsAvailable = snap.actionsAvailable;
+  state.mode = snap.mode;
+  renderSummaryStrip(snap);
+
+  // Halt banner
+  const hb = $("halt-banner");
+  if (snap.haltReason) { hb.textContent = "Halted: " + snap.haltReason; hb.className = "show"; }
+  else { hb.className = ""; }
+
+  // Agent tree
+  try {
+    const tr = await apiGet("/api/agent-tree");
+    state.agentTree = tr.tree;
+    renderAgentTree(tr.tree);
+  } catch (e) { $("agent-tree").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`; }
+
+  // Activity feed
+  try {
+    const feed = await apiGet("/api/activity?limit=80");
+    state.activity = feed.entries;
+    state.activityTotal = feed.total;
+    renderActivityFeed(feed.entries);
+  } catch (e) { $("activity-feed").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`; }
+}
+
+function renderAgentTree(tree) {
+  if (!tree) { $("agent-tree").innerHTML = '<div class="empty">No agents</div>'; return; }
+  const running = countRunning(tree);
+  const total = countNodes(tree);
+  $("tree-summary").textContent = `${total} nodes · ${running} running`;
+  $("agent-tree").innerHTML = renderTreeNode(tree, true);
+}
+
+function countNodes(node) {
+  let n = 1;
+  for (const c of node.children || []) n += countNodes(c);
+  return n;
+}
+function countRunning(node) {
+  let n = node.state === "running" ? 1 : 0;
+  for (const c of node.children || []) n += countRunning(c);
+  return n;
+}
+
+function renderTreeNode(node, isRoot) {
+  const dotCls = `tree-node-dot ${node.state}`;
+  const meta = [node.model, node.featureId, node.milestoneId].filter(Boolean).map(escapeHtml).join(" · ");
+  let html = `<div class="tree-node ${isRoot ? "tree-node-root" : ""}">
+    <div class="tree-node-label">
+      <span class="${dotCls}"></span>
+      <span class="tree-node-role ${isRoot ? "root" : ""}">${escapeHtml(node.label)}</span>
+      ${meta ? `<span class="tree-node-meta">${meta}</span>` : ""}
+    </div>`;
+  if (node.children && node.children.length > 0) {
+    html += `<div class="tree-node-children">`;
+    for (const child of node.children) html += renderTreeNode(child, false);
+    html += `</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function renderActivityFeed(entries) {
+  if (!entries.length) { $("activity-feed").innerHTML = '<div class="empty">No activity yet</div>'; return; }
+  $("activity-count").textContent = `${state.activityTotal} total`;
+  // Reverse so newest is at top
+  const reversed = [...entries].reverse();
+  $("activity-feed").innerHTML = reversed.map((e) =>
+    `<div class="activity-row">
+      <span class="activity-time">${fmtTime(e.timestamp)}</span>
+      <span class="activity-cat ${e.category}">${escapeHtml(e.category)}</span>
+      <span class="activity-text">${escapeHtml(e.text)}</span>
+    </div>`).join("");
+}
+
+// ═══ Plan tab ═══
+async function renderPlan() {
+  // Status for approval bar
+  let snap;
+  try { snap = await apiGet("/api/status"); } catch { snap = state.status; }
+  state.status = snap;
+  state.missionId = snap?.missionId ?? state.missionId;
+  state.actionsAvailable = snap?.actionsAvailable ?? false;
+
+  // Approval bar
+  const hint = $("approval-hint");
+  const isApprovalPhase = snap?.phase === "user_approval";
+  if (state.actionsAvailable) {
+    hint.textContent = isApprovalPhase ? "Review the plan, then approve to start the factory." : `Phase: ${snap?.phase} — plan is historical reference.`;
+  } else {
+    hint.textContent = `Mode: ${snap?.mode ?? "none"} — edits save to disk. ${isApprovalPhase ? "Approve/reject unavailable (no action bridge)." : ""}`;
+  }
+  $("btn-approve").disabled = !state.actionsAvailable || !isApprovalPhase;
+  $("btn-request-changes").disabled = !state.actionsAvailable || !isApprovalPhase;
+
+  // Load artifacts
+  try {
+    state.artifacts = await apiGet("/api/artifacts");
+  } catch (e) { toast("artifacts: " + e.message, "err"); return; }
+  renderPlanContext();
+  renderPlanContract();
+  renderPlanFeatures();
+  renderPlanMilestones();
+}
+
+function renderPlanContext() {
+  const a = state.artifacts;
+  const r = a?.requirements;
+  const el = $("plan-context");
+  if (!r) { el.innerHTML = '<div class="empty">No requirements yet</div>'; return; }
+  el.innerHTML = `
+    <div class="plan-context-row"><span class="plan-context-label">Goal</span><span class="plan-context-value">${escapeHtml(r.goal)}</span></div>
+    <div class="plan-context-row"><span class="plan-context-label">Product intent</span><span class="plan-context-value">${escapeHtml(r.productIntent)}</span></div>
+    ${r.nonGoals?.length ? `<div class="plan-context-row"><span class="plan-context-label">Non-goals</span><span class="plan-context-value">${r.nonGoals.map((g) => escapeHtml(g)).join(", ")}</span></div>` : ""}
+    <div class="plan-context-row"><span class="plan-context-label">Risk</span><span class="plan-context-value">${escapeHtml(r.riskTolerance)}</span></div>
+    ${r.deadlines ? `<div class="plan-context-row"><span class="plan-context-label">Deadlines</span><span class="plan-context-value">${escapeHtml(r.deadlines)}</span></div>` : ""}
+    ${a.constraints ? `<div class="plan-context-row"><span class="plan-context-label">Constraints</span><span class="plan-context-value" style="font-size:12px;color:var(--text-dim)">${escapeHtml(a.constraints.slice(0, 200))}${a.constraints.length > 200 ? "…" : ""}</span></div>` : ""}
+  `;
+}
+
+function renderPlanContract() {
+  const c = state.artifacts?.contractJson;
+  const el = $("plan-contract");
+  if (!c) { el.innerHTML = '<div class="empty">No validation contract yet</div>'; return; }
+  el.innerHTML = `
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">v${c.version} · ${c.assertions?.length ?? 0} assertions${c.gaps?.length ? ` · ${c.gaps.length} gaps` : ""}</div>
+    ${(c.assertions || []).map((a) =>
+      `<div class="plan-assertion">
+        <div class="plan-assertion-id">${escapeHtml(a.id)}</div>
+        <div class="plan-assertion-title">${escapeHtml(a.title)}</div>
+        <div class="plan-assertion-meta">${escapeHtml(a.featureFile)} · ${escapeHtml(a.scenario)} · evidence: ${escapeHtml(a.evidenceType)}</div>
+        <div class="plan-assertion-criteria">${escapeHtml(a.successCriteria)}</div>
+      </div>`).join("")}
+    ${c.gaps?.length ? `<div style="margin-top:10px"><b>Gaps:</b><ul style="margin-left:20px;font-size:13px">${c.gaps.map((g) => `<li>${escapeHtml(g)}</li>`).join("")}</ul></div>` : ""}
+    ${c.crossCuttingAssertions?.length ? `<div style="margin-top:10px"><b>Cross-cutting:</b><ul style="margin-left:20px;font-size:13px">${c.crossCuttingAssertions.map((g) => `<li>${escapeHtml(g)}</li>`).join("")}</ul></div>` : ""}
+  `;
+}
+
+function renderPlanFeatures() {
+  const features = state.artifacts?.features || [];
+  const el = $("plan-features");
+  if (!features.length) { el.innerHTML = '<div class="empty">No features yet</div>'; return; }
+  el.innerHTML = features.map((f) =>
+    `<div class="plan-feature">
+      <div>
+        <div class="plan-feature-title">${escapeHtml(f.title)}</div>
+        <div class="plan-feature-meta">${escapeHtml(f.id)} · ${escapeHtml(f.milestoneId)}${f.commitSha ? " · " + escapeHtml(f.commitSha.slice(0, 7)) : ""}</div>
+      </div>
+      <span class="plan-feature-status ${f.status}">${escapeHtml(f.status)}</span>
+    </div>`).join("");
+}
+
+function renderPlanMilestones() {
+  const milestones = state.artifacts?.milestones || [];
+  const features = state.artifacts?.features || [];
+  const el = $("plan-milestones");
+  if (!milestones.length) { el.innerHTML = '<div class="empty">No milestones yet</div>'; return; }
+  el.innerHTML = milestones.map((m) => {
+    const fs = features.filter((f) => f.milestoneId === m.id);
+    const done = fs.filter((f) => f.status === "integrated" || f.status === "validated").length;
+    return `<div class="plan-milestone">
+      <div>
+        <div class="plan-feature-title">${escapeHtml(m.title)}</div>
+        <div class="plan-feature-meta">${escapeHtml(m.id)} · ${escapeHtml(m.description)}</div>
+      </div>
+      <span class="plan-milestone-progress">${done}/${fs.length}</span>
+    </div>`;
+  }).join("");
+}
+
+// ═══ Plan: approval actions ═══
+$("edit-toggle").addEventListener("click", () => {
+  const panel = $("edit-panel");
+  const showing = panel.classList.toggle("show");
+  if (showing && state.artifacts?.contractMd) {
+    $("edit-contract-md").value = state.artifacts.contractMd;
+  }
+});
+
+$("btn-approve").addEventListener("click", async () => {
+  const panel = $("edit-panel");
+  const hasEdits = panel.classList.contains("show") && $("edit-contract-md").value.trim();
+  try {
+    let r;
+    if (hasEdits) {
+      r = await apiPost("/api/approve-with-edits", { edits: { "validation-contract.md": $("edit-contract-md").value }, feedback: $("edit-feedback").value || undefined });
+    } else {
+      r = await apiPost("/api/approve", {});
     }
-    function missionQueryParam() {
-      const id = getMissionIdFromUrl();
-      return id ? `?missionId=${encodeURIComponent(id)}` : '';
+    toast(r.ok ? "Approved — factory starting" : (r.message || "Failed"), r.ok ? "ok" : "err");
+    panel.classList.remove("show");
+  } catch (e) { toast(e.message, "err"); }
+});
+
+$("btn-request-changes").addEventListener("click", async () => {
+  const panel = $("edit-panel");
+  const hasEdits = panel.classList.contains("show") && $("edit-contract-md").value.trim();
+  try {
+    let r;
+    if (hasEdits) {
+      r = await apiPost("/api/request-changes", { edits: { "validation-contract.md": $("edit-contract-md").value }, feedback: $("edit-feedback").value || undefined });
+    } else {
+      const feedback = prompt("What should change?");
+      if (feedback === null) return;
+      r = await apiPost("/api/reject", { feedback });
     }
+    toast(r.ok ? "Changes requested" : (r.message || "Failed"), r.ok ? "ok" : "err");
+    panel.classList.remove("show");
+  } catch (e) { toast(e.message, "err"); }
+});
 
-    // DOM refs
-    const $planDialog = document.getElementById('plan-dialog');
-    const $btnClosePlan = document.getElementById('btn-close-plan');
-    const $btnPlan = document.getElementById('btn-plan');
-    const $btnTree = document.getElementById('btn-tree');
-    const $originalFeatureSection = document.getElementById('original-feature-section');
-    const $goalTextMarquee = document.getElementById('goal-text-marquee');
-    const $statPhase = document.getElementById('stat-phase');
-    const $statEvents = document.getElementById('stat-events');
-    const $statMission = document.getElementById('stat-mission');
-    const $statLatest = document.getElementById('stat-latest');
-    const $planList = document.getElementById('plan-list');
-    const $planReviewConsole = document.getElementById('plan-review-console');
-    const $observatoryGrid = document.getElementById('observatory-grid');
-    const $btnTabPreview = document.getElementById('btn-tab-preview');
-    const $btnTabEdit = document.getElementById('btn-tab-edit');
-    const $tabContentPreview = document.getElementById('tab-content-preview');
-    const $tabContentEdit = document.getElementById('tab-content-edit');
-    const $reviewMissionGoal = document.getElementById('review-mission-goal');
-    const $reviewFeaturesList = document.getElementById('review-features-list');
-    const $reviewFeedback = document.getElementById('review-feedback');
-    const $btnReviewReject = document.getElementById('btn-review-reject');
-    const $btnReviewApprove = document.getElementById('btn-review-approve');
-    const $paneOrchestration = document.getElementById('pane-orchestration');
-    const $bodyOrchestration = document.getElementById('body-orchestration');
-    const $paneWorker = document.getElementById('pane-worker');
-    const $badgeWorker = document.getElementById('badge-worker');
-    const $bodyWorker = document.getElementById('body-worker');
-    const $containerWorkerDiff = document.getElementById('container-worker-diff');
-    const $bodyWorkerDiff = document.getElementById('body-worker-diff');
-    const $paneValidator = document.getElementById('pane-validator');
-    const $badgeValidator = document.getElementById('badge-validator');
-    const $bodyValidator = document.getElementById('body-validator');
-    const $workspaceSidebar = document.getElementById('workspace-sidebar');
-    const $workspaceTree = document.getElementById('workspace-tree');
-    const $btnExpandAll = document.getElementById('btn-expand-all');
-    const $btnCollapseAll = document.getElementById('btn-collapse-all');
-    const $fileViewer = document.getElementById('file-viewer');
-    const $fileViewerTitle = document.getElementById('file-viewer-title');
-    const $fileViewerBody = document.getElementById('file-viewer-body');
-    const $fileViewerClose = document.getElementById('file-viewer-close');
-    const $eventPopover = document.getElementById('event-popover');
-    const $popoverHeader = document.getElementById('popover-header');
-    const $popoverContent = document.getElementById('popover-content');
+// ═══ Files tab ═══
+async function renderFiles() {
+  try {
+    const r = await apiGet("/api/workspace");
+    if (r.missionId) state.missionId = r.missionId;
+    const tree = r.tree;
+    if (!tree) { $("files-tree").innerHTML = '<div class="empty">No mission</div>'; return; }
+    const count = countFileNodes(tree);
+    $("files-count").textContent = count;
+    $("files-tree").innerHTML = "";
+    renderFileTreeNodes(tree.children || [], 0, $("files-tree"));
+    attachFileTreeListeners();
+  } catch (e) { $("files-tree").innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`; }
+}
 
-    let rawContractMd = "";
+function countFileNodes(node) {
+  if (node.type === "file") return 1;
+  return (node.children || []).reduce((n, c) => n + countFileNodes(c), 0);
+}
 
-    // ── Sidebar toggle ──
-    $btnTree.addEventListener('click', () => {
-      state.sidebarOpen = !state.sidebarOpen;
-      $workspaceSidebar.classList.toggle('open', state.sidebarOpen);
-      $btnTree.classList.toggle('active', state.sidebarOpen);
-      if (state.sidebarOpen) pollWorkspace();
+function renderFileTreeNodes(nodes, depth, parent) {
+  for (const node of nodes) {
+    const row = document.createElement("div");
+    row.className = "f-tree-row";
+    row.dataset.path = node.path;
+    row.dataset.type = node.type;
+    const icon = node.type === "dir" ? "📁" : "📄";
+    const isReadOnly = isReadOnlyFile(node.name);
+    row.innerHTML = `<span class="f-tree-icon ${node.type}">${icon}</span><span class="f-tree-name">${escapeHtml(node.name)}</span>${isReadOnly ? '<span class="f-tree-lock" title="read-only">🔒</span>' : ""}`;
+    parent.appendChild(row);
+    if (node.children) renderFileTreeNodes(node.children, depth + 1, parent);
+  }
+}
+
+function isReadOnlyFile(name) {
+  // System/state files are read-only in the Files tab
+  const readOnly = ["events.jsonl", "usage.jsonl", "budget.json", "approval.json", "state.json", "current-mission.json"];
+  if (readOnly.includes(name)) return true;
+  if (name.startsWith("validation-reports/") || name.startsWith("validation-receipts/")) return true;
+  if (name.startsWith("handoffs/") || name.startsWith("worker-runs/")) return true;
+  if (name.startsWith("jobs/")) return true;
+  if (name.endsWith(".raw.txt")) return true;
+  return false;
+}
+
+function attachFileTreeListeners() {
+  document.querySelectorAll(".f-tree-row").forEach((row) => {
+    row.addEventListener("click", async () => {
+      document.querySelectorAll(".f-tree-row.selected").forEach((r) => r.classList.remove("selected"));
+      row.classList.add("selected");
+      if (row.dataset.type === "file") {
+        try {
+          const r = await fetch(`/api/file?path=${encodeURIComponent(row.dataset.path)}${state.missionId ? `&missionId=${encodeURIComponent(state.missionId)}` : ""}`);
+          const data = await r.json();
+          if (data.content !== undefined) openFileInEditor(row.dataset.path, data.content);
+        } catch (e) { toast(e.message, "err"); }
+      }
     });
+  });
+}
 
-    $btnExpandAll.addEventListener('click', () => {
-      function walk(node) {
-        if (node.type === 'dir' && node.children) {
-          state.expandedDirs.add(node.path);
-          node.children.forEach(walk);
-        }
-      }
-      if (state.workspaceTree) walk(state.workspaceTree);
-      renderTree();
-    });
+function openFileInEditor(path, content) {
+  state.currentFile = { path, content, editable: !isReadOnlyFile(path.split("/").pop() || "") };
+  $("files-path").textContent = path;
+  $("files-lock").textContent = state.currentFile.editable ? "" : "🔒 read-only";
+  $("files-editor-body").innerHTML = `<pre>${escapeHtml(content)}</pre>`;
+  $("btn-edit-file").style.display = state.currentFile.editable ? "" : "none";
+  $("btn-edit-file").disabled = false;
+  $("btn-save-file").style.display = "none";
+  $("btn-cancel-edit").style.display = "none";
+  state.editingFile = false;
+}
 
-    $btnCollapseAll.addEventListener('click', () => {
-      state.expandedDirs.clear();
-      state.expandedDirs.add('.'); // keep root expanded
-      renderTree();
-    });
+$("btn-edit-file").addEventListener("click", () => {
+  if (!state.currentFile.editable) return;
+  state.editingFile = true;
+  $("files-editor-body").innerHTML = `<textarea id="file-editor">${escapeHtml(state.currentFile.content)}</textarea>`;
+  $("btn-edit-file").style.display = "none";
+  $("btn-save-file").style.display = "";
+  $("btn-cancel-edit").style.display = "";
+});
 
-    // ── File viewer ──
-    $fileViewerClose.addEventListener('click', () => $fileViewer.classList.remove('open'));
-    $fileViewer.addEventListener('click', (e) => { if (e.target === $fileViewer) $fileViewer.classList.remove('open'); });
-
-    async function openFile(path, name) {
-      $fileViewerTitle.textContent = name;
-      $fileViewerBody.textContent = 'Loading...';
-      $fileViewerBody.className = 'file-viewer-body';
-      $fileViewer.classList.add('open');
-      try {
-        const res = await fetch('/api/file' + missionQueryParam() + '&path=' + encodeURIComponent(path));
-        if (!res.ok) { $fileViewerBody.textContent = 'Error: ' + (await res.json()).error; return; }
-        const data = await res.json();
-        const content = data.content || '';
-        if (name.endsWith('.json')) {
-          try { $fileViewerBody.textContent = JSON.stringify(JSON.parse(content), null, 2); $fileViewerBody.className = 'file-viewer-body json'; }
-          catch { $fileViewerBody.textContent = content; }
-        } else {
-          $fileViewerBody.textContent = content;
-        }
-      } catch (err) {
-        $fileViewerBody.textContent = 'Error: ' + (err.message || err);
-      }
+$("btn-save-file").addEventListener("click", async () => {
+  const content = $("file-editor").value;
+  try {
+    const r = await apiPost("/api/file", { path: state.currentFile.path, content });
+    if (r.ok) {
+      toast("Saved " + state.currentFile.path, "ok");
+      state.currentFile.content = content;
+      openFileInEditor(state.currentFile.path, content);
+    } else {
+      toast(r.error || "Save failed", "err");
     }
+  } catch (e) { toast(e.message, "err"); }
+});
 
-    // ── Event popover ──
-    function showEventPopover(event, eventData) {
-      const rect = event.target.getBoundingClientRect();
-      const x = Math.min(rect.left, window.innerWidth - 520);
-      const y = rect.bottom + 6;
-      $popoverHeader.textContent = (eventData.event_type || 'EVENT').toUpperCase();
-      $popoverContent.textContent = JSON.stringify(eventData, null, 2);
-      $eventPopover.style.left = x + 'px';
-      $eventPopover.style.top = y + 'px';
-      $eventPopover.classList.add('open');
-    }
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.cli-line') && !e.target.closest('#event-popover')) {
-        $eventPopover.classList.remove('open');
-      }
-    });
+$("btn-cancel-edit").addEventListener("click", () => {
+  openFileInEditor(state.currentFile.path, state.currentFile.content);
+});
 
-    // ── Workspace tree rendering ──
-    const ARTIFACT_FILES = new Set(['state.json','requirements.json','constraints.md','research-notes.md','validation-contract.md','features.json','milestones.json','decision-log.md','halt-reason.md','agents.md','worker-skills.json']);
+// ═══ Modal ═══
+function closeModal() { $("modal-overlay").classList.remove("open"); }
+$("modal-close").addEventListener("click", closeModal);
+$("modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay") closeModal(); });
 
-    function renderTree() {
-      if (!state.workspaceTree) {
-        $workspaceTree.innerHTML = '<div style="color:#3e3e44;font-size:11px;padding:16px;text-align:center;">No workspace data.</div>';
-        return;
-      }
-      $workspaceTree.innerHTML = renderTreeNode(state.workspaceTree, 0);
-      attachTreeListeners();
-    }
+// ═══ Init ═══
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
+setTab("live");
 
-    function renderTreeNode(node, depth) {
-      if (node.type === 'file') {
-        const isArtifact = ARTIFACT_FILES.has(node.name);
-        const isSelected = state.selectedFile === node.path;
-        const sizeStr = node.size != null ? formatSize(node.size) : '';
-        return `<div class="tree-row" data-path="${escapeAttr(node.path)}" data-name="${escapeAttr(node.name)}" data-type="file" ${isSelected ? 'class="tree-row selected"' : ''}>
-          <span class="tree-icon file ${isArtifact ? 'artifact' : ''}">${isArtifact ? '◆' : '○'}</span>
-          <span class="tree-name">${escapeHtml(node.name)}</span>
-          <span class="tree-size">${sizeStr}</span>
-        </div>`;
-      }
-      const isExpanded = state.expandedDirs.has(node.path);
-      const chevron = isExpanded ? '▼' : '▶';
-      let html = `<div class="tree-row" data-path="${escapeAttr(node.path)}" data-type="dir">
-        <span class="tree-chevron ${isExpanded ? 'expanded' : ''}">${chevron}</span>
-        <span class="tree-icon dir">▸</span>
-        <span class="tree-name">${escapeHtml(node.name === '.' ? 'mission root' : node.name)}</span>
-      </div>`;
-      if (isExpanded && node.children) {
-        html += `<div class="tree-children">`;
-        for (const child of node.children) html += renderTreeNode(child, depth + 1);
-        html += `</div>`;
-      }
-      return html;
-    }
-
-    function attachTreeListeners() {
-      $workspaceTree.querySelectorAll('.tree-row').forEach(row => {
-        row.addEventListener('click', (e) => {
-          const type = row.dataset.type;
-          const path = row.dataset.path;
-          const name = row.dataset.name || path;
-          if (type === 'dir') {
-            if (state.expandedDirs.has(path)) state.expandedDirs.delete(path);
-            else state.expandedDirs.add(path);
-            renderTree();
-          } else if (type === 'file') {
-            state.selectedFile = path;
-            document.querySelectorAll('.tree-row.selected').forEach(r => r.classList.remove('selected'));
-            row.classList.add('selected');
-            openFile(path, name);
-          }
-        });
-      });
-    }
-
-    function formatSize(bytes) {
-      if (bytes < 1024) return bytes + 'B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'K';
-      return (bytes / (1024 * 1024)).toFixed(1) + 'M';
-    }
-
-    async function pollWorkspace() {
-      try {
-        const res = await fetch('/api/workspace' + missionQueryParam());
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!data.tree) { $workspaceTree.innerHTML = '<div style="color:#3e3e44;font-size:11px;padding:16px;text-align:center;">No mission found.</div>'; return; }
-        const hash = JSON.stringify(data.tree);
-        if (hash === state.lastWorkspaceHash) return;
-        state.lastWorkspaceHash = hash;
-        state.workspaceTree = data.tree;
-        state.expandedDirs.add('.'); // root always expanded
-        renderTree();
-      } catch (err) {
-        console.error('Failed to poll workspace:', err);
-      }
-    }
-
-    // ── Plan dialog ──
-    $btnPlan.addEventListener('click', () => $planDialog.showModal());
-    $originalFeatureSection.addEventListener('click', () => $planDialog.showModal());
-    $btnClosePlan.addEventListener('click', () => $planDialog.close());
-    if (!('closedBy' in HTMLDialogElement.prototype)) {
-      $planDialog.addEventListener('click', (event) => {
-        if (event.target !== $planDialog) return;
-        const rect = $planDialog.getBoundingClientRect();
-        if (rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width) return;
-        $planDialog.close();
-      });
-    }
-
-    // ── Plan review tabs ──
-    $btnTabPreview.addEventListener('click', () => {
-      $btnTabPreview.style.borderColor = '#c586c0'; $btnTabPreview.style.color = '#fff'; $btnTabPreview.style.background = '#18181c';
-      $btnTabEdit.style.borderColor = '#222228'; $btnTabEdit.style.color = '#8e8e93'; $btnTabEdit.style.background = 'transparent';
-      rawContractMd = $tabContentEdit.value;
-      $tabContentPreview.innerHTML = renderMarkdownToHtml(rawContractMd);
-      $tabContentPreview.style.display = 'block'; $tabContentEdit.style.display = 'none';
-    });
-    $btnTabEdit.addEventListener('click', () => {
-      $btnTabEdit.style.borderColor = '#c586c0'; $btnTabEdit.style.color = '#fff'; $btnTabEdit.style.background = '#18181c';
-      $btnTabPreview.style.borderColor = '#222228'; $btnTabPreview.style.color = '#8e8e93'; $btnTabPreview.style.background = 'transparent';
-      $tabContentEdit.value = rawContractMd;
-      $tabContentPreview.style.display = 'none'; $tabContentEdit.style.display = 'block'; $tabContentEdit.focus();
-    });
-
-    $btnReviewApprove.addEventListener('click', async () => {
-      if ($tabContentEdit.style.display === 'block') rawContractMd = $tabContentEdit.value;
-      $btnReviewApprove.disabled = true; $btnReviewReject.disabled = true;
-      try {
-        const res = await fetch('/api/approve', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ feedback: $reviewFeedback.value, files: { 'validation-contract.md': rawContractMd } }) });
-        if (res.ok) { $planReviewConsole.style.display = 'none'; $observatoryGrid.style.display = 'grid'; alert('Plan approved! Resuming orchestrator...'); }
-        else { alert('Failed to submit approval.'); $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false; }
-      } catch (err) { console.error(err); $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false; }
-    });
-    $btnReviewReject.addEventListener('click', async () => {
-      if ($tabContentEdit.style.display === 'block') rawContractMd = $tabContentEdit.value;
-      if (!$reviewFeedback.value.trim()) { alert('Please specify feedback.'); return; }
-      $btnReviewApprove.disabled = true; $btnReviewReject.disabled = true;
-      try {
-        const res = await fetch('/api/reject', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ feedback: $reviewFeedback.value, files: { 'validation-contract.md': rawContractMd } }) });
-        if (res.ok) { $planReviewConsole.style.display = 'none'; $observatoryGrid.style.display = 'grid'; alert('Feedback submitted! Revising plan...'); }
-        else { alert('Failed to submit feedback.'); $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false; }
-      } catch (err) { console.error(err); $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false; }
-    });
-
-    // ── Screensavers ──
-    const SLEEP_ASCII_WORKER = `\n _ _ _  _ _ _  _ _ _  _ _ _ \n| | | || | | ||  _  ||  _  |\n| | | || | | || | | || |_| |\n|  _  ||  _  || |_| ||  _  |\n|_| |_||_| |_||_ _ _||_| |_|`;
-    const SLEEP_ASCII_VALIDATOR = `\n _ _ _  _ _ _  _ _ _  _ _ _ \n|  _  ||  _  ||_ _ _||  _  |\n| | | || |_| |  | |  | | | |\n| |_| ||  _  |  | |  | |_| |\n|_ _ _||_| |_|  |_|  |_ _ _|`;
-    function getSleepHtml(type, asciiText, subtitle) {
-      return `<div class="screensaver-container"><div class="screensaver-ascii">${asciiText}</div><div class="screensaver-text">${type} SLEEPING<span class="screensaver-cursor"></span></div><div class="screensaver-sub">${subtitle}</div></div>`;
-    }
-
-    // ── Helpers ──
-    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-    function escapeAttr(s) { return String(s).replace(/"/g, '&quot;'); }
-
-    function renderMarkdownToHtml(md) {
-      if (!md) return '<div style="color:#8e8e93;font-style:italic;">No contract content.</div>';
-      let html = escapeHtml(md);
-      const codeBlocks = [];
-      html = html.replace(/```([\s\S]*?)```/g, (m, code) => { const id = `__CODE_BLOCK_${codeBlocks.length}__`; codeBlocks.push(code); return id; });
-      const inlineCode = [];
-      html = html.replace(/`([^`\n]+)`/g, (m, code) => { const id = `__INLINE_CODE_${inlineCode.length}__`; inlineCode.push(code); return id; });
-      html = html.replace(/^### (.*$)/gim, '<h3 style="font-family:\'Outfit\',sans-serif;font-size:15px;font-weight:700;color:#fff;margin-top:20px;margin-bottom:8px;border-bottom:1px solid #222228;padding-bottom:4px;">$1</h3>');
-      html = html.replace(/^## (.*$)/gim, '<h2 style="font-family:\'Outfit\',sans-serif;font-size:18px;font-weight:700;color:#fff;margin-top:24px;margin-bottom:12px;border-bottom:1px solid #222228;padding-bottom:6px;">$1</h2>');
-      html = html.replace(/^# (.*$)/gim, '<h1 style="font-family:\'Outfit\',sans-serif;font-size:22px;font-weight:700;color:#fff;margin-top:28px;margin-bottom:16px;border-bottom:1px solid #222228;padding-bottom:8px;">$1</h1>');
-      html = html.replace(/^\s*[-*]\s+\[[xX]\]\s+(.*$)/gim, '<div style="display:flex;align-items:flex-start;gap:8px;margin:6px 0;font-size:13px;"><span style="color:#c586c0;font-weight:bold;font-family:\'JetBrains Mono\',monospace;">[✓]</span><span style="color:#8e8e93;text-decoration:line-through;">$1</span></div>');
-      html = html.replace(/^\s*[-*]\s+\[\s*\]\s+(.*$)/gim, '<div style="display:flex;align-items:flex-start;gap:8px;margin:6px 0;font-size:13px;"><span style="color:#8e8e93;font-weight:bold;font-family:\'JetBrains Mono\',monospace;">[ ]</span><span style="color:#e1e1e6;">$1</span></div>');
-      html = html.replace(/^\s*[-*]\s+(?!__)(.*$)/gim, '<li style="margin-left:20px;margin:4px 0;font-size:13px;color:#d1d1d6;list-style-type:square;">$1</li>');
-      html = html.replace(/\*\*([\s\S]*?)\*\*/g, '<strong style="color:#fff;font-weight:600;">$1</strong>');
-      html = html.replace(/^---$/gim, '<hr style="border:none;border-top:1px solid #222228;margin:24px 0;">');
-      const lines = html.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line && !line.startsWith('<h') && !line.startsWith('<div') && !line.startsWith('<li') && !line.startsWith('<hr') && !line.startsWith('__CODE_BLOCK_') && !line.startsWith('__INLINE_CODE_')) {
-          lines[i] = `<p style="margin:10px 0;font-size:13.5px;color:#d1d1d6;line-height:1.6;">${lines[i]}</p>`;
-        }
-      }
-      html = lines.join('\n');
-      inlineCode.forEach((code, idx) => { html = html.replace(new RegExp(`__INLINE_CODE_${idx}__`,'g'), `<code style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#16161a;padding:2px 6px;border-radius:4px;border:1px solid #222228;color:#c586c0;">${code}</code>`); });
-      codeBlocks.forEach((code, idx) => {
-        const cl = code.trim().split('\n'); let lang=''; let content=code;
-        if (cl[0] && !cl[0].includes(' ') && cl[0].length < 15) { lang = cl[0].trim(); content = cl.slice(1).join('\n'); }
-        html = html.replace(new RegExp(`__CODE_BLOCK_${idx}__`,'g'), `<div style="background:#050507;border:1px solid #1a1a20;border-radius:8px;margin:16px 0;overflow:hidden;">${lang?`<div style="background:#111114;padding:6px 16px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#8e8e93;text-transform:uppercase;font-weight:bold;border-bottom:1px solid #1a1a20;">${lang}</div>`:''}<pre style="margin:0;padding:16px;font-family:'JetBrains Mono',monospace;font-size:12px;overflow-x:auto;color:#e1e1e6;line-height:1.5;white-space:pre;">${content}</pre></div>`);
-      });
-      return html;
-    }
-
-    function fmtTime(iso) { try { return new Date(iso).toTimeString().slice(0,8); } catch { return '--:--:--'; } }
-
-    function summarizeEvent(e) {
-      const d = e.data || {};
-      if (e.event_type === 'agent_start') return `Starting subagent: ${d.agentType||''} ${d.featureId?'['+d.featureId+']':''}`;
-      if (e.event_type === 'agent_end') return `Subagent finished. Status: ${d.parseStatus||'unknown'} (${d.durationMs||0}ms)`;
-      if (e.event_type === 'tool_call') return `${d.toolName||''}(${JSON.stringify(d.params||{})})`;
-      if (e.event_type === 'tool_result') return `result: ${d.parseStatus||''} ${d.durationMs?'('+d.durationMs+'ms)':''}`;
-      if (e.event_type === 'session_tool_start') return `Invoked tool: ${d.toolName||''}`;
-      if (e.event_type === 'session_tool_end') return `Tool returned: ${d.isError?'ERROR':'SUCCESS'}`;
-      if (e.event_type === 'validation_recovery') return `Validation Recovery: ${d.milestoneId||''}`;
-      if (e.event_type === 'integration_preflight') return `Preflight: ${d.status||''}`;
-      if (e.event_type === 'phase_transition') return `Phase: ${d.from} → ${d.to}`;
-      if (e.event_type === 'artifact_write') return `Wrote: ${d.artifactName}`;
-      if (e.event_type === 'halt') return `HALT: ${d.reason||''}`;
-      if (e.event_type === 'ping') return `Ping ${d.agentName||'?'}: ${d.status||'?'} (${d.durationMs||0}ms)${d.error?' — '+d.error:''}`;
-      if (e.event_type === 'assistant_message') return `Assistant (${d.role||'?'}): ${d.truncated?d.preview:(d.text||d.preview||'')}`;
-      if (e.event_type === 'pending_question') return `Question: ${d.question||d.questionId||''}`;
-      if (e.event_type === 'mission_initialized') return `Mission initialized${d.goal?': '+d.goal:''}`;
-      if (e.event_type === 'budget_usage') return `Budget: $${Number(d.costUsd||0).toFixed(4)} / ${d.totalTokens||0} tokens`;
-      if (e.event_type === 'budget_exceeded') return `Budget exceeded: ${d.reason||''}`;
-      if (e.event_type === 'decision_logged') return `Decision: ${d.decision||''}`;
-      if (e.event_type === 'state_loaded') return `State: phase=${d.phase||''} v${d.version||0}`;
-      return d.message || JSON.stringify(d);
-    }
-
-    // ── Diff rendering ──
-    function parseUnifiedDiff(diffText) {
-      const lines = diffText.split('\n'); const files = []; let currentFile = null; let currentHunk = null;
-      for (const line of lines) {
-        if (line.startsWith('diff --git')) { currentFile = { hunks: [] }; files.push(currentFile); currentHunk = null; }
-        else if (line.startsWith('@@')) { const m = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/); if (m) { currentHunk = { oldStart:+m[1], oldCount:+(m[2]||1), newStart:+m[3], newCount:+(m[4]||1), lines:[] }; if (currentFile) currentFile.hunks.push(currentHunk); } }
-        else if (currentHunk && (line.startsWith(' ')||line.startsWith('+')||line.startsWith('-'))) { const type = line[0]==='+'?'add':line[0]==='-'?'del':'ctx'; currentHunk.lines.push({type, text: line.slice(1)}); }
-      }
-      return files;
-    }
-    function renderDiff(diffText) {
-      if (!diffText || !diffText.trim()) return '<div style="color:#5c5c64;font-style:italic;text-align:center;margin-top:15px;">No file modifications.</div>';
-      const files = parseUnifiedDiff(diffText);
-      if (files.length === 0 || files.every(f => f.hunks.length === 0)) return '<div style="color:#5c5c64;font-style:italic;text-align:center;margin-top:15px;">No file modifications.</div>';
-      let html = '<div class="diff-container">';
-      for (const file of files) for (const hunk of file.hunks) {
-        html += '<div class="diff-hunk"><div class="diff-hunk-header">@@ -'+hunk.oldStart+','+hunk.oldCount+' +'+hunk.newStart+','+hunk.newCount+' @@</div>';
-        let oldNum = hunk.oldStart, newNum = hunk.newStart;
-        for (const line of hunk.lines) {
-          let oldNumStr='', newNumStr='', typeClass='', ind='';
-          if (line.type==='ctx') { oldNumStr=oldNum; newNumStr=newNum; oldNum++; newNum++; typeClass='diff-line-ctx'; ind=' '; }
-          else if (line.type==='del') { oldNumStr=oldNum; oldNum++; typeClass='diff-line-del'; ind='-'; }
-          else if (line.type==='add') { newNumStr=newNum; newNum++; typeClass='diff-line-add'; ind='+'; }
-          html += `<div class="diff-line ${typeClass}"><span class="diff-line-num">${oldNumStr}</span><span class="diff-line-ind">${ind}</span><span class="diff-line-text">${escapeHtml(line.text)}</span></div>`;
-        }
-        html += '</div>';
-      }
-      html += '</div>'; return html;
-    }
-
-    // ── Event row rendering ──
-    function getEventRowHtml(e) {
-      const timeStr = `[${fmtTime(e.timestamp)}]`;
-      const dataAttr = `data-event='${escapeAttr(JSON.stringify(e))}'`;
-
-      if (e.event_type === 'decision_logged' && e.data?.decision) {
-        return `<div class="thought-card" ${dataAttr}><div class="thought-header">Thought Process</div><div>${escapeHtml(e.data.decision)}</div></div>`;
-      }
-      if (e.event_type === 'tool_call' || e.event_type === 'session_tool_start') {
-        const toolName = e.data.toolName; const params = e.data.params || {}; const cmd = params.CommandLine || JSON.stringify(params, null, 2);
-        return `<div class="tool-execution-card" ${dataAttr}><div class="tool-exec-header"><span class="tool-exec-name">${escapeHtml(toolName)}</span><span class="tool-exec-status running">Executing</span></div><div class="tool-exec-cmd">$ ${escapeHtml(cmd)}</div></div>`;
-      }
-      if (e.event_type === 'tool_result' || e.event_type === 'session_tool_end') {
-        const isError = e.data.isError || e.data.parseStatus === 'failed'; const statusLabel = isError?'FAILED':'COMPLETED';
-        return `<div class="system-log cli-line" ${dataAttr}><b>${statusLabel}</b> — ${escapeHtml(summarizeEvent(e))}</div>`;
-      }
-      if (e.event_type === 'ping') {
-        const status = e.data.status||'unknown'; const isOk = status==='ok'; const color = isOk?'#7ee787':(status==='timeout'?'#d29922':'#ff7b72');
-        return `<div class="system-log cli-line" style="border-left-color:${color};" ${dataAttr}><b style="color:${color};">PING ${escapeHtml(status.toUpperCase())}</b> — ${escapeHtml(e.data.agentName||'?')} (${e.data.durationMs||0}ms)${e.data.error?' — '+escapeHtml(e.data.error):''}</div>`;
-      }
-      if (e.event_type === 'assistant_message') {
-        const text = e.data.truncated?(e.data.preview||''):(e.data.text||e.data.preview||'');
-        return `<div class="thought-card cli-line" ${dataAttr}><div class="thought-header">Assistant · ${escapeHtml(e.data.role||'?')}</div><div>${escapeHtml(text)}</div></div>`;
-      }
-      if (e.event_type === 'pending_question') {
-        const opts = Array.isArray(e.data.options)?e.data.options:[]; const optsHtml = opts.length?`<div style="margin-top:6px;color:#8e8e93;font-size:11px;">Options: ${opts.slice(0,6).map(escapeHtml).join(' · ')+(opts.length>6?' · …':'')}</div>`:'';
-        return `<div class="thought-card cli-line" style="border-color:#c586c0;" ${dataAttr}><div class="thought-header" style="color:#c586c0;">Pending Question · ${escapeHtml(e.data.questionId||'?')}</div><div>${escapeHtml(e.data.question||'')}</div>${optsHtml}</div>`;
-      }
-      const summary = summarizeEvent(e);
-      return `<div class="cli-line" ${dataAttr}><span class="cli-prompt">$</span><span class="cli-content">${escapeHtml(summary)}</span></div>`;
-    }
-
-    // ── Attach click handlers to event rows ──
-    function attachEventClickHandlers(container) {
-      container.querySelectorAll('[data-event]').forEach(row => {
-        row.addEventListener('click', (e) => {
-          try {
-            const eventData = JSON.parse(row.dataset.event);
-            showEventPopover(e, eventData);
-          } catch {}
-        });
-      });
-    }
-
-    // ── Core Processing & Rendering ──
-    function processEvents(events) {
-      if ($statEvents) { $statEvents.textContent = String(events.length); $statEvents.title = events.length > MAX_RENDERED_EVENTS ? `Showing latest ${MAX_RENDERED_EVENTS} of ${events.length}` : `${events.length} events`; }
-      if ($statMission) { const m = getMissionIdFromUrl(); $statMission.textContent = m ? m.slice(0,18) : `${window.location.host} current`; $statMission.title = m || `Resolved by ${window.location.origin}/api/events`; }
-      if ($statLatest) { const latest = events[events.length-1]; const label = latest ? `${latest.event_type}${latest.data?.toolName?':'+latest.data.toolName:latest.data?.agentName?':'+latest.data.agentName:''}` : '—'; $statLatest.textContent = label.slice(0,32); $statLatest.title = latest ? JSON.stringify(latest.data||{}) : 'No events'; }
-
-      if (!events.length) {
-        $paneOrchestration.classList.add('active-running');
-        $bodyOrchestration.innerHTML = `<div class="system-log" style="border-left-color:#d29922;"><b>NO EVENTS LOADED</b> — Connected to ${escapeHtml(window.location.origin)}, reading ${escapeHtml('/api/events'+missionQueryParam())}.</div>`;
-        $paneWorker.classList.remove('active-running'); $badgeWorker.textContent = 'Sleeping';
-        $bodyWorker.innerHTML = getSleepHtml('Worker', SLEEP_ASCII_WORKER, 'No events yet.');
-        $containerWorkerDiff.style.display = 'none';
-        $paneValidator.classList.remove('active-running'); $badgeValidator.textContent = 'Sleeping';
-        $bodyValidator.innerHTML = getSleepHtml('Validator', SLEEP_ASCII_VALIDATOR, 'No validation events yet.');
-        return;
-      }
-
-      const workerSpans = new Set(); const validatorSpans = new Set(); let activeWorker = null; let activeValidator = null;
-      for (const e of events) {
-        if (e.event_type === 'agent_start') {
-          if (e.agent_level === 'worker') { workerSpans.add(e.span_id); activeWorker = e.span_id; }
-          else if (e.agent_level && (e.agent_level.includes('validator') || e.agent_level === 'user_testing_shard')) { validatorSpans.add(e.span_id); activeValidator = e.span_id; }
-        } else if (e.event_type === 'agent_end') {
-          if (e.agent_level === 'worker' && activeWorker === e.span_id) activeWorker = null;
-          else if (e.agent_level && (e.agent_level.includes('validator') || e.agent_level === 'user_testing_shard') && activeValidator === e.span_id) activeValidator = null;
-        }
-      }
-      state.activeWorkerSpan = activeWorker; state.activeValidatorSpan = activeValidator;
-      state.allWorkerSpans = workerSpans; state.allValidatorSpans = validatorSpans;
-
-      const renderedEvents = events.slice(-MAX_RENDERED_EVENTS);
-      const orchEvents = []; const workerEvents = []; const validatorEvents = [];
-      for (const e of renderedEvents) { const lvl = e.agent_level; if (lvl === 'orchestrator' || !lvl || e.event_type === 'phase_transition' || e.event_type === 'halt') orchEvents.push(e); }
-      for (const e of events) {
-        const lvl = e.agent_level;
-        if (lvl === 'worker' || workerSpans.has(e.span_id) || workerSpans.has(e.parent_span_id)) workerEvents.push(e);
-        if ((lvl && (lvl.includes('validator') || lvl === 'user_testing_shard')) || validatorSpans.has(e.span_id) || validatorSpans.has(e.parent_span_id)) validatorEvents.push(e);
-      }
-      const visibleWorkerEvents = workerEvents.slice(-MAX_RENDERED_EVENTS);
-      const visibleValidatorEvents = validatorEvents.slice(-MAX_RENDERED_EVENTS);
-
-      // Orchestration
-      $paneOrchestration.classList.add('active-running');
-      const banner = `<div class="system-log" style="border-left-color:#7ee787;color:#d1d1d6;"><b>EVENTS LOADED</b> — ${events.length} total; showing latest ${Math.min(MAX_RENDERED_EVENTS, events.length)}</div>`;
-      $bodyOrchestration.innerHTML = banner + orchEvents.map(e => { try { return getEventRowHtml(e); } catch(err) { return `<div class="system-log" style="border-left-color:#ff7b72;"><b>RENDER ERROR</b> — ${escapeHtml(e.event_type||'?')}: ${escapeHtml(err?.message||err)}</div>`; } }).join('');
-      $bodyOrchestration.scrollTop = $bodyOrchestration.scrollHeight;
-      attachEventClickHandlers($bodyOrchestration);
-
-      // Worker
-      if (workerEvents.length > 0) {
-        if (state.activeWorkerSpan) { $paneWorker.classList.add('active-running'); $badgeWorker.textContent = 'Running'; }
-        else { $paneWorker.classList.remove('active-running'); $badgeWorker.textContent = `${workerEvents.length} events`; }
-        $bodyWorker.innerHTML = `<div class="system-log" style="border-left-color:#7ee787;color:#d1d1d6;"><b>WORKER LOGS</b> — ${workerSpans.size} run(s); ${workerEvents.length} events</div>` + visibleWorkerEvents.map(e => { try { return getEventRowHtml(e); } catch(err) { return `<div class="system-log" style="border-left-color:#ff7b72;"><b>ERR</b></div>`; } }).join('');
-        $bodyWorker.scrollTop = $bodyWorker.scrollHeight;
-        $containerWorkerDiff.style.display = state.activeWorkerSpan ? 'flex' : 'none';
-        attachEventClickHandlers($bodyWorker);
-      } else {
-        $paneWorker.classList.remove('active-running'); $badgeWorker.textContent = 'Sleeping';
-        $bodyWorker.innerHTML = getSleepHtml('Worker', SLEEP_ASCII_WORKER, 'Waiting for Orchestrator.');
-        $containerWorkerDiff.style.display = 'none';
-      }
-
-      // Validator
-      if (validatorEvents.length > 0) {
-        if (state.activeValidatorSpan) { $paneValidator.classList.add('active-running'); $badgeValidator.textContent = 'Running'; }
-        else { $paneValidator.classList.remove('active-running'); $badgeValidator.textContent = `${validatorEvents.length} events`; }
-        $bodyValidator.innerHTML = `<div class="system-log" style="border-left-color:#7ee787;color:#d1d1d6;"><b>VALIDATOR LOGS</b> — ${validatorSpans.size} run(s); ${validatorEvents.length} events</div>` + visibleValidatorEvents.map(e => { try { return getEventRowHtml(e); } catch(err) { return `<div class="system-log" style="border-left-color:#ff7b72;"><b>ERR</b></div>`; } }).join('');
-        $bodyValidator.scrollTop = $bodyValidator.scrollHeight;
-        attachEventClickHandlers($bodyValidator);
-      } else {
-        $paneValidator.classList.remove('active-running'); $badgeValidator.textContent = 'Sleeping';
-        $bodyValidator.innerHTML = getSleepHtml('Validator', SLEEP_ASCII_VALIDATOR, 'Awaiting validation.');
-      }
-    }
-
-    // ── Polling ──
-    async function pollEvents() {
-      try { const res = await fetch('/api/events'+missionQueryParam()); if (!res.ok) return; const events = await res.json(); if (events.length === state.lastEventCount) return; state.events = events; state.lastEventCount = events.length; processEvents(events); } catch(err) { console.error('Failed to poll events:', err); }
-    }
-    async function pollDiff() {
-      try { const res = await fetch('/api/diff'+missionQueryParam()); if (!res.ok) return; const data = await res.json(); $bodyWorkerDiff.innerHTML = renderDiff(data.diff); } catch(err) { console.error('Failed to poll diffs:', err); }
-    }
-    async function pollMission() {
-      try {
-        const res = await fetch('/api/mission'+missionQueryParam()); if (!res.ok) return; const data = await res.json();
-        $goalTextMarquee.textContent = data.requirements?.goal || 'No goal specified';
-        $statPhase.textContent = data.state?.phase || '—';
-        const isPendingReview = data.state?.phase === 'user_approval';
-        if (isPendingReview) {
-          $planReviewConsole.style.display = 'flex'; $observatoryGrid.style.display = 'none';
-          $reviewMissionGoal.textContent = data.requirements?.goal || 'No goal specified';
-          if (document.activeElement !== $tabContentEdit) { if (rawContractMd !== (data.validationContractMd||"")) { rawContractMd = data.validationContractMd||""; $tabContentPreview.innerHTML = renderMarkdownToHtml(rawContractMd); $tabContentEdit.value = rawContractMd; } }
-          const features = data.features?.features || [];
-          if (features.length === 0) $reviewFeaturesList.innerHTML = '<div style="color:#8e8e93;font-style:italic;">No features defined yet.</div>';
-          else $reviewFeaturesList.innerHTML = features.map(f => { const isDone = f.status === 'completed' || f.status === 'validated' || f.status === 'integrated'; const cb = isDone ? '[✓]' : (f.status === 'in_progress' ? '[●]' : '[ ]'); return `<div class="plan-item ${isDone?'completed':''}"><div class="plan-item-checkbox">${cb}</div><div class="plan-item-text"><b>${escapeHtml(f.id)}</b>: ${escapeHtml(f.title||'')}</div></div>`; }).join('');
-          $btnReviewApprove.disabled = false; $btnReviewReject.disabled = false;
-        } else { $planReviewConsole.style.display = 'none'; $observatoryGrid.style.display = 'grid'; }
-        const features2 = data.features?.features || [];
-        if (features2.length === 0) $planList.innerHTML = '<div style="color:#8e8e93;font-style:italic;">No features defined yet.</div>';
-        else $planList.innerHTML = features2.map(f => { const isDone = f.status === 'completed' || f.status === 'validated' || f.status === 'integrated'; const cb = isDone ? '[✓]' : (f.status === 'in_progress' ? '[●]' : '[ ]'); return `<div class="plan-item ${isDone?'completed':''}"><div class="plan-item-checkbox">${cb}</div><div class="plan-item-text"><b>${escapeHtml(f.id)}</b>: ${escapeHtml(f.title||'')}</div></div>`; }).join('');
-      } catch(err) { console.error('Failed to poll mission state:', err); }
-    }
-
-    // ── Init ──
-    pollEvents(); setInterval(pollEvents, 500);
-    pollDiff(); setInterval(pollDiff, 1000);
-    pollMission(); setInterval(pollMission, 1000);
-    pollWorkspace(); setInterval(pollWorkspace, 2000);
-  </script>
+// Poll: live every 2s, status every 5s
+setInterval(() => { if (state.activeTab === "live") renderLive(); }, 2000);
+</script>
 </body>
 </html>

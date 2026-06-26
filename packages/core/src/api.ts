@@ -97,6 +97,7 @@ export async function createApiServer(options: ApiOptions): Promise<ApiServer> {
     observatory = await startObservatory({
       cwd,
       config: { ...obsConfig, port: (obsConfig.port ?? port) + 1 },
+      controlPlane,
     });
   } catch (err) {
     console.warn("[API] Observatory startup failed:", err instanceof Error ? err.message : err);

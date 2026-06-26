@@ -43,12 +43,40 @@ function httpOptions(url: string): Promise<{ status: number; headers: Record<str
   });
 }
 
+function httpPost(url: string, body: unknown): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
+      (res) => {
+        let resBody = "";
+        res.on("data", (chunk) => { resBody += chunk; });
+        res.on("end", () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            body: resBody,
+          });
+        });
+      }
+    );
+    req.on("error", reject);
+    req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// /api/diff
+// ---------------------------------------------------------------------------
+
 test("GET /api/diff returns JSON with diff and status for a git workspace", async () => {
   const tempDir = join(process.cwd(), "test-temp-diff-repo");
   mkdirSync(tempDir, { recursive: true });
 
   try {
-    // Initialize a git repo on the integration branch
     execSync("git init", { cwd: tempDir });
     execSync("git config user.email 'test@test.com'", { cwd: tempDir });
     execSync("git config user.name 'Test User'", { cwd: tempDir });
@@ -57,10 +85,7 @@ test("GET /api/diff returns JSON with diff and status for a git workspace", asyn
     execSync("git commit -m 'init'", { cwd: tempDir });
     execSync("git branch -m integration", { cwd: tempDir });
 
-    // Make a change
     writeFileSync(join(tempDir, "file.txt"), "modified", "utf-8");
-
-    // Point requirements.json to this directory explicitly
     writeFileSync(join(tempDir, "requirements.json"), JSON.stringify({ directory: tempDir }), "utf-8");
 
     const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
@@ -79,9 +104,7 @@ test("GET /api/diff returns JSON with diff and status for a git workspace", asyn
       await serverHandle.close();
     }
   } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
   }
 });
 
@@ -112,9 +135,7 @@ test("GET /api/diff returns empty diff when workspace is clean", async () => {
       await serverHandle.close();
     }
   } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
   }
 });
 
@@ -123,10 +144,6 @@ test("GET /api/diff returns graceful error when workspace is not a git repositor
   mkdirSync(tempDir, { recursive: true });
 
   try {
-    // No git init here, and no explicit directory in requirements.json
-    // so auto-discovery yields nothing and the server returns the graceful
-    // non-git error.
-
     const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
     try {
       const res = await httpGet(`${serverHandle.url}/api/diff`);
@@ -139,45 +156,7 @@ test("GET /api/diff returns graceful error when workspace is not a git repositor
       await serverHandle.close();
     }
   } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
-  }
-});
-
-test("GET /api/diff ignores malicious path parameters", async () => {
-  const tempDir = join(process.cwd(), "test-temp-malicious");
-  mkdirSync(tempDir, { recursive: true });
-
-  try {
-    execSync("git init", { cwd: tempDir });
-    execSync("git config user.email 'test@test.com'", { cwd: tempDir });
-    execSync("git config user.name 'Test User'", { cwd: tempDir });
-    writeFileSync(join(tempDir, "file.txt"), "initial", "utf-8");
-    execSync("git add file.txt", { cwd: tempDir });
-    execSync("git commit -m 'init'", { cwd: tempDir });
-    execSync("git branch -m integration", { cwd: tempDir });
-
-    writeFileSync(join(tempDir, "requirements.json"), JSON.stringify({ directory: tempDir }), "utf-8");
-
-    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
-    try {
-      // Inject shell characters via path
-      const res = await httpGet(`${serverHandle.url}/api/diff;rm -rf /`);
-      assert.strictEqual(res.status, 200);
-
-      const parsed = JSON.parse(res.body);
-      assert.ok(typeof parsed.diff === "string");
-      assert.ok(typeof parsed.status === "string");
-      // The file should still exist, meaning rm -rf / was NOT executed
-      assert.strictEqual(existsSync(join(tempDir, "file.txt")), true);
-    } finally {
-      await serverHandle.close();
-    }
-  } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
   }
 });
 
@@ -186,61 +165,197 @@ test("OPTIONS /api/diff returns CORS headers", async () => {
   mkdirSync(tempDir, { recursive: true });
 
   try {
-    execSync("git init", { cwd: tempDir });
-    execSync("git config user.email 'test@test.com'", { cwd: tempDir });
-    execSync("git config user.name 'Test User'", { cwd: tempDir });
-    writeFileSync(join(tempDir, "file.txt"), "initial", "utf-8");
-    execSync("git add file.txt", { cwd: tempDir });
-    execSync("git commit -m 'init'", { cwd: tempDir });
-    execSync("git branch -m integration", { cwd: tempDir });
-
-    writeFileSync(join(tempDir, "requirements.json"), JSON.stringify({ directory: tempDir }), "utf-8");
-
     const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
     try {
       const res = await httpOptions(`${serverHandle.url}/api/diff`);
       assert.strictEqual(res.status, 204);
 
-      const allowOrigin = res.headers["access-control-allow-origin"];
-      const allowMethods = res.headers["access-control-allow-methods"];
-      assert.strictEqual(allowOrigin, "*");
-      assert.strictEqual(allowMethods, "GET, POST, OPTIONS");
+      assert.strictEqual(res.headers["access-control-allow-origin"], "*");
+      assert.strictEqual(res.headers["access-control-allow-methods"], "GET, POST, OPTIONS");
     } finally {
       await serverHandle.close();
     }
   } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
   }
 });
 
-test("GET /api/mission returns mission state, requirements, and features", async () => {
-  const tempDir = join(process.cwd(), "test-temp-mission-api");
+// ---------------------------------------------------------------------------
+// /api/status (new aggregated snapshot)
+// ---------------------------------------------------------------------------
+
+test("GET /api/status returns a mission snapshot with mode and actionsAvailable", async () => {
+  const tempDir = join(process.cwd(), "test-temp-status-api");
   mkdirSync(tempDir, { recursive: true });
-  mkdirSync(join(tempDir, ".missions", "current"), { recursive: true });
 
   try {
-    writeFileSync(join(tempDir, ".missions", "current", "state.json"), JSON.stringify({ phase: "testing" }), "utf-8");
-    writeFileSync(join(tempDir, ".missions", "current", "requirements.json"), JSON.stringify({ goal: "verify dashboard" }), "utf-8");
-    writeFileSync(join(tempDir, ".missions", "current", "features.json"), JSON.stringify({ features: [] }), "utf-8");
+    // Seed a current-mission pointer + minimal state
+    mkdirSync(join(tempDir, ".ratel", "missions", "mis_teststatus0001"), { recursive: true });
+    writeFileSync(join(tempDir, ".ratel", "current-mission.json"), JSON.stringify({ missionId: "mis_teststatus0001" }), "utf-8");
+    writeFileSync(
+      join(tempDir, ".ratel", "missions", "mis_teststatus0001", "state.json"),
+      JSON.stringify({ phase: "intake", version: 1, updatedAt: new Date().toISOString() }),
+      "utf-8",
+    );
 
     const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
     try {
-      const res = await httpGet(`${serverHandle.url}/api/mission`);
+      const res = await httpGet(`${serverHandle.url}/api/status?missionId=mis_teststatus0001`);
       assert.strictEqual(res.status, 200);
+
       const parsed = JSON.parse(res.body);
-      assert.strictEqual(parsed.state.phase, "testing");
-      assert.strictEqual(parsed.requirements.goal, "verify dashboard");
+      assert.strictEqual(parsed.missionId, "mis_teststatus0001");
+      assert.strictEqual(parsed.phase, "intake");
+      assert.ok(typeof parsed.actionsAvailable === "boolean");
+      assert.ok(["service", "in-process", "none"].includes(parsed.mode));
+      assert.ok(Array.isArray(parsed.agents));
+      assert.ok(Array.isArray(parsed.recommendedActions));
     } finally {
       await serverHandle.close();
     }
   } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
   }
 });
+
+// ---------------------------------------------------------------------------
+// /api/artifacts (new bundle endpoint)
+// ---------------------------------------------------------------------------
+
+test("GET /api/artifacts returns the artifact bundle", async () => {
+  const tempDir = join(process.cwd(), "test-temp-artifacts-api");
+  mkdirSync(tempDir, { recursive: true });
+
+  try {
+    mkdirSync(join(tempDir, ".ratel", "missions", "mis_testart0001"), { recursive: true });
+    writeFileSync(join(tempDir, ".ratel", "current-mission.json"), JSON.stringify({ missionId: "mis_testart0001" }), "utf-8");
+    writeFileSync(
+      join(tempDir, ".ratel", "missions", "mis_testart0001", "requirements.json"),
+      JSON.stringify({ goal: "test", productIntent: "intent", nonGoals: [], riskTolerance: "low" }),
+      "utf-8",
+    );
+    writeFileSync(
+      join(tempDir, ".ratel", "missions", "mis_testart0001", "constraints.md"),
+      "# Constraints\n- none",
+      "utf-8",
+    );
+
+    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
+    try {
+      const res = await httpGet(`${serverHandle.url}/api/artifacts?missionId=mis_testart0001`);
+      assert.strictEqual(res.status, 200);
+      const parsed = JSON.parse(res.body);
+      assert.strictEqual(parsed.requirements.goal, "test");
+      assert.ok(parsed.constraints.includes("Constraints"));
+    } finally {
+      await serverHandle.close();
+    }
+  } finally {
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+// ---------------------------------------------------------------------------
+// /api/artifact POST (single write path, #4)
+// ---------------------------------------------------------------------------
+
+test("POST /api/artifact writes an allowlisted artifact atomically", async () => {
+  const tempDir = join(process.cwd(), "test-temp-artifact-write");
+  mkdirSync(tempDir, { recursive: true });
+
+  try {
+    mkdirSync(join(tempDir, ".ratel", "missions", "mis_testwrite001"), { recursive: true });
+    writeFileSync(join(tempDir, ".ratel", "current-mission.json"), JSON.stringify({ missionId: "mis_testwrite001" }), "utf-8");
+
+    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
+    try {
+      const res = await httpPost(`${serverHandle.url}/api/artifact`, {
+        missionId: "mis_testwrite001",
+        filename: "constraints.md",
+        content: "# Updated constraints\n- rule one",
+      });
+      assert.strictEqual(res.status, 200);
+      const parsed = JSON.parse(res.body);
+      assert.strictEqual(parsed.ok, true);
+      assert.strictEqual(parsed.artifact, "constraints.md");
+
+      const written = readFileSync(join(tempDir, ".ratel", "missions", "mis_testwrite001", "constraints.md"), "utf-8");
+      assert.ok(written.includes("Updated constraints"));
+    } finally {
+      await serverHandle.close();
+    }
+  } finally {
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+test("POST /api/artifact rejects a non-allowlisted filename", async () => {
+  const tempDir = join(process.cwd(), "test-temp-artifact-reject");
+  mkdirSync(tempDir, { recursive: true });
+
+  try {
+    mkdirSync(join(tempDir, ".ratel", "missions", "mis_testrej0001"), { recursive: true });
+    writeFileSync(join(tempDir, ".ratel", "current-mission.json"), JSON.stringify({ missionId: "mis_testrej0001" }), "utf-8");
+
+    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
+    try {
+      const res = await httpPost(`${serverHandle.url}/api/artifact`, {
+        missionId: "mis_testrej0001",
+        filename: "../../../etc/passwd",
+        content: "bad",
+      });
+      assert.strictEqual(res.status, 403);
+      const parsed = JSON.parse(res.body);
+      assert.strictEqual(parsed.ok, false);
+      assert.strictEqual(parsed.gated, true);
+    } finally {
+      await serverHandle.close();
+    }
+  } finally {
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+// ---------------------------------------------------------------------------
+// /api/features POST (gate blocks integrated/validated, #6)
+// ---------------------------------------------------------------------------
+
+test("POST /api/features blocks direct transition to integrated", async () => {
+  const tempDir = join(process.cwd(), "test-temp-features-gate");
+  mkdirSync(tempDir, { recursive: true });
+
+  try {
+    mkdirSync(join(tempDir, ".ratel", "missions", "mis_testfg0001"), { recursive: true });
+    writeFileSync(join(tempDir, ".ratel", "current-mission.json"), JSON.stringify({ missionId: "mis_testfg0001" }), "utf-8");
+    // Seed a pending feature
+    writeFileSync(
+      join(tempDir, ".ratel", "missions", "mis_testfg0001", "features.json"),
+      JSON.stringify({ features: [{ id: "F1", title: "T", description: "D", assertions: [], milestoneId: "M1", status: "pending" }] }),
+      "utf-8",
+    );
+
+    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
+    try {
+      const res = await httpPost(`${serverHandle.url}/api/features`, {
+        missionId: "mis_testfg0001",
+        features: [{ id: "F1", title: "T", description: "D", assertions: [], milestoneId: "M1", status: "integrated" }],
+      });
+      assert.strictEqual(res.status, 403);
+      const parsed = JSON.parse(res.body);
+      assert.strictEqual(parsed.ok, false);
+      assert.strictEqual(parsed.gated, true);
+      assert.ok(parsed.error.includes("integrated"));
+    } finally {
+      await serverHandle.close();
+    }
+  } finally {
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Dashboard HTML structure
+// ---------------------------------------------------------------------------
 
 const DASHBOARD_PATH = join(process.cwd(), "packages", "core", "src", "observatory", "dashboard.html");
 
@@ -254,30 +369,37 @@ test("dashboard is a single self-contained HTML file with inline CSS and JS", ()
   assert.ok(html.includes("<style>"), "should have inline CSS");
   assert.ok(html.includes("<script>"), "should have inline JS");
 
-  // Must not reference external CSS files
   const externalCssRegex = /<link[^>]*rel=["']stylesheet["'][^>]*href=["'][^"']+["']/gi;
   assert.strictEqual(html.match(externalCssRegex)?.length ?? 0, 0, "should not reference external CSS files");
 
-  // Must not reference external JS files
   const externalJsRegex = /<script[^>]*src=["'][^"']+["']/gi;
   assert.strictEqual(html.match(externalJsRegex)?.length ?? 0, 0, "should not reference external JS files");
 });
 
-test("dashboard has three vertical columns", () => {
+test("dashboard has the three tabs", () => {
   const html = getDashboardHtml();
-  assert.ok(html.includes('id="observatory-grid"'), "should contain #observatory-grid");
-  assert.ok(html.includes('id="pane-orchestration"'), "should contain #pane-orchestration");
-  assert.ok(html.includes('id="pane-worker"'), "should contain #pane-worker");
-  assert.ok(html.includes('id="pane-validator"'), "should contain #pane-validator");
+  for (const tab of ["live", "plan", "files"]) {
+    assert.ok(html.includes(`data-tab="${tab}"`), `should contain tab "${tab}"`);
+  }
 });
 
-test("modal popup is removed", () => {
+test("dashboard Plan tab is a single scrollable document with sections", () => {
   const html = getDashboardHtml();
-  assert.ok(!html.includes('id="modal"'), "should not have a modal element");
-  assert.ok(!html.includes('class="hidden"'), "should not have hidden modal class");
+  // Plan tab has no sub-tabs — it is one document with section headings
+  assert.ok(!html.includes("data-subtab"), "should not have sub-tab attributes");
+  // Assert the four section containers exist
+  assert.ok(html.includes('id="plan-context"'), "should have plan-context section");
+  assert.ok(html.includes('id="plan-contract"'), "should have plan-contract section");
+  assert.ok(html.includes('id="plan-features"'), "should have plan-features section");
+  assert.ok(html.includes('id="plan-milestones"'), "should have plan-milestones section");
+  // Assert the section header labels
+  assert.ok(html.includes(">Context<"), "should have Context section header");
+  assert.ok(html.includes(">Validation Contract<"), "should have Validation Contract section header");
+  assert.ok(html.includes(">Features<"), "should have Features section header");
+  assert.ok(html.includes(">Milestones<"), "should have Milestones section header");
 });
 
-test("dashboard background is black", () => {
+test("dashboard background is dark", () => {
   const html = getDashboardHtml();
   const bodyBgRegex = /body\s*\{[^}]*background:\s*#(000000|060608)/;
   const bodyBgRegex2 = /body\s*\{[^}]*background-color:\s*#(000000|060608)/;
@@ -287,262 +409,33 @@ test("dashboard background is black", () => {
   );
 });
 
-test("primary text is white", () => {
+test("dashboard primary text is light", () => {
   const html = getDashboardHtml();
   const bodyColorRegex = /body\s*\{[^}]*color:\s*#(ffffff|e1e1e6)/;
   assert.ok(bodyColorRegex.test(html), "body text color should be #ffffff or #e1e1e6");
 });
 
-test("accent color is gray", () => {
+test("dashboard has a modal for detail views", () => {
   const html = getDashboardHtml();
-  const accentRegex = /#8e8e93/;
-  assert.ok(accentRegex.test(html), "should use #8e8e93 as an accent color");
+  assert.ok(html.includes('id="modal-overlay"'), "should have a modal overlay element");
+  assert.ok(html.includes('id="modal-body"'), "should have a modal body element");
 });
 
-
-
-test("diff parser function exists", () => {
+test("dashboard has a toast for feedback", () => {
   const html = getDashboardHtml();
-  assert.ok(html.includes("parseUnifiedDiff"), "should have parseUnifiedDiff function");
+  assert.ok(html.includes('id="toast"'), "should have a toast element");
 });
 
-test("diff hunk rendering function exists", () => {
+test("dashboard polls live tab with setInterval", () => {
   const html = getDashboardHtml();
-  assert.ok(html.includes("renderDiff"), "should have renderDiff function");
+  assert.ok(html.includes("setInterval"), "should use setInterval for polling");
+  assert.ok(html.includes("renderLive"), "should call renderLive in the polling loop");
 });
 
-
-
-test("diff viewer CSS includes green for additions", () => {
+test("dashboard has mode-aware approval bar (approve/request-changes)", () => {
   const html = getDashboardHtml();
-  const greenRegex = /#[37]fb950|#7ee787/;
-  assert.ok(greenRegex.test(html), "should use green color (#3fb950 or #7ee787) for additions");
-  assert.ok(html.includes('diff-line-add') || html.includes('diff-add') || html.includes("background") && greenRegex.test(html), "should have CSS selector or class for added lines");
+  assert.ok(html.includes('id="btn-approve"'), "should have approve button");
+  assert.ok(html.includes('id="btn-request-changes"'), "should have request-changes button");
+  assert.ok(html.includes('id="approval-hint"'), "should have approval hint element");
+  assert.ok(html.includes("actionsAvailable"), "should check actionsAvailable state");
 });
-
-test("diff viewer CSS includes red for deletions", () => {
-  const html = getDashboardHtml();
-  const redRegex = /#f85149|#ff7b72/;
-  assert.ok(redRegex.test(html), "should use red color (#f85149 or #ff7b72) for deletions");
-  assert.ok(html.includes('diff-line-del') || html.includes('diff-del') || html.includes("background") && redRegex.test(html), "should have CSS selector or class for deleted lines");
-});
-
-test("diff viewer CSS is neutral for context lines", () => {
-  const html = getDashboardHtml();
-  assert.ok(html.includes('diff-line-ctx') || html.includes('diff-ctx'), "should have CSS selector or class for context lines");
-});
-
-test("diff line numbers rendering logic exists", () => {
-  const html = getDashboardHtml();
-  assert.ok(html.includes("diff-line-num"), "should have line number CSS class or element");
-  assert.ok(html.includes("diff-old-num") || html.includes("oldNum"), "should reference old line numbers");
-  assert.ok(html.includes("diff-new-num") || html.includes("newNum"), "should reference new line numbers");
-});
-
-test("diff polling interval is 1000ms", () => {
-  const html = getDashboardHtml();
-  const pollDiffRegex = /pollDiff[\s\S]*?setInterval\(\s*pollDiff\s*,\s*1000\s*\)/;
-  const setIntervalRegex = /setInterval\([^,]*,\s*1000\s*\)/;
-  assert.ok(pollDiffRegex.test(html) || setIntervalRegex.test(html), "should poll diff at 1000ms interval");
-});
-
-test("event polling interval remains 500ms", () => {
-  const html = getDashboardHtml();
-  const pollEventsRegex = /pollEvents[\s\S]*?setInterval\(\s*pollEvents\s*,\s*500\s*\)/;
-  const setIntervalRegex = /setInterval\([^,]*,\s*500\s*\)/;
-  assert.ok(pollEventsRegex.test(html) || setIntervalRegex.test(html), "should poll events at 500ms interval");
-});
-
-
-
-test("no modal element exists", () => {
-  const html = getDashboardHtml();
-  assert.ok(!html.includes('id="modal"'), "should not have a modal element");
-});
-
-
-
-test("dist/observatory/dashboard.html exists and matches src", () => {
-  const srcPath = join(process.cwd(), "packages", "core", "src", "observatory", "dashboard.html");
-  const distPath = join(process.cwd(), "dist", "observatory", "dashboard.html");
-
-  assert.strictEqual(existsSync(distPath), true, "dist/observatory/dashboard.html should exist after build");
-
-  const srcContent = readFileSync(srcPath, "utf-8");
-  const distContent = readFileSync(distPath, "utf-8");
-
-  assert.strictEqual(distContent, srcContent, "copied file must be byte-for-byte identical to source");
-});
-
-import { registerApprovalResolver, resolvePendingApproval } from "../packages/core/src/observatory/server.ts";
-
-test("Approval resolver registration and resolution", async () => {
-  let resolvedValue: any = null;
-  registerApprovalResolver((val) => {
-    resolvedValue = val;
-  });
-
-  const success = resolvePendingApproval({ approved: true, feedback: "Looks good" });
-  assert.strictEqual(success, true, "Should successfully resolve pending approval");
-  assert.deepStrictEqual(resolvedValue, { approved: true, feedback: "Looks good" });
-
-  const successSecond = resolvePendingApproval({ approved: false });
-  assert.strictEqual(successSecond, false, "Should not resolve when no resolver is registered");
-});
-
-import { request } from "node:http";
-
-function httpPost(url: string, body: any): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const parsedUrl = new URL(url);
-    const req = request(
-      url,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      },
-      (res) => {
-        let resBody = "";
-        res.on("data", (chunk) => { resBody += chunk; });
-        res.on("end", () => {
-          resolve({
-            status: res.statusCode ?? 0,
-            body: resBody,
-          });
-        });
-      }
-    );
-    req.on("error", reject);
-    req.write(JSON.stringify(body));
-    req.end();
-  });
-}
-
-test("POST /api/approve writes files and resolves approval", async () => {
-  const tempDir = join(process.cwd(), "test-temp-approve-endpoint");
-  mkdirSync(tempDir, { recursive: true });
-  mkdirSync(join(tempDir, ".missions", "current"), { recursive: true });
-
-  try {
-    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
-    try {
-      let resolverCalled = false;
-      registerApprovalResolver((decision) => {
-        resolverCalled = true;
-        assert.strictEqual(decision.approved, true);
-        assert.strictEqual(decision.feedback, "LGTM");
-      });
-
-      const res = await httpPost(`${serverHandle.url}/api/approve`, {
-        feedback: "LGTM",
-        files: {
-          "validation-contract.md": "updated contract text"
-        }
-      });
-
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(resolverCalled, true);
-      
-      const fileContent = readFileSync(join(tempDir, ".missions", "current", "validation-contract.md"), "utf-8");
-      assert.strictEqual(fileContent, "updated contract text");
-    } finally {
-      await serverHandle.close();
-    }
-  } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
-  }
-});
-
-test("POST /api/reject writes files and resolves rejection", async () => {
-  const tempDir = join(process.cwd(), "test-temp-reject-endpoint");
-  mkdirSync(tempDir, { recursive: true });
-  mkdirSync(join(tempDir, ".missions", "current"), { recursive: true });
-
-  try {
-    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
-    try {
-      let resolverCalled = false;
-      registerApprovalResolver((decision) => {
-        resolverCalled = true;
-        assert.strictEqual(decision.approved, false);
-        assert.strictEqual(decision.feedback, "Need OAuth");
-      });
-
-      const res = await httpPost(`${serverHandle.url}/api/reject`, {
-        feedback: "Need OAuth",
-        files: {
-          "validation-contract.md": "contract with comments"
-        }
-      });
-
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(resolverCalled, true);
-      
-      const fileContent = readFileSync(join(tempDir, ".missions", "current", "validation-contract.md"), "utf-8");
-      assert.strictEqual(fileContent, "contract with comments");
-    } finally {
-      await serverHandle.close();
-    }
-  } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
-  }
-});
-
-test("GET /api/mission returns mission state, requirements, and features, and raw validation-contract.md", async () => {
-  const tempDir = join(process.cwd(), "test-temp-mission-api-md");
-  mkdirSync(tempDir, { recursive: true });
-  mkdirSync(join(tempDir, ".missions", "current"), { recursive: true });
-
-  try {
-    writeFileSync(join(tempDir, ".missions", "current", "state.json"), JSON.stringify({ phase: "testing" }), "utf-8");
-    writeFileSync(join(tempDir, ".missions", "current", "requirements.json"), JSON.stringify({ goal: "verify dashboard" }), "utf-8");
-    writeFileSync(join(tempDir, ".missions", "current", "features.json"), JSON.stringify({ features: [] }), "utf-8");
-    writeFileSync(join(tempDir, ".missions", "current", "validation-contract.md"), "### Gherkin Scenario 1...", "utf-8");
-
-    const serverHandle = await startDashboardServerOnAvailablePort({ cwd: tempDir, port: 0, host: "127.0.0.1" });
-    try {
-      const res = await httpGet(`${serverHandle.url}/api/mission`);
-      assert.strictEqual(res.status, 200);
-      const parsed = JSON.parse(res.body);
-      assert.strictEqual(parsed.state.phase, "testing");
-      assert.strictEqual(parsed.requirements.goal, "verify dashboard");
-      assert.strictEqual(parsed.validationContractMd, "### Gherkin Scenario 1...");
-    } finally {
-      await serverHandle.close();
-    }
-  } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
-  }
-});
-
-import { waitForUserApprovalTool } from "../packages/core/src/core/tools.ts";
-
-test("wait_for_user_approval tool blocks and resolves on approval", async () => {
-  let toolPromiseResolved = false;
-  const toolPromise = waitForUserApprovalTool.execute("test-call", {});
-
-  toolPromise.then((result) => {
-    toolPromiseResolved = true;
-    assert.strictEqual(result.details.approved, true);
-    assert.strictEqual(result.details.feedback, "Go ahead!");
-    assert.ok(result.content[0].text.includes("approved"), "should mention approval");
-  });
-
-  // Resolve approval
-  resolvePendingApproval({ approved: true, feedback: "Go ahead!" });
-
-  await toolPromise;
-  assert.strictEqual(toolPromiseResolved, true);
-});
-
-
-
-

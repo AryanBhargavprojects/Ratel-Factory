@@ -40,6 +40,8 @@ import {
   getRatelDir,
   readJsonFile,
   atomicWriteJson,
+  InProcessActionBridge,
+  type InProcessBridgeCallbacks,
 } from "@ratel-factory/core";
 
 /**
@@ -92,16 +94,76 @@ const ORCHESTRATOR_TOOL_NAMES = [
   "list_models",
   "ping_agents",
   "get_budget_status",
+  "reload_budget",
   "ensure_skills_installed",
   "get_feature_complexity",
   "wait_for_user_approval",
 ];
 
+// ---------------------------------------------------------------------------
+// Session holder — bridges the Observatory dashboard to the live Pi session.
+// Populated inside createRuntime once the session is created. The actionBridge
+// callbacks close over this holder so dashboard approve/reply actions can
+// programmatically prompt the running InteractiveMode session.
+// ---------------------------------------------------------------------------
+
+const sessionHolder: {
+  session: { prompt(text: string, opts?: unknown): Promise<void> } | undefined;
+  lock: Promise<void>;
+} = { session: undefined, lock: Promise.resolve() };
+
+/**
+ * Serialize a prompt call through the session holder with a mutex chain so
+ * concurrent approve + reply actions cannot interleave. Retries for up to 5 s
+ * if the session has not been created yet (e.g. dashboard action arrives
+ * before InteractiveMode finishes its first turn).
+ */
+async function promptSession(text: string): Promise<void> {
+  const next = sessionHolder.lock.then(async () => {
+    // Wait up to 5 s for the session to appear.
+    const deadline = Date.now() + 5_000;
+    while (!sessionHolder.session && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const session = sessionHolder.session;
+    if (!session) throw new Error("Orchestrator session not ready yet");
+    await session.prompt(text);
+  });
+  sessionHolder.lock = next.catch(() => {});
+  await next;
+}
+
+/**
+ * InProcessBridgeCallbacks that drive the live Pi session from the
+ * Observatory dashboard. Mirrors the RatelRuntime pattern in the Pi extension.
+ */
+const devCallbacks: InProcessBridgeCallbacks = {
+  async approve(missionId, approved, feedback) {
+    const verdict = approved ? "APPROVED" : "REJECTED";
+    const fb = feedback ? `\nFeedback: ${feedback}` : "";
+    await promptSession(
+      `User decision via Observatory dashboard: ${verdict}.${fb} Continue the mission accordingly.`,
+    );
+  },
+  async replyToFactory(missionId, message, questionId) {
+    const q = questionId ? ` (answering question ${questionId})` : "";
+    await promptSession(`User reply via Observatory dashboard${q}: ${message}`);
+  },
+};
+
 async function getCurrentMissionId(cwd: string): Promise<string | undefined> {
   try {
     const currentMissionPath = `${getRatelDir(cwd)}/current-mission.json`;
     const record = await readJsonFile<{ missionId: string }>(currentMissionPath);
-    return record?.missionId;
+    if (!record?.missionId) return undefined;
+    // Only resume if the mission is still active. A completed or halted
+    // mission should not be reused — a new session should start fresh.
+    const statePath = `${getRatelDir(cwd)}/missions/${record.missionId}/state.json`;
+    const state = await readJsonFile<{ phase?: string }>(statePath);
+    if (state?.phase === "completed" || state?.phase === "halted") {
+      return undefined;
+    }
+    return record.missionId;
   } catch {
     return undefined;
   }
@@ -218,6 +280,9 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({
     customTools: createOrchestratorTools(executionContext),
   });
 
+  // Capture the live session so the Observatory dashboard can prompt it.
+  sessionHolder.session = sessionResult.session;
+
   return {
     ...sessionResult,
     services,
@@ -229,13 +294,12 @@ async function main(): Promise<void> {
   const cwd = process.cwd();
   const agentDir = getAgentDir();
 
-  // Initialize mission artifacts first so the logger can attach a traceId
-  // without creating a partial state.json.
-  let missionId = await getCurrentMissionId(cwd);
-  if (!missionId) {
-    missionId = `mis_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-  }
-  // Persist so the Observatory dashboard can discover the active mission.
+  // Always start a fresh mission for a new `npm run dev` session. The
+  // standalone dev entry point is NOT a resume path — the Pi extension handles
+  // resume via session_start. Reusing a stale current-mission.json (e.g. left
+  // behind by a previous run or a seed script) would make the Observatory
+  // dashboard show old data instead of this session's live activity.
+  const missionId = `mis_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   await atomicWriteJson(`${getRatelDir(cwd)}/current-mission.json`, { missionId });
   const mainScope = createMissionScope(cwd, missionId);
   const mainLogger = await EventLogger.forMission(mainScope);
@@ -248,9 +312,11 @@ async function main(): Promise<void> {
     enabled: false,
     shutdown: async () => undefined,
   };
+  const actionBridge = new InProcessActionBridge(devCallbacks);
   observatory = await startObservatory({
     cwd,
     config: await getObservabilityConfig(cwd),
+    actionBridge,
   });
 
   // Ensure unflushed events are persisted before process exit.
