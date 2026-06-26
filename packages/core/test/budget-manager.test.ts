@@ -224,6 +224,105 @@ describe("BudgetManager", () => {
     assert.strictEqual(lines.length, 2);
     await rm(projectRoot, { recursive: true, force: true });
   });
+
+  // ── reload() tests ──
+
+  it("reload updates limits to the new values", async () => {
+    const { projectRoot, scope } = await setupScope();
+    const mgr = new BudgetManager(scope);
+    await mgr.initialize(defaultLimits());
+    const newLimits: MissionBudgetLimits = { ...defaultLimits(), maxCostUsd: 100, maxTotalTokens: 10_000_000 };
+    const state = await mgr.reload(newLimits);
+    assert.strictEqual(state.limits.maxCostUsd, 100);
+    assert.strictEqual(state.limits.maxTotalTokens, 10_000_000);
+    // Other limits should be preserved from newLimits
+    assert.strictEqual(state.limits.maxAgentRuns, 200);
+    await rm(projectRoot, { recursive: true, force: true });
+  });
+
+  it("reload clears a pre-set exhausted flag", async () => {
+    const { projectRoot, scope } = await setupScope();
+    const mgr = new BudgetManager(scope);
+    const limits: MissionBudgetLimits = { ...defaultLimits(), maxCostUsd: 0.5 };
+    await mgr.initialize(limits);
+    // Exhaust the budget
+    try {
+      await mgr.recordUsage(makeRecord({ costUsd: 1 }));
+    } catch {
+      /* BudgetExceededError expected */
+    }
+    let state = await mgr.getState();
+    assert.ok(state.exhausted, "precondition: budget should be exhausted");
+
+    // Reload with raised limits
+    const newLimits: MissionBudgetLimits = { ...defaultLimits(), maxCostUsd: 100 };
+    state = await mgr.reload(newLimits);
+    assert.strictEqual(state.exhausted, undefined);
+    // assertCanStart should no longer throw
+    await assert.doesNotReject(async () => mgr.assertCanStart("orchestrator"));
+    await rm(projectRoot, { recursive: true, force: true });
+  });
+
+  it("reload re-exhausts if usage still exceeds the new limits", async () => {
+    const { projectRoot, scope } = await setupScope();
+    const mgr = new BudgetManager(scope);
+    const limits: MissionBudgetLimits = { ...defaultLimits(), maxCostUsd: 0.5 };
+    await mgr.initialize(limits);
+    // Record usage that exceeds the initial limit
+    try {
+      await mgr.recordUsage(makeRecord({ costUsd: 1 }));
+    } catch {
+      /* BudgetExceededError expected */
+    }
+    let state = await mgr.getState();
+    assert.ok(state.exhausted, "precondition: budget should be exhausted");
+
+    // Reload with slightly raised limits that are STILL below current usage
+    const newLimits: MissionBudgetLimits = { ...defaultLimits(), maxCostUsd: 0.8 };
+    state = await mgr.reload(newLimits);
+    assert.ok(state.exhausted, "should re-exhaust because usage (1) > new limit (0.8)");
+    assert.strictEqual(state.exhausted?.reason, "costUsd");
+    await assert.rejects(
+      async () => mgr.assertCanStart("orchestrator"),
+      (err: unknown) => err instanceof BudgetExceededError
+    );
+    await rm(projectRoot, { recursive: true, force: true });
+  });
+
+  it("reload preserves usage aggregates", async () => {
+    const { projectRoot, scope } = await setupScope();
+    const mgr = new BudgetManager(scope);
+    await mgr.initialize(defaultLimits());
+    await mgr.recordUsage(makeRecord({ totalTokens: 1000, costUsd: 0.5 }));
+    await mgr.recordAgentStart("worker");
+
+    const newLimits: MissionBudgetLimits = { ...defaultLimits(), maxCostUsd: 200 };
+    const state = await mgr.reload(newLimits);
+    assert.strictEqual(state.totalTokens, 1000);
+    assert.strictEqual(state.costUsd, 0.5);
+    assert.strictEqual(state.agentRuns, 1);
+    assert.strictEqual(state.byRole["worker"].agentRuns, 1);
+    await rm(projectRoot, { recursive: true, force: true });
+  });
+
+  it("reload persists to budget.json", async () => {
+    const { projectRoot, scope } = await setupScope();
+    const mgr = new BudgetManager(scope);
+    await mgr.initialize(defaultLimits());
+    await mgr.recordUsage(makeRecord({ totalTokens: 500, costUsd: 0.1 }));
+
+    const newLimits: MissionBudgetLimits = { ...defaultLimits(), maxCostUsd: 200 };
+    await mgr.reload(newLimits);
+
+    // Re-instantiate a BudgetManager on the same scope and initialize with the new limits
+    const mgr2 = new BudgetManager(scope);
+    const rehydrated = await mgr2.initialize(newLimits);
+    assert.strictEqual(rehydrated.limits.maxCostUsd, 200);
+    assert.strictEqual(rehydrated.totalTokens, 500);
+    assert.strictEqual(rehydrated.costUsd, 0.1);
+    assert.strictEqual(rehydrated.exhausted, undefined);
+    await rm(projectRoot, { recursive: true, force: true });
+  });
 });
 
 function defaultLimits(): MissionBudgetLimits {

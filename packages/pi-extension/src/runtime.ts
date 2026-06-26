@@ -34,6 +34,8 @@ import {
   atomicWriteJson,
   startObservatory,
   getObservabilityConfig,
+  BudgetManager,
+  getBudgetConfig,
   type MissionScope,
   type ObservatoryHandle,
 } from "@ratel-factory/core";
@@ -217,7 +219,10 @@ export class RatelRuntime {
       throw new Error("No active mission. Start a mission with ratel_start_mission.");
     }
     const agent = this.createOrchestrator();
-    await agent.init({ cwd: this.projectRoot, missionId: this.scope.missionId });
+    const budgetLimits = await getBudgetConfig(this.projectRoot);
+    const budget = new BudgetManager(this.scope);
+    await budget.initialize(budgetLimits);
+    await agent.init({ cwd: this.projectRoot, missionId: this.scope.missionId, budget });
     this.orchestrator = agent;
     return agent;
   }

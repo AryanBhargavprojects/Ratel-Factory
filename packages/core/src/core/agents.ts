@@ -11,8 +11,10 @@ import {
   ModelRegistry,
   DefaultResourceLoader,
   getAgentDir,
+  defineTool,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
   RESEARCH_AGENT_PROMPT,
   SMART_FRIEND_PROMPT,
@@ -45,37 +47,43 @@ function isolateSkills(
  * and agents.ts would otherwise depend on tools.ts for writeMissionArtifactTool.
  * Both tools wrap the underlying writeArtifact / writeFeatureFile functions and
  * give the contract agent a way to persist its output.
+ *
+ * IMPORTANT: these MUST use defineTool() with TypeBox schemas (Type.Object) —
+ * NOT plain { type: "object", properties: {...} } objects. The Pi SDK's
+ * createAgentSession expects ToolDefinition[] with TSchema parameters. Plain
+ * JSON Schema objects are silently rejected by the tool registry, which means
+ * the model receives a prompt instructing it to call tools that don't exist.
+ * The model then produces empty output because it cannot fulfill the instruction.
  */
 function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger | undefined) {
+  type WriteFeatureDetails = { error?: string };
+  type SubmitContractDetails = { error?: string; errors?: string[]; id?: string; filename?: string; assertionId?: string; featureFile?: string; scenario?: string; version?: number; assertionCount?: number };
+
   return [
-    {
+    defineTool({
       name: "write_feature_file",
       label: "Write Feature File",
       description:
         "Write a Gherkin .feature file under .ratel/missions/<missionId>/features/. " +
         "Used by the Contract Agent to write validation contract scenarios. " +
         "The filename MUST end with .feature.",
-      parameters: {
-        type: "object" as const,
-        properties: {
-          filename: { type: "string" as const, description: "Feature file name, e.g. 'auth.feature'" },
-          content: { type: "string" as const, description: "Full Gherkin content" },
-        },
-        required: ["filename", "content"],
-      },
-      execute: async (_id: string, params: { filename: string; content: string }) => {
+      parameters: Type.Object({
+        filename: Type.String({ description: "Feature file name, e.g. 'auth.feature'" }),
+        content: Type.String({ description: "Full Gherkin content" }),
+      }),
+      execute: async (_id: string, params: { filename: string; content: string }): Promise<{ content: { type: "text"; text: string }[]; details: WriteFeatureDetails }> => {
         if (!params.filename.endsWith(".feature")) {
-          return { content: [{ type: "text" as const, text: `ERROR: filename must end with .feature` }], details: { error: "invalid_filename" as string | undefined } };
+          return { content: [{ type: "text", text: `ERROR: filename must end with .feature` }], details: { error: "invalid_filename" } };
         }
         if (!params.content || params.content.trim().length === 0) {
-          return { content: [{ type: "text" as const, text: `ERROR: content is empty` }], details: { error: "empty_content" as string | undefined } };
+          return { content: [{ type: "text", text: `ERROR: content is empty` }], details: { error: "empty_content" } };
         }
         await writeFeatureFile(scope, params.filename, params.content);
         logger?.artifactWrite(`features/${params.filename}`, "overwrite", Buffer.byteLength(params.content, "utf-8"));
-        return { content: [{ type: "text" as const, text: `Wrote .ratel/missions/${scope.missionId}/features/${params.filename} (${Buffer.byteLength(params.content, "utf-8")} bytes).` }], details: {} };
+        return { content: [{ type: "text", text: `Wrote .ratel/missions/${scope.missionId}/features/${params.filename} (${Buffer.byteLength(params.content, "utf-8")} bytes).` }], details: {} };
       },
-    },
-    {
+    }),
+    defineTool({
       name: "submit_validation_contract",
       label: "Submit Validation Contract",
       description:
@@ -84,17 +92,33 @@ function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger 
         "verifies every assertion's feature and scenario reference, rejects duplicate assertion IDs, " +
         "and atomically writes validation-contract.json and validation-contract.md. " +
         "Do NOT call this until you have written at least one valid .feature file.",
-      parameters: {
-        type: "object" as const,
-        properties: {
-          contract: {
-            type: "object" as const,
-            description: "Structured ValidationContract object with version, createdAt, assertions, gaps, crossCuttingAssertions",
-          },
-        },
-        required: ["contract"],
-      },
-      execute: async (_id: string, params: { contract: unknown }) => {
+      parameters: Type.Object({
+        contract: Type.Object({
+          version: Type.Number(),
+          createdAt: Type.String(),
+          assertions: Type.Array(
+            Type.Object({
+              id: Type.String(),
+              title: Type.String(),
+              description: Type.String(),
+              featureFile: Type.String(),
+              scenario: Type.String(),
+              evidenceType: Type.Union([
+                Type.Literal("screenshot"),
+                Type.Literal("test"),
+                Type.Literal("log"),
+                Type.Literal("manual"),
+              ]),
+              requirementRefs: Type.Array(Type.String()),
+              successCriteria: Type.String(),
+              preconditions: Type.Optional(Type.Array(Type.String())),
+            }),
+          ),
+          gaps: Type.Array(Type.String()),
+          crossCuttingAssertions: Type.Array(Type.String()),
+        }),
+      }),
+      execute: async (_id: string, params: { contract: unknown }): Promise<{ content: { type: "text"; text: string }[]; details: SubmitContractDetails }> => {
         const { validateSchema } = await import("./schema/report-schemas.js");
         const { ValidationContractSchema } = await import("./schema/report-schemas.js");
         const { indexGherkinFeature } = await import("./mission/gherkin-index.js");
@@ -103,7 +127,7 @@ function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger 
         const validation = validateSchema(ValidationContractSchema, params.contract);
         if (!validation.valid) {
           return {
-            content: [{ type: "text" as const, text: `ERROR: Invalid contract.\n${validation.errors.join("\n")}` }],
+            content: [{ type: "text", text: `ERROR: Invalid contract.\n${validation.errors.join("\n")}` }],
             details: { error: "invalid_contract", errors: validation.errors },
           };
         }
@@ -115,7 +139,7 @@ function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger 
         for (const a of contract.assertions) {
           if (ids.has(a.id)) {
             return {
-              content: [{ type: "text" as const, text: `ERROR: Duplicate assertion ID "${a.id}"` }],
+              content: [{ type: "text", text: `ERROR: Duplicate assertion ID "${a.id}"` }],
               details: { error: "duplicate_assertion_id", id: a.id },
             };
           }
@@ -126,12 +150,12 @@ function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger 
         const featureFiles = await listFeatureFiles(scope);
         if (featureFiles.length === 0) {
           return {
-            content: [{ type: "text" as const, text: `ERROR: No .feature files found. Write at least one feature file before submitting the contract.` }],
+            content: [{ type: "text", text: `ERROR: No .feature files found. Write at least one feature file before submitting the contract.` }],
             details: { error: "no_feature_files" },
           };
         }
 
-        const scenarioMap = new Map<string, Set<string>>(); // filename -> scenario names
+        const scenarioMap = new Map<string, Set<string>>();
         for (const f of featureFiles) {
           const content = await readFeatureFile(scope, f);
           if (!content) continue;
@@ -141,7 +165,7 @@ function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger 
             scenarioMap.set(f, set);
           } catch (err) {
             return {
-              content: [{ type: "text" as const, text: `ERROR: Failed to index ${f}: ${err instanceof Error ? err.message : String(err)}` }],
+              content: [{ type: "text", text: `ERROR: Failed to index ${f}: ${err instanceof Error ? err.message : String(err)}` }],
               details: { error: "index_failed", filename: f },
             };
           }
@@ -151,13 +175,13 @@ function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger 
           const scenarios = scenarioMap.get(a.featureFile);
           if (!scenarios) {
             return {
-              content: [{ type: "text" as const, text: `ERROR: Assertion "${a.id}" references missing feature file "${a.featureFile}"` }],
+              content: [{ type: "text", text: `ERROR: Assertion "${a.id}" references missing feature file "${a.featureFile}"` }],
               details: { error: "missing_feature_file", assertionId: a.id, featureFile: a.featureFile },
             };
           }
           if (!scenarios.has(a.scenario)) {
             return {
-              content: [{ type: "text" as const, text: `ERROR: Assertion "${a.id}" references missing scenario "${a.scenario}" in "${a.featureFile}"` }],
+              content: [{ type: "text", text: `ERROR: Assertion "${a.id}" references missing scenario "${a.scenario}" in "${a.featureFile}"` }],
               details: { error: "missing_scenario", assertionId: a.id, featureFile: a.featureFile, scenario: a.scenario },
             };
           }
@@ -166,11 +190,11 @@ function buildContractAgentCustomTools(scope: MissionScope, logger: EventLogger 
         await writeValidationContract(scope, contract);
         logger?.artifactWrite("validation-contract.json", "overwrite", Buffer.byteLength(JSON.stringify(contract), "utf-8"));
         return {
-          content: [{ type: "text" as const, text: `Submitted validation contract v${contract.version} with ${contract.assertions.length} assertions.` }],
+          content: [{ type: "text", text: `Submitted validation contract v${contract.version} with ${contract.assertions.length} assertions.` }],
           details: { version: contract.version, assertionCount: contract.assertions.length },
         };
       },
-    },
+    }),
   ];
 }
 
@@ -326,7 +350,7 @@ export async function spawnContractAgent(
   ]);
   const contractSkills = isolateSkills(allSkills, contractSkillNames);
 
-  const prompt = `## Requirements\n${requirements}\n\n---\n\n## Constraints\n${constraints}\n\n---\n\n## Research Notes\n${researchNotes}\n\n---\n\n## Decision Log\n${decisionLog || "(No decisions recorded yet.)"}\n\n---\n\n## Working Directory\nYou are operating in: ${scope.projectRoot}\n\nWrite a validation contract in the exact format specified in your system prompt.\n\nBEFORE writing:\n1. Explore the codebase (read, grep, find, ls) to understand existing test patterns and conventions.\n2. Use /skill:parallel-web-search to research domain-specific validation patterns if needed.\n3. Ensure every requirement has at least one assertion. Flag any gaps explicitly.\n\nWHEN writing the contract artifacts, use these tools in this exact sequence:\n1. Use \`write_feature_file\` for each .feature file (e.g., write_feature_file({filename: 'auth.feature', content: '...'})). The filename MUST end with .feature.\n2. After ALL feature files are written, call \`submit_validation_contract\` with the structured contract object. The tool validates, indexes feature files, and writes both validation-contract.json and validation-contract.md atomically.\n\nDo NOT call \`write_mission_artifact\` for validation-contract.md. The submission tool writes it deterministically. Write ALL feature files first, then submit. Partial output will be rejected.\n\nRemember: you do NOT know the feature plan. Write assertions based purely on requirements, constraints, research, and decisions.`;
+  const prompt = `## Requirements\n${requirements}\n\n---\n\n## Constraints\n${constraints}\n\n---\n\n## Research Notes\n${researchNotes}\n\n---\n\n## Decision Log\n${decisionLog || "(No decisions recorded yet.)"}\n\n---\n\n## Working Directory\nYou are operating in: ${scope.projectRoot}\n\nWrite a validation contract in the exact format specified in your system prompt.\n\nBEFORE writing:\n1. Explore the codebase (read, grep, find, ls) to understand existing test patterns and conventions.\n2. Use /skill:parallel-web-search to research domain-specific validation patterns if needed.\n3. Ensure every requirement has at least one assertion. Flag any gaps explicitly.\n\nWHEN writing the contract artifacts, use these tools in this exact sequence:\n1. Use \`write_feature_file\` for each .feature file (e.g., write_feature_file({filename: 'auth.feature', content: '...'})). The filename MUST end with .feature.\n2. After ALL feature files are written, call \`submit_validation_contract\` with the structured contract object. The tool validates, indexes feature files, and writes both validation-contract.json and validation-contract.md atomically.\n\nDo NOT use bash to write files. Do NOT call \`write_mission_artifact\` for validation-contract.md. The submission tool writes it deterministically. Write ALL feature files first, then submit. Partial output will be rejected.\n\nAfter submitting the contract, write a brief summary of what you produced.\n\nRemember: you do NOT know the feature plan. Write assertions based purely on requirements, constraints, research, and decisions.`;
 
   return runSessionWithFailover({
     context,
@@ -336,7 +360,18 @@ export async function spawnContractAgent(
         cwd: scope.projectRoot,
         modelString: model.modelString,
         systemPrompt: CONTRACT_AGENT_PROMPT,
-        tools: ["read", "grep", "find", "ls", "bash"],
+        // No bash: the contract writer MUST use write_feature_file and
+        // submit_validation_contract to persist artifacts. Giving it bash
+        // lets it write files directly, bypassing schema validation and
+        // producing a tool-only completion with no assistant text — which
+        // collectResponse() then misclassifies as empty_output.
+        //
+        // NOTE: The Pi SDK's `tools` array is an allowlist. Custom tools
+        // passed via `customTools` are filtered out by _refreshToolRegistry()
+        // unless their names also appear in `tools`. So write_feature_file
+        // and submit_validation_contract MUST be listed here, otherwise the
+        // model sees a prompt instructing it to call tools that don't exist.
+        tools: ["read", "grep", "find", "ls", "write_feature_file", "submit_validation_contract"],
         customTools: buildContractAgentCustomTools(scope, context.logger),
         skills: contractSkills,
       });
@@ -345,7 +380,7 @@ export async function spawnContractAgent(
         agentType: "contract_writer",
         model: model.modelString,
         skills: contractSkills.map((s) => s.name),
-        tools: ["read", "grep", "find", "ls", "bash", "write_feature_file", "submit_validation_contract"],
+        tools: ["read", "grep", "find", "ls", "write_feature_file", "submit_validation_contract"],
       });
 
       const unobserve = observeAgentSession(session, {

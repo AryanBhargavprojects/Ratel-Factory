@@ -72,6 +72,46 @@ export class BudgetManager {
     return this.state;
   }
 
+  /**
+   * Reload budget limits from a fresh config (e.g. after the user raised limits
+   * in ratel.json). Preserves all accumulated usage aggregates (costUsd, tokens,
+   * agentRuns, byRole, startedAt, recordIds) — only the limits are replaced.
+   *
+   * Clears the sticky exhausted flag so the mission can continue. If current
+   * usage STILL exceeds the new limits, the flag is re-set immediately with the
+   * appropriate metric reason.
+   *
+   * Wall-clock AbortSignals created before reload are NOT retroactively
+   * extended (acceptable v1 behavior — the orchestrator should create a new
+   * signal after reload if needed).
+   */
+  async reload(limits: MissionBudgetLimits): Promise<MissionBudgetState> {
+    // 1. Replace the limits on the existing state (preserve usage aggregates).
+    this.state.limits = limits;
+
+    // 2. Clear the sticky exhausted flag.
+    this.exhausted = false;
+    this.state.exhausted = undefined;
+
+    // 3. Re-evaluate: if current usage STILL exceeds the new limits, re-exhaust.
+    if (limits.maxAgentRuns !== null && this.state.agentRuns >= limits.maxAgentRuns) {
+      await this.setExhausted("agentRuns", limits.maxAgentRuns, this.state.agentRuns);
+    } else if (limits.maxTotalTokens !== null && this.state.totalTokens >= limits.maxTotalTokens) {
+      await this.setExhausted("totalTokens", limits.maxTotalTokens, this.state.totalTokens);
+    } else if (limits.maxCostUsd !== null && this.state.costUsd >= limits.maxCostUsd) {
+      await this.setExhausted("costUsd", limits.maxCostUsd, this.state.costUsd);
+    } else if (limits.maxInputTokens !== null && this.state.input >= limits.maxInputTokens) {
+      await this.setExhausted("maxInputTokens", limits.maxInputTokens, this.state.input);
+    } else if (limits.maxOutputTokens !== null && this.state.output >= limits.maxOutputTokens) {
+      await this.setExhausted("maxOutputTokens", limits.maxOutputTokens, this.state.output);
+    }
+
+    // 4. Persist updated state.
+    this.state.updatedAt = new Date().toISOString();
+    await this.persistState();
+    return this.state;
+  }
+
   /** Assert that a new agent run can start under current limits. Throws BudgetExceededError if any limit exceeded. */
   async assertCanStart(role: AgentLevel): Promise<void> {
     if (this.exhausted) {

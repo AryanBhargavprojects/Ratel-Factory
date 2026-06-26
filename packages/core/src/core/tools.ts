@@ -48,7 +48,7 @@ import {
 import { spawnWorkerAgent } from "./workers/worker.js";
 import { spawnScrutinyValidator, spawnUserTestingValidator } from "./workers/validators.js";
 import type { MissionPhase, ArtifactName, Feature, ScrutinyReport, UserTestingReport } from "./types.js";
-import { getModelConfig, setModelConfig, listAvailableModels, resolveModel, getDefaultAgentDir } from "./config.js";
+import { getModelConfig, setModelConfig, listAvailableModels, resolveModel, getDefaultAgentDir, getBudgetConfig } from "./config.js";
 import type { ModelConfig } from "./config.js";
 import { pingAllAgents } from "./ping-agents.js";
 import { extractLastJsonLine, writeRawOutput } from "./utils/jsonl.js";
@@ -215,13 +215,29 @@ export function draftValidationContractTool(context: MissionExecutionContext) {
       context.logger.toolCall("draft_validation_contract", { requirements: params.requirements });
 
       const contractModelConfig = await getModelConfig(context.scope.projectRoot);
-      const contract = await spawnContractAgent(
-        params.requirements,
-        params.constraints,
-        params.researchNotes,
-        params.decisionLog,
-        context,
-      );
+      let contract: string;
+      let emptyOutputCaught = false;
+      try {
+        contract = await spawnContractAgent(
+          params.requirements,
+          params.constraints,
+          params.researchNotes,
+          params.decisionLog,
+          context,
+        );
+      } catch (err) {
+        // If the contract writer produced no assistant text but DID write
+        // artifacts to disk (tool-only completion via write_feature_file /
+        // submit_validation_contract), the runner throws EmptyOutputError.
+        // We must NOT fail the mission in this case — verify artifacts
+        // exist on disk before declaring failure.
+        if (err instanceof EmptyOutputError) {
+          emptyOutputCaught = true;
+          contract = "(Agent produced no text output — verifying artifacts on disk.)";
+        } else {
+          throw err;
+        }
+      }
       const durationMs = Date.now() - startTime;
 
       // ── Artifact verification ──
@@ -310,6 +326,7 @@ export function draftValidationContractTool(context: MissionExecutionContext) {
         featureFileCount: featureFiles.length,
         featureFileNames: featureFiles,
         validationContractSize: validationContractContent?.length ?? 0,
+        ...(emptyOutputCaught ? { note: "EmptyOutputError caught — artifacts verified on disk despite no assistant text." } : {}),
       });
       const result: {
         content: { type: "text"; text: string }[];
@@ -327,8 +344,9 @@ export function draftValidationContractTool(context: MissionExecutionContext) {
             `Validation contract written successfully.\n\n` +
             `Artifacts:\n` +
             `  - .ratel/missions/${context.scope.missionId}/validation-contract.md (${validationContractContent?.length ?? 0} bytes)\n` +
-            `  - .ratel/missions/${context.scope.missionId}/features/ (${featureFiles.length} .feature files: ${featureFiles.join(", ")})\n\n` +
-            `You may now proceed to feature decomposition.`,
+            `  - .ratel/missions/${context.scope.missionId}/features/ (${featureFiles.length} .feature files: ${featureFiles.join(", ")})\n` +
+            (emptyOutputCaught ? `\n\nNote: The contract writer produced no assistant text output, but all required artifacts were written to disk via tools. The contract is valid.\n` : "") +
+            `\nYou may now proceed to feature decomposition.`,
         }],
         details: {
           parseStatus: "ok",
@@ -1690,6 +1708,63 @@ function computeBudgetUsedFraction(state: import("./budget/types.js").MissionBud
   };
 }
 
+/**
+ * Budget reload tool. Re-reads ratel.json and updates the in-memory budget
+ * limits. Call this AFTER the user has increased the budget in ratel.json.
+ * Clears the exhausted flag if the new limits accommodate current usage;
+ * re-exhausts if usage still exceeds the new limits.
+ */
+export function reloadBudgetTool(context: MissionExecutionContext) {
+  return defineTool({
+    name: "reload_budget",
+    label: "Reload Budget",
+    description:
+      "Re-reads the budget configuration from ratel.json and updates the in-memory budget limits. " +
+      "Call this AFTER the user has increased the budget in ratel.json. " +
+      "Clears the exhausted flag if the new limits accommodate current usage; " +
+      "re-exhausts if usage still exceeds the new limits.",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, _params) => {
+      const newLimits = await getBudgetConfig(context.scope.projectRoot);
+      const state = await context.budget.reload(newLimits);
+      const remaining = await context.budget.remaining();
+      const usedFraction = computeBudgetUsedFraction(state);
+      const risk = computeBudgetRiskLevel(state, usedFraction);
+
+      const lines: string[] = [
+        `## Budget Reloaded: ${risk.toUpperCase()}`,
+        "",
+        `| Metric | Used | Limit | Remaining | Used % |`,
+        `|---|---:|---:|---:|---:|`,
+        formatBudgetMetricRow("costUsd", state.costUsd, state.limits.maxCostUsd, remaining.costUsd, usedFraction.costUsd, "$"),
+        formatBudgetMetricRow("totalTokens", state.totalTokens, state.limits.maxTotalTokens, remaining.totalTokens, usedFraction.totalTokens),
+        formatBudgetMetricRow("agentRuns", state.agentRuns, state.limits.maxAgentRuns, remaining.agentRuns, usedFraction.agentRuns),
+        formatBudgetMetricRow("wallClockMin", wallClockElapsedMinutes(state), state.limits.maxWallClockMinutes, remaining.wallClockMs != null ? remaining.wallClockMs / 60000 : null, usedFraction.wallClock),
+        "",
+      ];
+      if (state.exhausted) {
+        lines.push(`**Exhausted:** ${state.exhausted.reason} at ${state.exhausted.at} — usage still exceeds the new limits.`);
+      } else {
+        lines.push("**Exhausted flag cleared.** The mission can continue with the new limits.");
+      }
+
+      context.logger.toolCall("reload_budget", {});
+      context.logger.toolResult("reload_budget", { risk, exhausted: !!state.exhausted });
+
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        details: {
+          state,
+          remaining,
+          usedFraction,
+          risk,
+          exhausted: !!state.exhausted,
+        },
+      };
+    },
+  });
+}
+
 /** Coarse risk level from exhausted flag + max used fraction across metrics. */
 function computeBudgetRiskLevel(
   state: import("./budget/types.js").MissionBudgetState,
@@ -1920,7 +1995,8 @@ function budgetRefusalResult(
     `- Total tokens: ${fmt(check.remaining.totalTokens)}`,
     "",
     "Would you like to continue anyway, increase the mission budget, or set a new project limit for the rest of this mission? " +
-      "Use get_budget_status to inspect the full budget state, then ask the user how to proceed before retrying run_worker.",
+      "Use get_budget_status to inspect the full budget state, then ask the user how to proceed before retrying run_worker. " +
+      "If the user increases the budget in ratel.json, call reload_budget() to apply the new limits, then retry run_worker.",
   ].join("\n");
   return {
     content: [{ type: "text", text }],
@@ -2611,6 +2687,7 @@ export function createOrchestratorTools(context: MissionExecutionContext) {
     listModelsTool(context),
     pingAgentsTool(context),
     getBudgetStatusTool(context),
+    reloadBudgetTool(context),
     ensureSkillsInstalledTool(context),
     getFeatureComplexityTool(context),
     waitForUserApprovalTool(context),
